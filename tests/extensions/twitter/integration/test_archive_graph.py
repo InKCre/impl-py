@@ -19,6 +19,7 @@ import twikit
 
 from app.business.info_base.resolver import ResolverManager
 from app.business.info_base.storage import HTTPStorage
+from app.business.lexical_retrieval import LexicalRetrievalManager
 from app.business.source import SourceManager
 from app.persistence.info_base.repository import BlockRepository, RelationRepository
 from app.persistence.info_base.uow import graph_uow
@@ -26,6 +27,10 @@ from app.schemas.info_base.block import BlockForm, BlockModel
 from app.schemas.info_base.relation import RelationModel
 from app.schemas.info_base.storage import StorageBlobModel
 from app.schemas.job import JobModel
+from app.schemas.lexical_retrieval import (
+  BlockLexicalRecordModel,
+  LexicalMaintenanceOptions,
+)
 from app.schemas.source import SourceModel
 from extensions.twitter.api import (
   TwitterAPI,
@@ -83,16 +88,6 @@ def tracked() -> typing.Iterator[set[int]]:
   yield ids
   if ids:
     with TestSession() as db:
-      content_ids = db.exec(
-        sqlmodel.select(RelationModel.to_)
-        .join(BlockModel, sqlmodel.col(BlockModel.id) == RelationModel.from_)
-        .where(
-          sqlmodel.col(BlockModel.id).in_(tuple(ids)),
-          BlockModel.resolver == MEDIA_RESOLVER,
-          RelationModel.content == "content",
-        )
-      ).all()
-      ids.update(content_ids)
       db.connection().execute(
         sqlalchemy.delete(BlockModel).where(sqlmodel.col(BlockModel.id).in_(tuple(ids)))
       )
@@ -133,6 +128,9 @@ def test_native_roundtrip_projection_and_media_are_lazy(async_runner, native, tr
     }
   )
   with TestSession() as db:
+    block_count = db.exec(
+      sqlmodel.select(sqlmodel.func.count()).select_from(BlockModel)
+    ).one()
     blob_count = db.exec(
       sqlmodel.select(sqlmodel.func.count()).select_from(StorageBlobModel)
     ).one()
@@ -155,6 +153,26 @@ def test_native_roundtrip_projection_and_media_are_lazy(async_runner, native, tr
     assert native["posts"][0]["article"]["title"] in text
     assert native["users"][0]["handle"] in text
     assert native["posts"][0]["id"] in text
+    report = async_runner.run(
+      LexicalRetrievalManager.maintain(
+        LexicalMaintenanceOptions(max_records=1000, scan_page_size=50)
+      )
+    )
+    assert report.failed == 0, report.diagnostics
+    for query_text in (
+      batch.posts[0].id,
+      native["users"][0]["handle"],
+      native["posts"][0]["text"]["text"],
+    ):
+      matches = async_runner.run(LexicalRetrievalManager.retrieve_local(query_text)).matches
+      assert post.id in {match.block.id for match in matches}
+    with TestSession() as db:
+      indexed = db.exec(
+        sqlmodel.select(BlockLexicalRecordModel.block).where(
+          sqlmodel.col(BlockLexicalRecordModel.block).in_(tuple(tracked))
+        )
+      ).all()
+      assert set(indexed) == tracked
     assert fetch.await_count == 0
   replay = async_runner.run(_write(batch, tracked))
   assert replay.response.summary.unchanged == 3
@@ -185,16 +203,20 @@ def test_native_roundtrip_projection_and_media_are_lazy(async_runner, native, tr
       == job_count
     )
     media_id = result.block_ids["media"][batch.media[0].id]
-    relation = db.exec(
+    relations = db.exec(
       sqlmodel.select(RelationModel).where(
         RelationModel.from_ == media_id, RelationModel.content == "content"
       )
-    ).one()
-    content = db.get(BlockModel, relation.to_)
-    assert content is not None
-    assert content.storage == -1
-    assert content.resolver == "core.video.v1"
-    assert content.content.startswith("https://video.twimg.com/")
+    ).all()
+    assert relations == []
+    stored = db.exec(
+      sqlmodel.select(BlockModel).where(sqlmodel.col(BlockModel.id).in_(tuple(tracked)))
+    ).all()
+    assert len(stored) == len(tracked)
+    assert all(block.storage is None for block in stored)
+    assert db.exec(
+      sqlmodel.select(sqlmodel.func.count()).select_from(BlockModel)
+    ).one() == block_count + len(tracked)
 
 
 def test_sparse_counter_history_and_managed_edges(async_runner, native, tracked):
@@ -416,7 +438,7 @@ def test_batch_lookup_tolerates_non_json_and_reports_locatable_corruption(
   assert [item.status for item in response.posts] == ["found", "failed"]
 
 
-def test_media_pointers_use_only_captured_https_cdn_mp4(async_runner, native, tracked):
+def test_media_metadata_roundtrips_without_content_blocks(async_runner, native, tracked):
   base = int(native["media"][0]["id"]) + 1000
   records: list[dict[str, typing.Any]] = [
     {"id": str(base), "type": "photo", "url": "https://example.org/image.jpg"},
@@ -469,11 +491,7 @@ def test_media_pointers_use_only_captured_https_cdn_mp4(async_runner, native, tr
         RelationModel.content == "content",
       )
     ).all()
-    assert len(content) == 1
-    pointer = db.get(BlockModel, content[0].to_)
-    assert (
-      pointer is not None and pointer.content == f"https://video.twimg.com/{base}-high.mp4"
-    )
+    assert content == []
 
 
 def test_representative_batch_keeps_database_round_trips_bounded(
@@ -516,7 +534,7 @@ def test_representative_batch_keeps_database_round_trips_bounded(
   finally:
     event.remove(ASYNC_DB_ENGINE.sync_engine, "before_cursor_execute", count_round_trip)
   assert result.response.summary.accepted == 600
-  # Hundreds of per-media queries exceed the client's 15 s budget on remote DBs.
+  # Keep the synchronous native batch bounded when Core and DB are remote.
   assert len(calls) < 20, {kind: calls.count(kind) for kind in set(calls)}
   assert len(result.block_ids["posts"]) == 400
   with TestSession() as db:
@@ -526,50 +544,7 @@ def test_representative_batch_keeps_database_round_trips_bounded(
         RelationModel.content == "content",
       )
     ).all()
-    assert len(contents) == 200
-    assert len({relation.to_ for relation in contents}) == 200
-
-
-def test_media_pointer_reuse_keeps_storage_identity_and_shared_urls(
-  async_runner, native, tracked
-):
-  base = int(native["media"][0]["id"]) + 1000
-  existing_url = f"https://pbs.twimg.com/existing-{base}.jpg"
-  new_url = f"https://pbs.twimg.com/new-{base}.jpg"
-  inline = seed_block(BlockForm(resolver="core.image.v1", content=existing_url))
-  existing = seed_block(
-    BlockForm(resolver="core.image.v1", content=existing_url, storage=-1)
-  )
-  duplicate = seed_block(
-    BlockForm(resolver="core.image.v1", content=existing_url, storage=-1)
-  )
-  assert inline.id is not None and existing.id is not None and duplicate.id is not None
-  tracked.update((inline.id, existing.id, duplicate.id))
-  records = [
-    {"id": str(base + index), "type": "photo", "url": url}
-    for index, url in enumerate((existing_url, existing_url, new_url, new_url))
-  ]
-  result = async_runner.run(
-    _write(ArchiveBatch.model_validate({"media": records}), tracked)
-  )
-  with TestSession() as db:
-    links = db.exec(
-      sqlmodel.select(RelationModel).where(
-        sqlmodel.col(RelationModel.from_).in_(tuple(result.block_ids["media"].values())),
-        RelationModel.content == "content",
-      )
-    ).all()
-    content_for = {relation.from_: relation.to_ for relation in links}
-    media_ids = result.block_ids["media"]
-    assert content_for[media_ids[str(base)]] == existing.id
-    assert content_for[media_ids[str(base + 1)]] == existing.id
-    assert content_for[media_ids[str(base + 2)]] == content_for[media_ids[str(base + 3)]]
-    created = db.exec(
-      sqlmodel.select(BlockModel).where(
-        BlockModel.resolver == "core.image.v1", BlockModel.content == new_url
-      )
-    ).all()
-    assert len(created) == 1 and created[0].storage == -1
+    assert contents == []
 
 
 def test_official_provider_keeps_source_text_and_exact_id_semantics(
@@ -602,6 +577,7 @@ def test_twikit_bookmark_first_then_native_enrichment_keeps_one_root(
   async_runner, native, tracked
 ):
   post = native["posts"][0]
+  media_id = native["media"][0]["id"]
   author = SimpleNamespace(id=post["authorId"], screen_name="source_handle", name="source")
   raw = {
     "rest_id": post["id"],
@@ -611,7 +587,18 @@ def test_twikit_bookmark_first_then_native_enrichment_keeps_one_root(
       "lang": "zh",
       "conversation_id_str": str(int(post["id"]) - 1),
       "in_reply_to_status_id_str": str(int(post["id"]) - 2),
-      "entities": {"media": [], "urls": []},
+      "entities": {
+        "media": [
+          {
+            "id_str": media_id,
+            "type": "photo",
+            "media_url_https": native["media"][0]["url"],
+            "url": "https://t.co/source",
+            "original_info": {"width": 1920, "height": 1080},
+          }
+        ],
+        "urls": [],
+      },
     },
     "note_tweet": {
       "note_tweet_results": {
@@ -628,6 +615,7 @@ def test_twikit_bookmark_first_then_native_enrichment_keeps_one_root(
   assert batch.posts[0].replyTo is not None and batch.posts[0].text is not None
   assert batch.posts[0].conversationId != batch.posts[0].replyTo.postId
   assert batch.posts[0].text.text == "@mention 完整🌏 & https://t.co/source"
+  assert [media.id for media in batch.media] == [media_id]
   source_type = f"{Source.__module__}.{Source.__qualname__}"
   async_runner.run(SourceManager.sync_source_types_async({source_type: Source}))
   source = async_runner.run(SourceManager.create(source_type, nickname="Twikit first"))
@@ -636,23 +624,40 @@ def test_twikit_bookmark_first_then_native_enrichment_keeps_one_root(
     return_value=TwitterAPIResult(batch=batch, primary_post_ids=(post["id"],))
   )
   try:
-    with mock.patch.object(
-      TwitterAPI, "new", new_callable=mock.AsyncMock, return_value=provider
+    with (
+      mock.patch.object(
+        TwitterAPI, "new", new_callable=mock.AsyncMock, return_value=provider
+      ),
+      mock.patch.object(
+        HTTPStorage,
+        "get_raw_content",
+        new_callable=mock.AsyncMock,
+        side_effect=AssertionError("Bookmark indexing downloaded external media"),
+      ) as fetch,
     ):
       async_runner.run(
         Source(source.id).collect(
           JobModel(type="core.source.collect.v1", parameters={}), CollectConfig()
         )
       )
-    root = _record(post["id"])
+      root = _record(post["id"])
+      report = async_runner.run(
+        LexicalRetrievalManager.maintain(
+          LexicalMaintenanceOptions(max_records=1000, scan_page_size=50)
+        )
+      )
+      assert report.failed == 0, report.diagnostics
+      matches = async_runner.run(LexicalRetrievalManager.retrieve_local(post["id"])).matches
+      assert root.id in {match.block.id for match in matches}
+      assert fetch.await_count == 0
   finally:
     # Track native identities as well as the root created inside Source's UoW.
     async def remember():
       async with graph_uow() as uow:
         rows = await uow.blocks.find_json_field_many(
-          (POST_RESOLVER, USER_RESOLVER),
+          (POST_RESOLVER, USER_RESOLVER, MEDIA_RESOLVER),
           "id",
-          (post["id"], author.id, raw["legacy"]["in_reply_to_status_id_str"]),
+          (post["id"], author.id, raw["legacy"]["in_reply_to_status_id_str"], media_id),
         )
         tracked.update(row.id for row in rows)
 

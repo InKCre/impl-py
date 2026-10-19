@@ -6,7 +6,7 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 
 两条写入路径都先取得 `extensions.twitter.reconcile` 全局事务 advisory 锁，再批量重读原生身份。根内容和受管关系一起提交；异常让整批回滚，调用方可安全重放。该锁仅约束正常 Twitter 写入入口，不能替代所有 info-base 原始写入的约束。provider 和媒体网络访问都不能放进此事务。
 
-媒体内容指针按 `(resolver, URL)` 去重后批量定位和创建，仍要求匹配 HTTP Storage；相同 URL 复用同一内容 Block。不要在每个媒体项内单独查询、创建和 flush：Core 与数据库跨网络部署时，这会把一次正常批次放大为数百次串行往返，并在持锁期间耗尽客户端的同步请求期限。
+原生身份、Blocks 和引用边使用批量查询与创建。不要在每个媒体项内单独查询、创建和 flush：Core 与数据库跨网络部署时，这会把一次正常批次放大为数百次串行往返，并在持锁期间耗尽客户端的同步请求期限。
 
 匹配先选新版 resolver，再按 Block ID 稳定选择旧 `tweet.v1`。旧根重新采集后原地更新，保留现有 Block ID、引用和旧附件关系；未重新采集的旧根仍由 v1 decoder 读取。旧加工正文不足以重建 native RichText，不能用它伪造新记录。Bookmark provider 适配保留实际源正文；共同合并在已有 native 正文时不让较少详情的 Bookmark 正文替换它，其他可证明字段仍可补充。x-monkey 提交继续使用原生稀疏合并语义。
 
@@ -14,10 +14,12 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 
 原生观察时间保存输入字符串，不在序列化时改写精度。逐计数比较遵守上游的毫秒时间比较规则；较旧观察不覆盖新值，相同值的新时间也更新持久记录，无时间的新值删除该计数的旧时间标签。`unchanged` 表示没有持久变化，因此仅观察时间更新仍为 `accepted`。
 
-新版引用边只维护约定的 reference schema，旧 `attachment:*`、`entities:url` 和用户关系保留。媒体引用顺序是 `post.mediaIds`、文章封面、`article.mediaIds` 依次合并去重，首次出现保留。Media 根通过 `content` 指向普通图片或视频内容 Block；关系改变不删除仍可能被别处引用的内容 Block。
+新版引用边只维护约定的 reference schema，旧 `attachment:*`、`entities:url` 和用户关系保留。媒体引用顺序是 `post.mediaIds`、文章封面、`article.mediaIds` 依次合并去重，首次出现保留。Media 根只保存原生 JSON；写入不创建 `core.image.v1`、`core.video.v1` 或 Media→`content` 关系。较早版本产生的内容块和边保留，须先核对其他引用及来源，再由明确的数据清理处理，正常重放不会删除它们。
 
-媒体原生 URL、variants 和 alt 留在元数据中。只有 HTTPS 的 `pbs.twimg.com`、`video.twimg.com` 地址能够形成 HTTP Storage 指针；视频和 GIF 选择已捕获的最高 bitrate MP4，HLS 仅保留元数据。没有合适地址时仍保存原生事实，但不制造可读取的内容指针。保存、query、文本投影和索引不展开媒体；用户读取内容 Block 时才由现有 HTTP Storage 应用超时和体积限制。本版本不保存媒体本体，也不创建下载 Job，外部来源失效后仍可读取文字与元数据。
+媒体原生 URL、variants 和 alt 按捕获值保留，Python 不筛选或规范化这些字段。保存、query、文本投影和索引只消费元数据；用户显式展开媒体时，消费端 Twitter Distribution 才从已捕获 URL 经现有 HTTP Storage 读取，并在这个边界校验 HTTPS 精确 CDN hosts、为视频和 GIF 选择最高 bitrate MP4、应用超时与体积限制。HLS 继续保留为元数据。本版本不保存媒体本体，也不创建下载 Job，外部来源失效后仍可读取文字与元数据。
+
+此边界通过减少持久块实现。Core 的普通图片和视频 resolver 在 lexical 索引中仍可读取字节并生成 OCR/STT；如果 Twitter 提前建立这类内容块，独立的索引扫描会触发读取，即使 Post/Media 自身的投影不展开媒体。Twitter 原生记录因此不预建内容块，其他来源的通用 lexical/OCR/STT 行为保持原有合同。
 
 Python 的 v2 Post 文本投影包含原帖 ID、链接、已捕获作者、正文和长文；User/Media 投影使用自身已经捕获的文字。label 保持 Block-local，不为投影或标签下载媒体。检索沿用现有独立索引维护流程，不在提交中隐式维护索引。
 
-数据回归入口为 `pdm run python -m pytest -q tests/extensions/twitter`。真实数据库场景要求显式提供 `INKCRE_TEST_DATABASE_URL`，使用本任务独占、已迁移的可丢弃 PostgreSQL runtime；测试只清理自己创建的精确 IDs，不重置开发库。固定 fixture 同时用于原生 roundtrip 和独立上游合同验证，真实 userscript、HTTP 会话及 Web 消费仍需要各自的纵向验收。
+数据回归入口为 `pdm run python -m pytest -q tests/extensions/twitter`。真实数据库场景要求显式提供 `INKCRE_TEST_DATABASE_URL`，使用本任务独占、已迁移的可丢弃 PostgreSQL runtime；测试只清理自己创建的精确 IDs，不重置开发库。原生 roundtrip 与真实 Twikit Bookmark 回归执行 `LexicalRetrievalManager.maintain` 的实际扫描、投影和检索链，在 HTTP Storage 字节边界断言零调用；同时检查归档不额外创建内容块、blob 或 Job。固定 fixture 同时用于原生 roundtrip 和独立上游合同验证，真实 userscript、HTTP 会话及 Web 消费仍需要各自的纵向验收。

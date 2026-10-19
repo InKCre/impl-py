@@ -6,7 +6,6 @@ from collections.abc import Collection
 from dataclasses import dataclass
 import json
 import typing
-from urllib.parse import urlsplit
 
 import pydantic
 
@@ -103,42 +102,6 @@ def _is_reference(content: str) -> bool:
     "quote",
     "repost",
   }
-
-
-def _safe_cdn_url(value: str) -> bool:
-  if any(
-    character.isspace() or ord(character) < 32 or ord(character) == 127
-    for character in value
-  ):
-    return False
-  try:
-    url = urlsplit(value)
-    return (
-      url.scheme == "https"
-      and url.hostname in {"pbs.twimg.com", "video.twimg.com"}
-      and url.port in {None, 443}
-      and url.username is None
-      and url.password is None
-      and not url.fragment
-    )
-  except ValueError:
-    return False
-
-
-def media_content_pointer(media: Record) -> tuple[str, str] | None:
-  """Select captured CDN bytes without fetching or misclassifying HLS playlists."""
-  if media.get("type") == "photo":
-    url = media["url"]
-    return ("core.image.v1", url) if _safe_cdn_url(url) else None
-  variants = [
-    variant
-    for variant in media.get("video", {}).get("variants", ())
-    if variant["type"] == "video/mp4" and _safe_cdn_url(variant["url"])
-  ]
-  if not variants:
-    return None
-  selected = max(variants, key=lambda variant: variant.get("bitrate", -1))
-  return "core.video.v1", selected["url"]
 
 
 async def _load_roots(
@@ -239,8 +202,6 @@ async def persist_archive(
 
   desired: set[tuple[int, int, str]] = set()
   post_ids: set[int] = set()
-  media_ids: set[int] = set()
-  media_pointers: dict[int, tuple[str, str]] = {}
   for key in incoming:
     root_id = _block_id(roots[key])
     record = records[key]
@@ -250,33 +211,9 @@ async def persist_archive(
         (root_id, _block_id(roots[target]), _reference_content(kind, position))
         for kind, target, position in _references(record)
       )
-    elif key[0] == "media":
-      media_ids.add(root_id)
-      pointer = media_content_pointer(record)
-      if pointer is not None:
-        media_pointers[root_id] = pointer
-
-  contents: dict[tuple[str, str], BlockModel] = {}
-  for resolver in sorted({pointer[0] for pointer in media_pointers.values()}):
-    urls = {url for kind, url in media_pointers.values() if kind == resolver}
-    for block in await uow.blocks.matching_content_many(resolver, urls):
-      if block.storage == -1:
-        contents.setdefault((block.resolver, block.content), block)
-  missing_pointers = sorted(set(media_pointers.values()) - contents.keys())
-  created = await uow.blocks.create_many(
-    BlockForm(resolver=resolver, content=url, storage=-1)
-    for resolver, url in missing_pointers
-  )
-  contents.update(zip(missing_pointers, created, strict=True))
-  desired.update(
-    (root_id, _block_id(contents[pointer]), "content")
-    for root_id, pointer in media_pointers.items()
-  )
   stale: list[int] = []
-  for relation in await uow.relations.get_outgoing_many(post_ids | media_ids):
-    managed = (relation.from_ in post_ids and _is_reference(relation.content)) or (
-      relation.from_ in media_ids and relation.content == "content"
-    )
+  for relation in await uow.relations.get_outgoing_many(post_ids):
+    managed = _is_reference(relation.content)
     if not managed:
       continue
     identity = (relation.from_, relation.to_, relation.content)

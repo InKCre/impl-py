@@ -254,23 +254,6 @@ class BlockRepository:
       )
     )
 
-  async def matching_content_many(
-    self, resolver: str, contents: typing.Collection[str]
-  ) -> tuple[BlockModel, ...]:
-    """Find a bounded set of exact content identities in one database round trip."""
-    if not contents:
-      return ()
-    return tuple(
-      await self._session.scalars(
-        sqlmodel.select(BlockModel)
-        .where(
-          BlockModel.resolver == resolver,
-          sqlmodel.col(BlockModel.content).in_(tuple(contents)),
-        )
-        .order_by(sqlmodel.col(BlockModel.id))
-      )
-    )
-
   async def without_outgoing_relation(
     self, resolvers: typing.Collection[str], content: str, *, limit: int
   ) -> tuple[BlockModel, ...]:
