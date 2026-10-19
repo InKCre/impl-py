@@ -13,6 +13,7 @@ import uuid
 
 import pytest
 import sqlalchemy
+from sqlalchemy import event
 import sqlmodel
 import twikit
 
@@ -473,6 +474,102 @@ def test_media_pointers_use_only_captured_https_cdn_mp4(async_runner, native, tr
     assert (
       pointer is not None and pointer.content == f"https://video.twimg.com/{base}-high.mp4"
     )
+
+
+def test_representative_batch_keeps_database_round_trips_bounded(
+  async_runner, native, tracked
+):
+  from app.engine import ASYNC_DB_ENGINE
+
+  base = int(native["posts"][0]["id"])
+  raw: dict[str, list[dict[str, typing.Any]]] = {"users": [], "posts": [], "media": []}
+  for index in range(200):
+    user, post, media, quoted = (
+      str(base + offset + index) for offset in (0, 1000, 2000, 3000)
+    )
+    raw["users"].append({"id": user, "handle": f"author{index}", "name": f"Author {index}"})
+    raw["posts"].append(
+      {
+        "id": post,
+        "authorId": user,
+        "createdAt": "2026-10-19T01:00:00Z",
+        "text": {"text": "benchmark " + "正文 " * 40},
+        "mediaIds": [media],
+        "quote": {"postId": quoted},
+      }
+    )
+    raw["media"].append(
+      {
+        "id": media,
+        "type": "photo",
+        "url": f"https://pbs.twimg.com/batch-{base}-{index}.jpg",
+      }
+    )
+  calls: list[str] = []
+
+  def count_round_trip(_connection, _cursor, statement, _parameters, _context, _many):
+    calls.append(statement.split(None, 1)[0])
+
+  event.listen(ASYNC_DB_ENGINE.sync_engine, "before_cursor_execute", count_round_trip)
+  try:
+    result = async_runner.run(_write(ArchiveBatch.model_validate(raw), tracked))
+  finally:
+    event.remove(ASYNC_DB_ENGINE.sync_engine, "before_cursor_execute", count_round_trip)
+  assert result.response.summary.accepted == 600
+  # Hundreds of per-media queries exceed the client's 15 s budget on remote DBs.
+  assert len(calls) < 20, {kind: calls.count(kind) for kind in set(calls)}
+  assert len(result.block_ids["posts"]) == 400
+  with TestSession() as db:
+    contents = db.exec(
+      sqlmodel.select(RelationModel).where(
+        sqlmodel.col(RelationModel.from_).in_(tuple(result.block_ids["media"].values())),
+        RelationModel.content == "content",
+      )
+    ).all()
+    assert len(contents) == 200
+    assert len({relation.to_ for relation in contents}) == 200
+
+
+def test_media_pointer_reuse_keeps_storage_identity_and_shared_urls(
+  async_runner, native, tracked
+):
+  base = int(native["media"][0]["id"]) + 1000
+  existing_url = f"https://pbs.twimg.com/existing-{base}.jpg"
+  new_url = f"https://pbs.twimg.com/new-{base}.jpg"
+  inline = seed_block(BlockForm(resolver="core.image.v1", content=existing_url))
+  existing = seed_block(
+    BlockForm(resolver="core.image.v1", content=existing_url, storage=-1)
+  )
+  duplicate = seed_block(
+    BlockForm(resolver="core.image.v1", content=existing_url, storage=-1)
+  )
+  assert inline.id is not None and existing.id is not None and duplicate.id is not None
+  tracked.update((inline.id, existing.id, duplicate.id))
+  records = [
+    {"id": str(base + index), "type": "photo", "url": url}
+    for index, url in enumerate((existing_url, existing_url, new_url, new_url))
+  ]
+  result = async_runner.run(
+    _write(ArchiveBatch.model_validate({"media": records}), tracked)
+  )
+  with TestSession() as db:
+    links = db.exec(
+      sqlmodel.select(RelationModel).where(
+        sqlmodel.col(RelationModel.from_).in_(tuple(result.block_ids["media"].values())),
+        RelationModel.content == "content",
+      )
+    ).all()
+    content_for = {relation.from_: relation.to_ for relation in links}
+    media_ids = result.block_ids["media"]
+    assert content_for[media_ids[str(base)]] == existing.id
+    assert content_for[media_ids[str(base + 1)]] == existing.id
+    assert content_for[media_ids[str(base + 2)]] == content_for[media_ids[str(base + 3)]]
+    created = db.exec(
+      sqlmodel.select(BlockModel).where(
+        BlockModel.resolver == "core.image.v1", BlockModel.content == new_url
+      )
+    ).all()
+    assert len(created) == 1 and created[0].storage == -1
 
 
 def test_official_provider_keeps_source_text_and_exact_id_semantics(

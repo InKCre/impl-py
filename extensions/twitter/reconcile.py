@@ -240,6 +240,7 @@ async def persist_archive(
   desired: set[tuple[int, int, str]] = set()
   post_ids: set[int] = set()
   media_ids: set[int] = set()
+  media_pointers: dict[int, tuple[str, str]] = {}
   for key in incoming:
     root_id = _block_id(roots[key])
     record = records[key]
@@ -253,17 +254,24 @@ async def persist_archive(
       media_ids.add(root_id)
       pointer = media_content_pointer(record)
       if pointer is not None:
-        resolver, url = pointer
-        candidates = await uow.blocks.matching_content(resolver, url)
-        content = next(
-          (block for block in sorted(candidates, key=_block_id) if block.storage == -1),
-          None,
-        )
-        if content is None:
-          content = await uow.blocks.create(
-            BlockForm(resolver=resolver, content=url, storage=-1)
-          )
-        desired.add((root_id, _block_id(content), "content"))
+        media_pointers[root_id] = pointer
+
+  contents: dict[tuple[str, str], BlockModel] = {}
+  for resolver in sorted({pointer[0] for pointer in media_pointers.values()}):
+    urls = {url for kind, url in media_pointers.values() if kind == resolver}
+    for block in await uow.blocks.matching_content_many(resolver, urls):
+      if block.storage == -1:
+        contents.setdefault((block.resolver, block.content), block)
+  missing_pointers = sorted(set(media_pointers.values()) - contents.keys())
+  created = await uow.blocks.create_many(
+    BlockForm(resolver=resolver, content=url, storage=-1)
+    for resolver, url in missing_pointers
+  )
+  contents.update(zip(missing_pointers, created, strict=True))
+  desired.update(
+    (root_id, _block_id(contents[pointer]), "content")
+    for root_id, pointer in media_pointers.items()
+  )
   stale: list[int] = []
   for relation in await uow.relations.get_outgoing_many(post_ids | media_ids):
     managed = (relation.from_ in post_ids and _is_reference(relation.content)) or (

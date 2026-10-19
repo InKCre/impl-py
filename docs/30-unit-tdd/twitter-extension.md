@@ -6,6 +6,8 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 
 两条写入路径都先取得 `extensions.twitter.reconcile` 全局事务 advisory 锁，再批量重读原生身份。根内容和受管关系一起提交；异常让整批回滚，调用方可安全重放。该锁仅约束正常 Twitter 写入入口，不能替代所有 info-base 原始写入的约束。provider 和媒体网络访问都不能放进此事务。
 
+媒体内容指针按 `(resolver, URL)` 去重后批量定位和创建，仍要求匹配 HTTP Storage；相同 URL 复用同一内容 Block。不要在每个媒体项内单独查询、创建和 flush：Core 与数据库跨网络部署时，这会把一次正常批次放大为数百次串行往返，并在持锁期间耗尽客户端的同步请求期限。
+
 匹配先选新版 resolver，再按 Block ID 稳定选择旧 `tweet.v1`。旧根重新采集后原地更新，保留现有 Block ID、引用和旧附件关系；未重新采集的旧根仍由 v1 decoder 读取。旧加工正文不足以重建 native RichText，不能用它伪造新记录。Bookmark provider 适配保留实际源正文；共同合并在已有 native 正文时不让较少详情的 Bookmark 正文替换它，其他可证明字段仍可补充。x-monkey 提交继续使用原生稀疏合并语义。
 
 身份引用严格保存为 `{id}`，不补作者、时间或正文。query 对完整 native 记录返回 `found`，身份引用返回 `missing`，能按 ID 定位但结构损坏的记录返回 `failed`。批量身份查询使用有效 JSON 的条件表达式隔离普通文本和损坏 JSON；无法解析且无法定位 ID 的内容不会命中某个原生 ID，不会导致其他正常记录的查询失败。
