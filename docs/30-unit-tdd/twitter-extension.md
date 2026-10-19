@@ -22,4 +22,6 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 
 Python 的 v2 Post 文本投影包含原帖 ID、链接、已捕获作者、正文和长文；User/Media 投影使用自身已经捕获的文字。label 保持 Block-local，不为投影或标签下载媒体。检索沿用现有独立索引维护流程，不在提交中隐式维护索引。
 
-数据回归入口为 `pdm run python -m pytest -q tests/extensions/twitter`。真实数据库场景要求显式提供 `INKCRE_TEST_DATABASE_URL`，使用本任务独占、已迁移的可丢弃 PostgreSQL runtime；测试只清理自己创建的精确 IDs，不重置开发库。原生 roundtrip 与真实 Twikit Bookmark 回归执行 `LexicalRetrievalManager.maintain` 的实际扫描、投影和检索链，在 HTTP Storage 字节边界断言零调用；同时检查归档不额外创建内容块、blob 或 Job。固定 fixture 同时用于原生 roundtrip 和独立上游合同验证，真实 userscript、HTTP 会话及 Web 消费仍需要各自的纵向验收。
+候选验证脚本与 fixture 放在 `scripts/tests/twitter`，默认 pytest 与 CI 不收集。离线合同与 HTTP 边界验证入口为 `pdm run python -m pytest -q scripts/tests/twitter/test_archive_contract.py scripts/tests/twitter/test_archive_http.py`；显式运行整个目录可用 `pdm run python -m pytest -q scripts/tests/twitter`。
+
+真实数据库场景要求显式提供 `INKCRE_TEST_DATABASE_URL`，使用已迁移的可丢弃 PostgreSQL runtime；测试只清理自己创建的精确 IDs，不重置开发库。原生 roundtrip 与真实 Twikit Bookmark 验证执行 `LexicalRetrievalManager.maintain` 的实际扫描、投影和检索链，在 HTTP Storage 字节边界断言零调用；同时检查归档不额外创建内容块、blob 或 Job。固定 fixture 同时用于原生 roundtrip 和独立上游合同验证，真实 userscript、HTTP 会话及 Web 消费仍需要各自的纵向验收。
