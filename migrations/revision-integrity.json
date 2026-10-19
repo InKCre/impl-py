@@ -3,6 +3,7 @@
   "baseline": "peer-database-runtime-v1",
   "previous_manifest_sha256": "077705815948319b03286fa8550478710f8964263be19c35432d2a3462e76ed8",
   "revisions": {
+    "09a921a95314_remove_peer_jwt_lifetime_cap.py": "c0b62fc9fbf7b2c6ec9c6c3c27c3e80dbbd6022b55e7ccdf5ba9910169dddec3",
     "143c4f4adc85_add_sink_catalog_and_instances.py": "dc5151df7c73ec84077f7698cfb1e7fdd5596978270055de2812da539d02043d",
     "1e4c7a9b2d5f_add_block_lexical_records.py": "20cd7c361b0f822811d52beb692a255078e3842fd64d74287ee0c13d0bc8df26",
     "3d9593b0c855_add_job_submission_trace_context.py": "60d61b798da850ea24d301db3f97cb07e0d8d9695a6c5a9763b9ef4f990d0845",

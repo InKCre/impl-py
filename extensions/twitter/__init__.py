@@ -33,9 +33,17 @@ class Extension(
 ):
   @classmethod
   def _init_resolvers(cls):
-    from .resolver import TweetResolver
+    from .resolver import (
+      ArchiveMediaResolver,
+      ArchivePostResolver,
+      ArchiveUserResolver,
+      TweetResolver,
+    )
 
     ResolverManager.register_resolver(TweetResolver)
+    ResolverManager.register_resolver(ArchivePostResolver)
+    ResolverManager.register_resolver(ArchiveUserResolver)
+    ResolverManager.register_resolver(ArchiveMediaResolver)
 
   @classmethod
   def _init_sources(cls):
@@ -71,8 +79,10 @@ class Extension(
   @classmethod
   def _register_apis(cls, router: APIRouter):
     from .setup_flow import register_setup_routes
+    from .archive_http import router as archive_http_router
 
     register_setup_routes(router)
+    router.include_router(archive_http_router, prefix="/x-monkey")
 
   @classmethod
   def api_dependencies(cls) -> list[typing.Any]:
@@ -87,7 +97,15 @@ class Extension(
 
   @classmethod
   def public_http_routes(cls) -> tuple[PublicHTTPRoute, ...]:
-    return (PublicHTTPRoute(method="GET", path="/auth/callback"),)
+    return (
+      PublicHTTPRoute(method="GET", path="/auth/callback"),
+      PublicHTTPRoute(method="POST", path="/x-monkey/session"),
+      PublicHTTPRoute(method="GET", path="/x-monkey/account"),
+      PublicHTTPRoute(method="POST", path="/x-monkey/disconnect"),
+      PublicHTTPRoute(method="GET", path="/x-monkey/api/v1/session"),
+      PublicHTTPRoute(method="POST", path="/x-monkey/api/v1/archive/query"),
+      PublicHTTPRoute(method="POST", path="/x-monkey/api/v1/archive/submit"),
+    )
 
   @classmethod
   async def update_config_async(

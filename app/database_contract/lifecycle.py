@@ -14,7 +14,6 @@ from .constants import (
   JWT_ALGORITHM,
   JWT_AUDIENCE,
   JWT_ISSUER,
-  JWT_MAX_LIFETIME_SECONDS,
   JWT_ROLE,
   RESET_CONFIRMATION,
 )
@@ -79,7 +78,6 @@ def contract_document() -> dict[str, object]:
       "issuer": JWT_ISSUER,
       "audience": JWT_AUDIENCE,
       "required_claims": ["role", "iss", "aud", "iat", "exp"],
-      "maximum_lifetime_seconds": JWT_MAX_LIFETIME_SECONDS,
     },
     "profiles": ["runtime", "development"],
     "protocol": protocol_document(),

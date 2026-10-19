@@ -13,6 +13,8 @@ dependencies = [
   "datadot>=1.0.0,<2.0.0",
   "fastapi>=0.139.2,<0.140.0",
   "httpx>=0.28.1,<0.29.0",
+  "pydantic>=2.11.7,<3.0.0",
+  "PyJWT>=2.10.1,<3.0.0",
   "sqlmodel>=0.0.24,<0.0.25",
   "twikit>=2.3.3,<3.0.0",
 ]
@@ -26,7 +28,7 @@ twitter = "extensions.twitter:Extension"
 name = "inkcre/twitter"
 nickname = "Twitter"
 host-sdk = "core-py"
-host-sdk-version = ">=0.2.0 <0.4.0"
+host-sdk-version = ">=0.3.1 <0.4.0"
 
 [tool.setuptools]
 packages = ["extensions.twitter"]

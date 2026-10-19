@@ -13,6 +13,7 @@ This directory owns expensive internal design truth for logical units delivered 
 | [mail-extension.md](mail-extension.md) | Mail identity, MIME materialization, collection, graph, and failure boundaries |
 | [memos-extension.md](memos-extension.md) | Memos adapter identity, graph grammar, persistence, and failure boundaries |
 | [rss-extension.md](rss-extension.md) | RSS adapter identity, collection lifecycle, reconciliation, and materialization |
+| [twitter-extension.md](twitter-extension.md) | Twitter 共同身份、Bookmark 过渡、事务合并和按需媒体读取 |
 | [security-model.md](security-model.md) | Core-py realization of the shared security boundary model |
 
 Do not add a document for a directory inventory, a fact cheaply recovered from code, a one-off decision, or a cross-unit contract already owned by `../_shared/20-product-tdd/`. Put repeated physical-subtree hazards in the nearest `AGENTS.md`; put runtime, rollout, recovery, and environment truth in `../40-deployment/`.

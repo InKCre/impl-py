@@ -1,5 +1,6 @@
 """Middleware for logging and request tracking."""
 
+import math
 import time
 from typing import Callable
 import uuid
@@ -13,7 +14,6 @@ from app.database_contract.constants import (
   JWT_ALGORITHM,
   JWT_AUDIENCE,
   JWT_ISSUER,
-  JWT_MAX_LIFETIME_SECONDS,
   JWT_ROLE,
 )
 from app.settings import settings
@@ -63,15 +63,19 @@ def decode_peer_jwt(
   )
   if not valid_numeric_dates:
     raise jwt.exceptions.InvalidTokenError("JWT claim contract mismatch")
-  issued_at_number = float(issued_at)
-  expires_at_number = float(expires_at)
+  try:
+    issued_at_number = float(issued_at)
+    expires_at_number = float(expires_at)
+  except OverflowError as error:
+    raise jwt.exceptions.InvalidTokenError("JWT claim contract mismatch") from error
   current_epoch = time.time() if now is None else now
   if (
     claims["role"] != JWT_ROLE
+    or not math.isfinite(issued_at_number)
+    or not math.isfinite(expires_at_number)
     or issued_at_number > current_epoch + 60
     or expires_at_number <= current_epoch
     or expires_at_number <= issued_at_number
-    or expires_at_number - issued_at_number > JWT_MAX_LIFETIME_SECONDS
   ):
     raise jwt.exceptions.InvalidTokenError("JWT claim contract mismatch")
   return claims
@@ -81,11 +85,13 @@ def create_peer_jwt(
   secret: str,
   *,
   now: float | None = None,
-  lifetime_seconds: int = 60,
+  lifetime_seconds: int | None = None,
 ) -> str:
-  """Create one short-lived token under the canonical Peer HTTP contract."""
-  if lifetime_seconds <= 0 or lifetime_seconds > JWT_MAX_LIFETIME_SECONDS:
-    raise ValueError("Peer JWT lifetime is outside the contract bound")
+  """Sign a Peer JWT using the configured default when no lifetime is supplied."""
+  if lifetime_seconds is None:
+    lifetime_seconds = settings.jwt_default_lifetime_seconds
+  if lifetime_seconds <= 0:
+    raise ValueError("Peer JWT lifetime must be positive")
   issued_at = int(time.time() if now is None else now)
   return jwt.encode(
     {

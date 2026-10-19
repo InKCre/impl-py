@@ -122,12 +122,16 @@ role: authenticated
 issuer: inkcre-peer
 audience: inkcre-api
 required: role, iss, aud, iat, exp
-maximum lifetime: 24 hours
 future iat tolerance: 60 seconds
 ```
 
 PostgREST exposes only `inkcre`，connects as `authenticator`，uses denied `anonymous` fallback，and invokes
 `inkcre_internal.check_jwt` before every admitted request。FastAPI peer middleware validates the same vectors。
+
+JWT 没有强制最大寿命。`JWT_DEFAULT_LIFETIME_SECONDS` 是 Core 签发器的默认值（60 秒），
+`TWITTER_X_MONKEY_JWT_LIFETIME_SECONDS` 是 Twitter x-monkey 会话初次签发及续签的默认值（604800 秒，7 天）；
+二者必须为正整数，不参与 token admission。调整默认值影响后续签发，不会撤销已签发的有效 token。
+普通 Web Peer 仍默认签发 24 小时 token。有效期、签名、必需 claims 和未来 iat 容差仍参与验证。
 
 ## Canonical Production Profile
 
@@ -140,7 +144,7 @@ implementation 或 migration verification 不授权修改 production profile 或
 
 ## Versioning
 
-`db contract --json` reports `peer-database-runtime-v3` plus the image source revision.
+`db contract --json` reports the executable contract revision plus the image source revision.
 Every production candidate also contains `/app/database-contract/`:
 
 - `database-roles.sql` recreates the password-free global principals required by policies;

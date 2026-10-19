@@ -161,7 +161,6 @@ def _write_runtime_files(
       "issuer": "inkcre-peer",
       "audience": "inkcre-api",
       "required_claims": ["role", "iss", "aud", "iat", "exp"],
-      "maximum_lifetime_seconds": 86400,
     },
   }
   published_ports = (

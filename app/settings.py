@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     min_length=JWT_MINIMUM_SECRET_BYTES,
     description="Secret key for JWT token signing and verification",
   )
+  jwt_default_lifetime_seconds: int = Field(
+    default=60,
+    gt=0,
+    description="Default Peer JWT signing lifetime; not an admission limit",
+  )
+  twitter_x_monkey_jwt_lifetime_seconds: int = Field(
+    default=7 * 24 * 60 * 60,
+    gt=0,
+    description="Signing lifetime for the Twitter x-monkey session and its renewal",
+  )
 
   # Observability settings
   obsrv: ObsrvSetting = Field(default_factory=ObsrvSetting)

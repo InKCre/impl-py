@@ -4,7 +4,7 @@ import uuid
 
 
 CONTRACT_FORMAT = 1
-CONTRACT_REVISION = "extension-peer-participation-v2"
+CONTRACT_REVISION = "peer-jwt-signing-defaults-v1"
 
 PROTOCOL_SCHEMA = "inkcre"
 INTERNAL_SCHEMA = "inkcre_internal"
@@ -18,6 +18,7 @@ JWT_ALGORITHM = "HS256"
 JWT_ROLE = AUTHENTICATED_ROLE
 JWT_ISSUER = "inkcre-peer"
 JWT_AUDIENCE = "inkcre-api"
+# Frozen input for admitted historical migrations; live admission has no lifetime cap.
 JWT_MAX_LIFETIME_SECONDS = 24 * 60 * 60
 JWT_MINIMUM_SECRET_BYTES = 32
 

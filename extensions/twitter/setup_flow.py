@@ -98,6 +98,7 @@ class OAuthTransactionView(pydantic.BaseModel):
 
 class TwitterSetupStatus(pydantic.BaseModel):
   callback_url: str
+  x_monkey_base_url: str | None = None
   connected: bool
   user_id: str | None = None
   handle: str | None = None
@@ -251,6 +252,8 @@ async def _reconcile_oauth_state() -> TwitterExtensionState:
 
 
 async def get_setup_status() -> TwitterSetupStatus:
+  from .archive_session import x_monkey_base_url
+
   config = _config()
   state = await _reconcile_oauth_state()
   configured = bool(config.client_id and config.client_secret)
@@ -263,6 +266,7 @@ async def get_setup_status() -> TwitterSetupStatus:
   )
   return TwitterSetupStatus(
     callback_url=await _redirect_uri(),
+    x_monkey_base_url=await x_monkey_base_url(),
     connected=connected,
     user_id=account.user_id if connected and account is not None else None,
     handle=account.handle if connected and account is not None else None,
@@ -671,3 +675,6 @@ def register_setup_routes(router: fastapi.APIRouter) -> None:
     methods=["GET"],
     response_class=HTMLResponse,
   )
+  from .archive_session import router as archive_session_router
+
+  router.include_router(archive_session_router, prefix="/x-monkey")
