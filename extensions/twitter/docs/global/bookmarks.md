@@ -47,14 +47,90 @@ Sources 共用扩展当前连接的一个 X 账号。不要通过切换账号来
 </template>
 <template #cli>
 
-## 通过 CLI 提交采集
+## 通过 CLI 授权和采集
 
-CLI 当前没有专用 OAuth 设置命令。先由 Web 向导连接 X 账号，或由运行人员使用同一 Release 的
-**Python** 文档中列出的 setup API 完成授权；不要把 OAuth 配置写进 Source。
+这条路径不需要安装 Web Module Federation 分发。先将
+[CLI 连接到目标 Core](https://inkcre.dev/guide/connect-cli)，确认该 Core 上的 Twitter
+Python 分发已启用，并在 `inkcre-cli source types` 中看到 `extensions.twitter.bookmark.Source`。
 
-先将
-[CLI 连接到目标 Core](https://inkcre.dev/guide/connect-cli)，确认该 Core 上的 Twitter 已启用，并在
-`inkcre-cli source types` 中看到 `extensions.twitter.bookmark.Source`。保存 `twitter.json`：
+### 1. 授权自己的 X 账号
+
+CLI 当前没有专用 OAuth 设置命令，下面的本地脚本直接调用 Core 已有的 setup
+API。使用“连接 CLI”步骤中的 Python 环境；`inkcre-cli` 的依赖已经提供 `httpx` 和
+`PyJWT`，脚本不需要 Web 分发。授权属于整个扩展，所有 Bookmark
+Sources 共用当前账号，不要把 OAuth 配置写进 Source。
+
+保存为 `connect-twitter.py`，在该 Python 环境中运行
+`python connect-twitter.py`。脚本先显示确切的回调地址；保持脚本运行，在 X 开发者应用中启用 OAuth
+2.0，选择提供 Client ID/Secret 的 confidential web-app 客户端，完整登记该地址，再继续。使用 OAuth
+Client ID/Secret，不是 API Key/Secret；设置说明见
+[X OAuth 2.0 文档](https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code)。
+
+```python
+import getpass
+import time
+
+import httpx
+import jwt
+
+core_url = input("Core HTTPS URL: ").strip().rstrip("/")
+if not core_url.startswith("https://"):
+    raise ValueError("Use your trusted Core HTTPS URL, not PostgREST")
+secret = getpass.getpass("InKCre JWT_SECRET: ")
+if not secret:
+    raise ValueError("JWT_SECRET is required")
+
+with httpx.Client(timeout=30) as client:
+    def request(method, path, **kwargs):
+        issued = int(time.time()) - 5
+        token = jwt.encode(
+            {"role": "authenticated", "iss": "inkcre-peer", "aud": "inkcre-api",
+             "iat": issued, "exp": issued + 900},
+            secret, algorithm="HS256",
+        )
+        response = client.request(
+            method, core_url + path,
+            headers={"Authorization": f"Bearer {token}"}, **kwargs,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    status = request("GET", "/twitter/setup")
+    print("Register this callback URL in X:", status["callback_url"])
+    if not status["connected"]:
+        client_id = getpass.getpass("X OAuth Client ID: ").strip()
+        client_secret = getpass.getpass("X OAuth Client Secret: ")
+        if not client_id or not client_secret:
+            raise ValueError("Both OAuth app credentials are required")
+        request("PUT", "/twitter/setup/oauth-app", json={
+            "client_id": client_id, "client_secret": client_secret,
+        })
+        transaction = request("POST", "/twitter/setup/oauth-transactions")
+        print("Open this private authorization URL:", transaction["authorize_url"])
+        input("Authorize in X; after the callback says connected, press Enter: ")
+        result = request("POST", "/twitter/setup/oauth-transaction", json={
+            "transaction_id": transaction["id"],
+        })
+        if result["status"] != "succeeded":
+            raise RuntimeError(f"Authorization did not complete: {result['status']}")
+        status = request("GET", "/twitter/setup")
+    if not status["connected"]:
+        raise RuntimeError("Account is not connected; inspect setup status")
+    print("Connected account:", status["handle"])
+```
+
+在 X 批准要采集的账号，十分钟内完成浏览器授权；脚本会检查事务结果和最终连接的 handle。`offline.access`
+让扩展能够刷新 X 账号授权。凭据和脚本显示的授权链接都应保持私密，不要分享终端输出，也不要将
+`JWT_SECRET` 输入 X 页面。账号 token 保存在部署中，可由该部署已准入的 Peers 使用。
+
+回调地址缺失或不正确时，先修正 Core Peer 的 `http_public_base_url`，让它指向可公开访问的 Core
+HTTPS 基址并产生
+`/twitter/auth/callback`。新建授权会替代此前未完成的尝试。替换已配置的 OAuth 应用可能返回 HTTP
+409；不要盲目添加 `confirm_account_reset` 重试，因为替换会断开现有账号并影响全部 Bookmark Sources。
+
+### 2. 创建并采集 Source
+
+保存 `twitter.json`：
 
 ```json
 {
