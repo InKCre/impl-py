@@ -53,6 +53,9 @@ dependencies = [
     "mcp>=2.1.1,<2.2.0",
     "opentelemetry-sdk==1.45.0",
     "opentelemetry-exporter-otlp-proto-http==1.45.0",
+    "Radicale==3.8.3",
+    "vobject<0.10,>=0.9.9",
+    "anyio<5,>=4",
 ]
 
 [dependency-groups]

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=80,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inkcre-ext-caldav"
+version = "0.1.0"
+description = "CalDAV and CardDAV access to the InKCre info-base"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+dependencies = [
+  "fastapi>=0.139.2,<0.140.0",
+  "pydantic>=2.11.7,<3.0.0",
+  "anyio>=4,<5",
+  "Radicale==3.8.3",
+  "vobject>=0.9.9,<0.10",
+]
+
+[project.entry-points."inkcre.core.extensions"]
+caldav = "extensions.caldav:Extension"
+
+[tool.inkcre-extension]
+name = "inkcre/caldav"
+nickname = "CalDAV"
+host-sdk = "core-py"
+host-sdk-version = ">=0.3.2 <0.4.0"
+
+[tool.setuptools]
+packages = ["extensions.caldav"]
+
+[tool.setuptools.package-dir]
+"extensions.caldav" = "."

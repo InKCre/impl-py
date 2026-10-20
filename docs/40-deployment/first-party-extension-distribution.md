@@ -45,7 +45,7 @@ be disabled. A legacy enabled member migrates to its exact prior version with an
 distribution. Cold restore resolves only that exact Registry version and never substitutes the
 latest release. Failed resolution preserves the old intent and reports the error.
 
-The seven first-party Extensions are independent PEP 420 wheels with the standard entry-point group
+The first-party Extensions are independent PEP 420 wheels with the standard entry-point group
 and producer metadata in their `pyproject.toml`. That project version is the Python association's
 Release authority and must equal the Extension Release Version shared by its Distribution
 associations. Feature pull requests carry project-local Towncrier fragments and leave versions and
@@ -63,7 +63,7 @@ Repository CI discovers the producer set and rejects missing or invalid project 
 never runs from the Release PR。
 
 The trusted pull-request preview controller reuses that same discovered producer set. Its dedicated
-PDM `extension-preview` tooling group builds and verifies all seven wheels, then the released
+PDM `extension-preview` tooling group builds and verifies all discovered wheels, then the released
 `inkcre-extension-toolkit` projects one explicit Python inventory into a static sibling Registry.
 The exact-head workflow run deploys that tree directly to the dedicated Cloudflare Pages project;
 required checks neither upload nor hand off wheels or deployable Registry output. The facade exposes
@@ -149,6 +149,10 @@ version in `pyproject.toml`; preparing a service Release PR does not change the 
 
 Core Host SDK 0.3.1 adds batched JSON identity lookup and transaction advisory locking to the
 existing Graph repository. Twitter archive reconciliation requires `>=0.3.1 <0.4.0`.
+
+Host SDK 0.3.2 adds shared graph namespace locks, optional Block/Relation row locks and repeatable-read
+graph scopes. Existing consumers retain their defaults. The CalDAV Distribution requires
+`>=0.3.2 <0.4.0` because its conditional writes depend on these capabilities.
 
 GitHub, Learn English, Mail, RSS, and Telegram retain their SDK 0.2 lower bound and support
 SDK 0.3 through `>=0.2.0 <0.4.0`. Memos uses the new HTTP address API and requires

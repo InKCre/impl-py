@@ -47,17 +47,16 @@ class BlockRepository:
     )
 
   async def get_by_resolvers(
-    self, resolvers: typing.Collection[str]
+    self, resolvers: typing.Collection[str], *, lock: bool = False
   ) -> tuple[BlockModel, ...]:
     if not resolvers:
       return ()
-    return tuple(
-      await self._session.scalars(
-        sqlmodel.select(BlockModel).where(
-          sqlmodel.col(BlockModel.resolver).in_(tuple(resolvers))
-        )
-      )
+    statement = sqlmodel.select(BlockModel).where(
+      sqlmodel.col(BlockModel.resolver).in_(tuple(resolvers))
     )
+    if lock:
+      statement = statement.order_by(sqlmodel.col(BlockModel.id)).with_for_update()
+    return tuple(await self._session.scalars(statement))
 
   async def save_many(self, blocks: Iterable[BlockModel]) -> None:
     self._session.add_all(blocks)
@@ -200,11 +199,15 @@ class BlockRepository:
       )
     )
 
-  async def acquire_transaction_lock(self, namespace: str) -> None:
+  async def acquire_transaction_lock(self, namespace: str, *, shared: bool = False) -> None:
     """Serialize an owning use case until its surrounding transaction ends."""
+    function = (
+      sqlmodel.func.pg_advisory_xact_lock_shared
+      if shared
+      else sqlmodel.func.pg_advisory_xact_lock
+    )
     await self._session.execute(
-      sqlalchemy.text("SELECT pg_advisory_xact_lock(hashtextextended(:name, 0))"),
-      {"name": namespace},
+      sqlmodel.select(function(sqlmodel.func.hashtextextended(namespace, 0)))
     )
 
   async def get_related(
@@ -333,6 +336,7 @@ class RelationRepository:
     *,
     to_ids: typing.Collection[BlockID] | None = None,
     content: str | None = None,
+    lock: bool = False,
   ) -> tuple[RelationModel, ...]:
     if not block_ids:
       return ()
@@ -343,6 +347,8 @@ class RelationRepository:
       statement = statement.where(sqlmodel.col(RelationModel.to_).in_(tuple(to_ids)))
     if content is not None:
       statement = statement.where(RelationModel.content == content)
+    if lock:
+      statement = statement.order_by(sqlmodel.col(RelationModel.id)).with_for_update()
     return tuple(await self._session.scalars(statement))
 
   async def save(self, relation: RelationModel) -> None:
