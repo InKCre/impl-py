@@ -14,16 +14,13 @@ from app.schemas.info_base.block import BlockForm, BlockModel
 from app.schemas.info_base.relation import RelationCreateForm
 
 from .archive_merge import merge_archive_record
-from .archive_schema import (
-  ArchiveBatch,
-  ArchiveMedia,
-  ArchivePost,
-  ArchiveQuery,
-  ArchiveUser,
-  QueryResponse,
-  SubmitResponse,
-  SubmitResult,
-  SubmitSummary,
+from .model import (
+  TextPolicy,
+  TwitterBatch,
+  TwitterMedia,
+  TwitterPost,
+  TwitterRecord,
+  TwitterUser,
 )
 
 
@@ -35,14 +32,14 @@ REFERENCE_SCHEMA = "extensions.twitter.reference.v1"
 TWITTER_WRITE_LOCK = "extensions.twitter.reconcile"
 KINDS = ("users", "posts", "media")
 RESOLVERS = {"users": USER_RESOLVER, "posts": POST_RESOLVER, "media": MEDIA_RESOLVER}
-MODELS = {"users": ArchiveUser, "posts": ArchivePost, "media": ArchiveMedia}
+MODELS = {"users": TwitterUser, "posts": TwitterPost, "media": TwitterMedia}
 Record = dict[str, typing.Any]
 Identity = tuple[str, str]
 
 
 @dataclass(frozen=True)
-class ArchiveWriteResult:
-  response: SubmitResponse
+class TwitterWriteResult:
+  changed: frozenset[Identity]
   block_ids: dict[str, dict[str, int]]
 
 
@@ -126,16 +123,16 @@ async def _load_roots(
   return result
 
 
-async def persist_archive(
-  batch: ArchiveBatch,
+async def persist_twitter(
+  batch: TwitterBatch,
   uow: GraphUnitOfWork,
   *,
-  preserve_existing_text: bool = False,
-) -> ArchiveWriteResult:
+  text_policy: TextPolicy = "replace",
+) -> TwitterWriteResult:
   """Merge a complete batch without committing the caller's graph transaction.
 
-  Bookmark can supplement a native record, but its less detailed body must not
-  replace an already captured text; x-monkey keeps the native merge semantics.
+  Supplement captures retain an already known body while adding other facts.
+  Capture adapters choose that policy; persistence does not identify providers.
   """
   await uow.blocks.acquire_transaction_lock(TWITTER_WRITE_LOCK)
   incoming: dict[Identity, Record] = {}
@@ -162,7 +159,7 @@ async def persist_archive(
       else {"id": key[1]}
     )
     value: Record = incoming.get(key, {"id": key[1]})
-    if preserve_existing_text and "text" in existing and "text" in value:
+    if text_policy == "supplement" and "text" in existing and "text" in value:
       value = {field: item for field, item in value.items() if field != "text"}
     merged = merge_archive_record(existing, value)
     if key in incoming:
@@ -226,25 +223,8 @@ async def persist_archive(
     RelationCreateForm(from_=source, to_=target, content=content)
     for source, target, content in sorted(desired)
   )
-  results = {
-    kind: [
-      SubmitResult(
-        id=record.id,
-        status="accepted" if (kind, record.id) in changed else "unchanged",
-      )
-      for record in getattr(batch, kind)
-    ]
-    for kind in KINDS
-  }
-  total = sum(len(items) for items in results.values())
-  accepted = sum(item.status == "accepted" for items in results.values() for item in items)
-  return ArchiveWriteResult(
-    response=SubmitResponse(
-      summary=SubmitSummary(
-        total=total, accepted=accepted, unchanged=total - accepted, partial=0, failed=0
-      ),
-      **results,
-    ),
+  return TwitterWriteResult(
+    changed=frozenset(changed),
     block_ids={
       kind: {
         native_id: _block_id(root)
@@ -256,36 +236,28 @@ async def persist_archive(
   )
 
 
-async def submit_archive(batch: ArchiveBatch) -> SubmitResponse:
+async def write_twitter(batch: TwitterBatch) -> TwitterWriteResult:
   async with graph_uow() as uow:
-    result = await persist_archive(batch, uow)
-  return result.response
+    return await persist_twitter(batch, uow)
 
 
-async def query_archive(query: ArchiveQuery) -> QueryResponse:
-  identities = {(kind, native_id) for kind in KINDS for native_id in getattr(query, kind)}
+@dataclass(frozen=True)
+class TwitterReadResult:
+  records: dict[Identity, TwitterRecord]
+  invalid: frozenset[Identity]
+
+
+async def read_twitter(identities: Collection[Identity]) -> TwitterReadResult:
   async with graph_uow() as uow:
     roots = await _load_roots(identities, uow)
-    results: dict[str, list[Record]] = {kind: [] for kind in KINDS}
-    for kind in KINDS:
-      for native_id in getattr(query, kind):
-        root = roots.get((kind, native_id))
-        if root is None or json.loads(root.content) == {"id": native_id}:
-          result: Record = {"id": native_id, "status": "missing"}
-        else:
-          try:
-            data = MODELS[kind].model_validate_json(root.content)
-          except pydantic.ValidationError:
-            result = {
-              "id": native_id,
-              "status": "failed",
-              "error": "Stored archive record is invalid",
-            }
-          else:
-            result = {
-              "id": native_id,
-              "status": "found",
-              "data": data.model_dump(mode="json", exclude_unset=True),
-            }
-        results[kind].append(result)
-  return QueryResponse.model_validate(results)
+    records: dict[Identity, TwitterRecord] = {}
+    invalid: set[Identity] = set()
+    for key in identities:
+      root = roots.get(key)
+      if root is None or json.loads(root.content) == {"id": key[1]}:
+        continue
+      try:
+        records[key] = MODELS[key[0]].model_validate_json(root.content)
+      except pydantic.ValidationError:
+        invalid.add(key)
+  return TwitterReadResult(records=records, invalid=frozenset(invalid))

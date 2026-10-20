@@ -10,7 +10,7 @@ from app.business.info_base.services import BlockService
 from app.schemas.info_base.block import BlockForm
 from app.schemas.info_base.main import StarsGraphForm
 from .schema import Tweet
-from .archive_schema import ArchiveID, ArchiveMedia, ArchivePost, ArchiveUser
+from .model import TwitterIdentity, TwitterMedia, TwitterPost, TwitterUser
 from .reconcile import MEDIA_RESOLVER, POST_RESOLVER, REFERENCE_SCHEMA, USER_RESOLVER
 
 
@@ -108,34 +108,27 @@ class TweetResolver(Resolver[Tweet, str], rso_type="extensions.twitter.tweet.v1"
     )
 
 
-class ArchiveIdentity(pydantic.BaseModel):
-  """An exact source reference whose content has not been captured."""
-
-  model_config = pydantic.ConfigDict(extra="forbid", strict=True)
-  id: ArchiveID
-
-
 Native = typing.TypeVar("Native", bound=pydantic.BaseModel)
 
 
 async def _native_content(
   resolver: Resolver, model: type[Native], *, refresh: bool
-) -> Native | ArchiveIdentity:
+) -> Native | TwitterIdentity:
   raw = await resolver.get_raw_content(refresh=refresh)
   value = json.loads(raw)
   if isinstance(value, dict) and set(value) == {"id"}:
-    return ArchiveIdentity.model_validate(value)
+    return TwitterIdentity.model_validate(value)
   return model.model_validate(value)
 
 
 class ArchivePostResolver(
-  Resolver[ArchivePost | ArchiveIdentity, str], rso_type=POST_RESOLVER
+  Resolver[TwitterPost | TwitterIdentity, str], rso_type=POST_RESOLVER
 ):
   async def _get_solved_content(
     self, *, refresh: bool = False, materialize_missing: bool = True
-  ) -> ArchivePost | ArchiveIdentity:
+  ) -> TwitterPost | TwitterIdentity:
     del materialize_missing
-    return await _native_content(self, ArchivePost, refresh=refresh)
+    return await _native_content(self, TwitterPost, refresh=refresh)
 
   async def get_text(
     self,
@@ -147,7 +140,7 @@ class ArchivePostResolver(
     del context, materialize_missing
     post = await self.get_solved_content(refresh=refresh, materialize_missing=False)
     parts = [f"https://x.com/i/status/{post.id}", post.id]
-    if isinstance(post, ArchiveIdentity):
+    if isinstance(post, TwitterIdentity):
       return "\n".join(parts)
     parts.append(f"author: {post.authorId}")
     for relation in await self.get_relations(include_in=False, refresh=refresh):
@@ -161,7 +154,7 @@ class ArchivePostResolver(
       if author is not None and author.resolver == USER_RESOLVER:
         value = json.loads(author.content)
         if set(value) != {"id"}:
-          user = ArchiveUser.model_validate(value)
+          user = TwitterUser.model_validate(value)
           parts.append(f"{user.name} @{user.handle}")
       break
     if post.text is not None:
@@ -177,19 +170,19 @@ class ArchivePostResolver(
   async def get_label(self, *, refresh: bool = False) -> str:
     post = await self.get_solved_content(refresh=refresh, materialize_missing=False)
     text = (
-      post.text.text if isinstance(post, ArchivePost) and post.text is not None else post.id
+      post.text.text if isinstance(post, TwitterPost) and post.text is not None else post.id
     )
     return format_label("tweet", text or post.id, first_line=True)
 
 
 class ArchiveUserResolver(
-  Resolver[ArchiveUser | ArchiveIdentity, str], rso_type=USER_RESOLVER
+  Resolver[TwitterUser | TwitterIdentity, str], rso_type=USER_RESOLVER
 ):
   async def _get_solved_content(
     self, *, refresh: bool = False, materialize_missing: bool = True
-  ) -> ArchiveUser | ArchiveIdentity:
+  ) -> TwitterUser | TwitterIdentity:
     del materialize_missing
-    return await _native_content(self, ArchiveUser, refresh=refresh)
+    return await _native_content(self, TwitterUser, refresh=refresh)
 
   async def get_text(
     self,
@@ -200,7 +193,7 @@ class ArchiveUserResolver(
   ) -> str:
     del context, materialize_missing
     user = await self.get_solved_content(refresh=refresh, materialize_missing=False)
-    if isinstance(user, ArchiveIdentity):
+    if isinstance(user, TwitterIdentity):
       return user.id
     return "\n".join(
       value
@@ -218,18 +211,18 @@ class ArchiveUserResolver(
   async def get_label(self, *, refresh: bool = False) -> str:
     user = await self.get_solved_content(refresh=refresh, materialize_missing=False)
     return format_label(
-      "twitter user", f"@{user.handle}" if isinstance(user, ArchiveUser) else user.id
+      "twitter user", f"@{user.handle}" if isinstance(user, TwitterUser) else user.id
     )
 
 
 class ArchiveMediaResolver(
-  Resolver[ArchiveMedia | ArchiveIdentity, str], rso_type=MEDIA_RESOLVER
+  Resolver[TwitterMedia | TwitterIdentity, str], rso_type=MEDIA_RESOLVER
 ):
   async def _get_solved_content(
     self, *, refresh: bool = False, materialize_missing: bool = True
-  ) -> ArchiveMedia | ArchiveIdentity:
+  ) -> TwitterMedia | TwitterIdentity:
     del materialize_missing
-    return await _native_content(self, ArchiveMedia, refresh=refresh)
+    return await _native_content(self, TwitterMedia, refresh=refresh)
 
   async def get_text(
     self,
@@ -240,7 +233,7 @@ class ArchiveMediaResolver(
   ) -> str:
     del context, materialize_missing
     media = await self.get_solved_content(refresh=refresh, materialize_missing=False)
-    if isinstance(media, ArchiveIdentity):
+    if isinstance(media, TwitterIdentity):
       return media.id
     return "\n".join(
       value
@@ -251,6 +244,6 @@ class ArchiveMediaResolver(
   async def get_label(self, *, refresh: bool = False) -> str:
     media = await self.get_solved_content(refresh=refresh, materialize_missing=False)
     label = (
-      media.title or media.alt or media.id if isinstance(media, ArchiveMedia) else media.id
+      media.title or media.alt or media.id if isinstance(media, TwitterMedia) else media.id
     )
     return format_label("twitter media", label, first_line=True)

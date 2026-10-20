@@ -39,15 +39,20 @@ from extensions.twitter.api import (
   _twikit_archive,
 )
 from extensions.twitter.archive_schema import ArchiveBatch, ArchiveQuery
+from extensions.twitter.model import TwitterBatch
+from extensions.twitter.x_monkey import (
+  decode_submission,
+  encode_submission,
+  query_archive,
+  submit_archive,
+)
 from extensions.twitter.bookmark import CollectConfig, Source
 from extensions.twitter.reconcile import (
   MEDIA_RESOLVER,
   POST_RESOLVER,
   REFERENCE_SCHEMA,
   USER_RESOLVER,
-  persist_archive,
-  query_archive,
-  submit_archive,
+  persist_twitter,
 )
 from extensions.twitter.resolver import TweetResolver
 from extensions.twitter.schema import Tweet
@@ -94,11 +99,21 @@ def tracked() -> typing.Iterator[set[int]]:
       db.commit()
 
 
-async def _write(batch: ArchiveBatch, tracked: set[int]):
+async def _write(batch: ArchiveBatch | TwitterBatch, tracked: set[int]):
   async with graph_uow() as uow:
-    result = await persist_archive(batch, uow)
+    result = await persist_twitter(
+      decode_submission(batch) if isinstance(batch, ArchiveBatch) else batch, uow
+    )
   tracked.update(block_id for ids in result.block_ids.values() for block_id in ids.values())
-  return result
+  return SimpleNamespace(
+    block_ids=result.block_ids,
+    response=encode_submission(
+      batch
+      if isinstance(batch, ArchiveBatch)
+      else ArchiveBatch.model_validate(batch.model_dump(mode="json", exclude_unset=True)),
+      result,
+    ),
+  )
 
 
 def _minimal(post: dict) -> dict:
@@ -311,15 +326,15 @@ def test_bookmark_joins_legacy_and_native_identity_without_overwriting_text(
 
   source_type = f"{Source.__module__}.{Source.__qualname__}"
   async_runner.run(SourceManager.sync_source_types_async({source_type: Source}))
-  source = async_runner.run(
-    SourceManager.create(source_type, nickname="test Twitter bookmarks")
-  )
   sparse = {**_minimal(post), "text": {"text": "provider has less detail"}, "lang": "en"}
   provider = mock.Mock()
   provider.get_bookmarks = mock.AsyncMock(
     return_value=TwitterAPIResult(
-      batch=ArchiveBatch.model_validate({"posts": [sparse]}), primary_post_ids=(post["id"],)
+      batch=TwitterBatch.model_validate({"posts": [sparse]}), primary_post_ids=(post["id"],)
     )
+  )
+  source = async_runner.run(
+    SourceManager.create(source_type, nickname="test Twitter bookmarks")
   )
   try:
     with mock.patch.object(

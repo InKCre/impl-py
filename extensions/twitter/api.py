@@ -17,14 +17,14 @@ import twikit
 import twikit.media
 from typing import Optional as Opt
 from utils.datetime_ import get_timestamp
-from .archive_schema import ArchiveBatch
+from .model import TwitterBatch
 from . import Extension
 
 
 class TwitterAPIResult(sqlmodel.SQLModel):
   next_page: Opt[str] = None
   previous_page: Opt[str] = None
-  batch: ArchiveBatch = pydantic.Field(default_factory=ArchiveBatch)
+  batch: TwitterBatch = pydantic.Field(default_factory=TwitterBatch)
   primary_post_ids: tuple[str, ...] = ()
 
 
@@ -71,7 +71,7 @@ def _provider_counts(raw: dict, names: dict[str, str], observed_at: str) -> dict
 
 def _official_archive(
   raw_tweets: list[dict], includes: dict, observed_at: str
-) -> ArchiveBatch:
+) -> TwitterBatch:
   media = []
   media_ids = {}
   for raw in includes.get("media", ()):
@@ -191,12 +191,12 @@ def _official_archive(
         )
       )
     posts.append(post)
-  return ArchiveBatch.model_validate({"users": users, "posts": posts, "media": media})
+  return TwitterBatch.model_validate({"users": users, "posts": posts, "media": media})
 
 
 def _twikit_archive(
   tweets: typing.Iterable[twikit.Tweet], observed_at: str
-) -> ArchiveBatch:
+) -> TwitterBatch:
   posts: dict[str, dict] = {}
   users: dict[str, dict] = {}
   media: dict[str, dict] = {}
@@ -277,7 +277,7 @@ def _twikit_archive(
 
   for tweet in tweets:
     collect(tweet)
-  return ArchiveBatch.model_validate(
+  return TwitterBatch.model_validate(
     {
       "users": list(users.values()),
       "posts": list(posts.values()),
@@ -601,7 +601,7 @@ class OfficialAPI(TwitterAPI):
 
   def _resolve_tweets(
     self, raw_tweets: list[dict], includes: dict[str, list[dict]]
-  ) -> ArchiveBatch:
+  ) -> TwitterBatch:
     return _official_archive(raw_tweets, includes, _observed_at())
 
   async def get_bookmarks(
@@ -752,7 +752,7 @@ class TwikitAPI(TwitterAPI):
     )
 
   @staticmethod
-  def _resolve_tweets(result: typing.Iterable[twikit.Tweet]) -> ArchiveBatch:
+  def _resolve_tweets(result: typing.Iterable[twikit.Tweet]) -> TwitterBatch:
     return _twikit_archive(result, _observed_at())
 
   async def get_bookmarks(

@@ -17,7 +17,7 @@ browser** 分别安装、启用兼容的 Twitter 分发。
 1. 在 InKCre Web 的 **Extensions** 中打开 Twitter 的 **Setup**，选择连接同一 info-base 的在线 Core
    Peer。
 2. 找到 **Connect x-monkey storage**，复制其中的 **x-monkey service address**，再点击 **Connect
-   x-monkey**。
+   x-monkey**。浏览器将导航到所选 Core 的账户页；发起跳转后仍需确认账户页和脚本检测结果。
 3. 浏览器进入该 Core 的账户页，确认已连接的 Peer 和会话到期时间。这一步使用现有 InKCre 连接建立会话，不需要把
    `JWT_SECRET` 交给脚本或 X。
 4. 返回 x-monkey，打开 **设置 → 远端数据库**，启用远端数据库，将刚才的服务地址填入
@@ -26,7 +26,7 @@ browser** 分别安装、启用兼容的 Twitter 分发。
 
 如果脚本先显示“需要登录”，可点击“打开账户页”查看连接指引，再从已连接的 InKCre
 Web 完成上述操作，最后回到脚本重新检测。账户页不自动查找你的 InKCre
-Web 地址。Setup 没有连接区时，检查所选 Core 及两端分发是否支持本功能。
+Web 地址。Setup 没有连接按钮、只有服务地址，或无法发起跳转时，检查所选 Core 是否在线并提供连接能力，以及两端分发和宿主版本是否兼容。
 
 ## 同步已捕获的帖子
 

@@ -1,4 +1,4 @@
-"""Presence-aware native archive merge, including per-counter capture times."""
+"""Twitter-owned sparse fact merge, including per-counter observation times."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def _merge_content(target: dict[str, JsonValue], incoming: dict[str, JsonValue])
 
 def _observation_time(value: str) -> datetime.datetime:
   parsed = datetime.datetime.fromisoformat(value)
-  # JavaScript Date.parse compares capture times at millisecond precision.
+  # Twitter compares observations at millisecond resolution; retain finer source precision.
   return parsed.replace(microsecond=parsed.microsecond // 1000 * 1000)
 
 

@@ -64,8 +64,16 @@ Sources。
 x-monkey 的
 `/twitter/x-monkey/api/v1/session`、`/twitter/x-monkey/api/v1/archive/query`、`/twitter/x-monkey/api/v1/archive/submit`
 使用协议专用 Cookie，与以上 Bearer 路由分开。首次连接由 Web 向 `/twitter/x-monkey/session`
-顶层 POST 新鲜 Peer JWT；Core 为相同完整 Peer 权限签发带 `session_use=twitter_archive`
+顶层 POST 新鲜 Peer JWT；目标由浏览器 Host/Auth 根据所选 Peer 的 live
+lease、`inkcre.twitter.x-monkey.session.v1` 能力广告和该 Peer 公共基址及路径前缀派生，Twitter
+UI 只提交连接意图。Core 为相同完整 Peer 权限签发带 `session_use=twitter_archive`
 的会话 JWT，Cookie 路径不构成降权。Cookie 为 Secure、HttpOnly、SameSite=None，要求正式链路使用 HTTPS；普通 Core 保护路由不读取它。
+
+Python Twitter 只在 session 路由就绪且配置 HTTPS 公共基址时广告该能力，协议为
+`core.peer.protocol.browser-form.v1`，参数为
+`{"method":"POST","path":"/twitter/x-monkey/session","credential_field":"token"}`。停用随路由撤回广告；setup 响应中的服务地址仍供用户复制，连接按钮独立取决于所选 Peer 的能力广告，不能用展示地址代替 Host 的凭据投递目标校验。发起导航只返回
+`initiated`，会话是否建立仍由账户页及脚本检测确认。此交接需要 Web Host SDK
+`@inkcre/core >=0.4.1 <0.5.0`，Python Host 最低范围保持不变。
 
 ## x-monkey 寿命配置
 
@@ -91,3 +99,6 @@ config 当前为空对象。普通采集通过既有 Source Job 执行，参数�
 
 媒体只保存原生元数据，Python 写入不创建持久图片/视频内容 Block、媒体 blob 或下载 Job。只有消费端明确展开时才通过现有 HTTP
 Storage 读取源站字节。词法索引维护独立执行，不在 submit 或 collect 中隐式完成。
+
+持久内容由 Twitter 自有共同模型拥有，x-monkey 固定 DTO 在适配边界转换。官方 API 和 Twikit 只投影当前支持的字段，不保存全部原始响应。消费端选择图片或最高码率的可用 MP4 后，由通用 HTTP
+Storage 负责 HTTP(S)、超时、体积与重定向；Twitter 不另设 CDN 或固定端口限制。

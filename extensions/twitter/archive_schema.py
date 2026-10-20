@@ -1,4 +1,4 @@
-"""Native x-monkey archive records and remote database wire contracts."""
+"""Fixed x-monkey 0.2.0 DTOs; these do not define Twitter persisted semantics."""
 
 from __future__ import annotations
 

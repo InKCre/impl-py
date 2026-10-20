@@ -20,8 +20,8 @@ description: 通过 x-monkey 保存帖子，或采集自己的 X 书签，并在
 先[连接 InKCre](https://inkcre.dev/guide/connect)，再在实际执行能力的 Peer 上安装、启用兼容的 Distribution。Core 运行 Python 分发，负责协议接入和 Bookmark 采集；Web 的 Module
 Federation 分发提供 Setup 和内容视图。它们独立选择版本，不要求版本数字相同。
 
-Python 分发要求 Core Host SDK
-`>=0.3.1 <0.4.0`。Web 分发也须满足其宿主兼容范围；仅安装扩展并不表示它已经在所选 Peer 上运行。x-monkey 和 OAuth 回调需要浏览器可访问的 Core 公共 HTTPS 地址，完整地址由所选 Core 的 Setup 提供。
+Python 分发要求 Core Host SDK `>=0.3.1 <0.4.0`，Web 分发要求 `@inkcre/core` Host SDK
+`>=0.4.1 <0.5.0`。仅安装扩展并不表示它已经在所选 Peer 上运行。x-monkey 和 OAuth 回调需要浏览器可访问的 Core 公共 HTTPS 地址，完整地址由所选 Core 的 Setup 提供。
 
 运行人员可从同一 Release 的 Registry 文档入口选择 **Python** scope，查看运行配置、采集参数和 setup
 API；本组 **global** 文档说明用户工作流。不同 scope 是独立文档站，不通过拼接 URL 切换。
@@ -29,6 +29,8 @@ API；本组 **global** 文档说明用户工作流。不同 scope 是独立文�
 ## 已保存的内容与限制
 
 本版本保存原生帖子、作者、媒体元数据和已捕获引用，不自动转存图片或视频文件。只有用户明确加载媒体时才读取源站字节；源站失效后，文字和元数据仍保留。具体行为见[媒体边界](./reading.md#媒体按需读取)。
+
+保存内容采用 Twitter 扩展自己的共同模型。各入口只写入当前适配器已支持的源事实，不保存官方 API 或 Twikit 的完整原始响应；未知且未映射的字段不能当作已经归档的信息。
 
 x-monkey 接入不提供远端历史浏览、搜索恢复或未捕获线程补抓。Bookmark 的一次 Job 读取一页，不保证全量回填或同步删除。采集完成与检索索引维护是两个动作，新增内容需要按既有流程维护索引后再搜索。
 

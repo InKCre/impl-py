@@ -7,8 +7,8 @@ from app.business.source import SourceBase
 from app.persistence.source.uow import source_uow
 from app.schemas.job import JobModel
 from .api import TwitterAPI
-from .archive_schema import ArchiveBatch
-from .reconcile import persist_archive
+from .model import TwitterBatch
+from .reconcile import persist_twitter
 
 
 class SourceConfig(sqlmodel.SQLModel):
@@ -24,7 +24,7 @@ class CollectConfig(pydantic.BaseModel):
   result_limit: int = pydantic.Field(default=40, ge=5, le=100)
 
 
-def _selected_batch(batch: ArchiveBatch, primary_ids: tuple[str, ...]) -> ArchiveBatch:
+def _selected_batch(batch: TwitterBatch, primary_ids: tuple[str, ...]) -> TwitterBatch:
   posts = {post.id: post for post in batch.posts}
   selected = set(primary_ids)
   pending = list(primary_ids)
@@ -47,7 +47,7 @@ def _selected_batch(batch: ArchiveBatch, primary_ids: tuple[str, ...]) -> Archiv
       media_ids.update(post.article.mediaIds or ())
       if post.article.coverMediaId is not None:
         media_ids.add(post.article.coverMediaId)
-  return ArchiveBatch(
+  return TwitterBatch(
     posts=chosen,
     users=[user for user in batch.users if user.id in authors],
     media=[media for media in batch.media if media.id in media_ids],
@@ -96,10 +96,10 @@ class Source(
         if latest_id in primary_ids:
           selected = primary_ids[: primary_ids.index(latest_id)]
       if selected:
-        await persist_archive(
+        await persist_twitter(
           _selected_batch(bookmarks_res.batch, selected),
           uow.graph,
-          preserve_existing_text=True,
+          text_policy="supplement",
         )
       if not full and primary_ids:
         source.state = {
