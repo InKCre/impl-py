@@ -26,7 +26,11 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 
 Python 的 v2 Post 文本投影包含原帖 ID、链接、已捕获作者、正文和长文；User/Media 投影使用自身已经捕获的文字。label 保持 Block-local，不为投影或标签下载媒体。检索沿用现有独立索引维护流程，不在提交中隐式维护索引。
 
-Python Twitter 仅在 session 路由实际注册且具有 HTTPS 公共基址时广告 `inkcre.twitter.x-monkey.session.v1`，使用 `core.peer.protocol.browser-form.v1`，参数为 `method=POST`、`path=/twitter/x-monkey/session`、`credential_field=token`。Host/Auth 根据 selected Peer、有效 lease 和广告，从该 Peer 的 `http_public_base_url` 保留部署前缀派生 HTTPS 目标，内部签发新鲜 JWT 并发起顶层表单导航。`setup.x_monkey_base_url` 仍供用户复制展示，连接按钮是否可用独立取决于精确能力广告，展示值不决定凭据投递目标。Twitter UI 只提交连接意图，不接触 JWT 或任意目标 URL；返回 `initiated` 表示导航已启动，尚不能确认 Cookie 已连接。七天 Cookie 默认期限与协议续签仍由 Python Twitter 拥有。
+Python Twitter 在 `/twitter/x-monkey/account` 自托管连接页面。用户只在自己信任的 HTTPS 部署输入已有 `JWT_SECRET`，页面使用 WebCrypto HMAC SHA-256 本地签发 60 秒普通 Peer JWT，再以同 Origin Bearer 和 JSON `{}` 请求 `POST /twitter/x-monkey/session`。该路由复用 `require_peer_jwt`，拒绝非 Core Origin、非 JSON 和带 `session_use` 的凭据，返回 `SessionResponse` JSON 并建立归档 Cookie。页面随后 GET `api/v1/session`，确认 Cookie 的 `authenticated=true` 后才显示 `Connected`、Peer 和到期时间。
+
+账户页以随机 nonce CSP 限定脚本，`connect-src 'self'` 限定连接目标。JWT 不进入 URL，密钥不持久化或发送给服务器。页面不加载第三方脚本，不接受任意回跳；浏览器内签名不使恶意或被篡改页面安全。
+
+连接不要求 Web 或 MF 分发。`setup.x_monkey_base_url` 继续供用户复制，Web Setup 只提供通向该 Core 账户页的普通链接，不持有此连接流程的密钥、JWT 签发或凭据传输逻辑。账户页显示 Peer 与到期时间，脚本通过会话检测确认连接。七天 Cookie 默认期限与协议续签仍由 Python Twitter 拥有。
 
 候选验证脚本与 fixture 放在 `scripts/tests/twitter`，默认 pytest 与 CI 不收集。离线合同与 HTTP 边界验证入口为 `pdm run python -m pytest -q scripts/tests/twitter/test_archive_contract.py scripts/tests/twitter/test_archive_http.py`；显式运行整个目录可用 `pdm run python -m pytest -q scripts/tests/twitter`。
 

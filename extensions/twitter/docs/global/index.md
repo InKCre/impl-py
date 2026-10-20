@@ -7,21 +7,22 @@ description: 通过 x-monkey 保存帖子，或采集自己的 X 书签，并在
 `inkcre/twitter`
 把 X 上的信息保存到共享 info-base，提供两种独立入口。保存后的帖子、作者和媒体元数据属于信息库，不依赖采集脚本或某个 Peer 持续运行。
 
-| 你要做什么                 | 使用路径                              | 需要的授权                                                         |
-| -------------------------- | ------------------------------------- | ------------------------------------------------------------------ |
-| 保存浏览时已捕获的帖子     | [连接 x-monkey](./x-monkey.md)        | 现有 InKCre Peer JWT 会话，不需要 X OAuth 应用。                   |
-| 定期采集自己的书签         | [授权与采集 Bookmark](./bookmarks.md) | X OAuth 应用、自己的 X 账号授权，以及 Source 和采集 Job。          |
-| 保存后找回、阅读和查看媒体 | [检索、阅读与媒体](./reading.md)      | 已连接同一 info-base 的 InKCre 界面，以及兼容的 Twitter 阅读分发。 |
+| 你要做什么                 | 使用路径                              | 需要的授权                                                            |
+| -------------------------- | ------------------------------------- | --------------------------------------------------------------------- |
+| 保存浏览时已捕获的帖子     | [连接 x-monkey](./x-monkey.md)        | 在自己的 Core 账户页使用现有 `JWT_SECRET` 连接，不需要 X OAuth 应用。 |
+| 定期采集自己的书签         | [授权与采集 Bookmark](./bookmarks.md) | X OAuth 应用、自己的 X 账号授权，以及 Source 和采集 Job。             |
+| 保存后找回、阅读和查看媒体 | [检索、阅读与媒体](./reading.md)      | 已连接同一 info-base 的 InKCre 界面，以及兼容的 Twitter 阅读分发。    |
 
 两种入口按原生帖子 ID 补充同一份信息。已捕获的正文、长文、作者和上下文可以继续使用；缺少的内容不会被编造，也不会在阅读时补抓完整线程。
 
 ## 先准备扩展
 
-先[连接 InKCre](https://inkcre.dev/guide/connect)，再在实际执行能力的 Peer 上安装、启用兼容的 Distribution。Core 运行 Python 分发，负责协议接入和 Bookmark 采集；Web 的 Module
-Federation 分发提供 Setup 和内容视图。它们独立选择版本，不要求版本数字相同。
+在实际执行能力的 Peer 上安装、启用兼容的 Distribution。Core 运行 Python 分发，负责协议接入、x-monkey 账户页和 Bookmark 采集；Web 的 Module
+Federation 分发提供 Setup 和内容视图。x-monkey 可以直接从 Core 账户页连接，不要求安装 Web 分发；需要在 Web 中配置或阅读时，先[连接 InKCre](https://inkcre.dev/guide/connect)。各分发独立选择版本，不要求版本数字相同。
 
 Python 分发要求 Core Host SDK `>=0.3.1 <0.4.0`，Web 分发要求 `@inkcre/core` Host SDK
-`>=0.4.1 <0.5.0`。仅安装扩展并不表示它已经在所选 Peer 上运行。x-monkey 和 OAuth 回调需要浏览器可访问的 Core 公共 HTTPS 地址，完整地址由所选 Core 的 Setup 提供。
+`>=0.4.0 <0.5.0`。仅安装扩展并不表示它已经在所选 Peer 上运行。x-monkey 和 OAuth 回调需要浏览器可访问的 Core 公共 HTTPS 地址；服务地址保留部署路径前缀，Web
+Setup 也可以提供地址供复制。
 
 运行人员可从同一 Release 的 Registry 文档入口选择 **Python** scope，查看运行配置、采集参数和 setup
 API；本组 **global** 文档说明用户工作流。不同 scope 是独立文档站，不通过拼接 URL 切换。
@@ -34,4 +35,4 @@ API；本组 **global** 文档说明用户工作流。不同 scope 是独立文�
 
 x-monkey 接入不提供远端历史浏览、搜索恢复或未捕获线程补抓。Bookmark 的一次 Job 读取一页，不保证全量回填或同步删除。采集完成与检索索引维护是两个动作，新增内容需要按既有流程维护索引后再搜索。
 
-操作截图来自隔离预览，连接时使用自己 Setup 显示的服务地址。
+操作截图来自隔离预览，连接时使用自己的 Core 服务地址，不照抄截图中的预览域名。

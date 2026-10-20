@@ -52,26 +52,98 @@ def test_session_lifetime_defaults_to_seven_days_and_supports_environment_overri
   assert overridden.twitter_x_monkey_jwt_lifetime_seconds == 3600
 
 
-def test_connect_exchanges_peer_token_for_scoped_http_only_cookie(archive_client):
+def test_connect_exchanges_same_origin_bearer_for_scoped_cookie(archive_client):
   response = archive_client.post(
     "/twitter/x-monkey/session",
-    data={"token": create_peer_jwt(settings.jwt_secret)},
+    json={},
     headers={
-      "Origin": "https://web.example",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Dest": "document",
+      "Origin": "https://core.example",
+      "Authorization": (
+        f"Bearer {create_peer_jwt(settings.jwt_secret, lifetime_seconds=60)}"
+      ),
     },
-    follow_redirects=False,
   )
 
-  assert response.status_code == 303
-  assert (
-    response.headers["location"] == "https://core.example/prefix/twitter/x-monkey/account"
-  )
+  assert response.status_code == 200
+  assert response.json()["authenticated"] is True
   cookie = response.headers["set-cookie"]
   assert "inkcre_twitter_archive=" in cookie
   assert "HttpOnly" in cookie and "Secure" in cookie and "samesite=none" in cookie.lower()
   assert "Path=/prefix/twitter/x-monkey/" in cookie
+  readback = archive_client.get(
+    "/twitter/x-monkey/api/v1/session",
+    headers={"Cookie": cookie.split(";", 1)[0]},
+  )
+  assert readback.status_code == 200
+  assert readback.json()["authenticated"] is True
+
+
+def test_session_exchange_rejects_non_peer_or_cross_origin_credentials(archive_client):
+  session_cookie = _session_cookie()
+  missing_bearer = archive_client.post(
+    "/twitter/x-monkey/session",
+    json={},
+    headers={
+      "Origin": "https://core.example",
+      "Cookie": f"{archive_session.SESSION_COOKIE_NAME}={session_cookie}",
+    },
+  )
+  assert missing_bearer.status_code == 401
+
+  session_as_bearer = archive_client.post(
+    "/twitter/x-monkey/session",
+    json={},
+    headers={
+      "Origin": "https://core.example",
+      "Authorization": f"Bearer {session_cookie}",
+    },
+  )
+  assert session_as_bearer.status_code == 401
+
+  foreign_origin = archive_client.post(
+    "/twitter/x-monkey/session",
+    json={},
+    headers={
+      "Origin": "https://attacker.example",
+      "Authorization": f"Bearer {create_peer_jwt(settings.jwt_secret)}",
+    },
+  )
+  assert foreign_origin.status_code == 403
+
+
+def test_account_page_uses_nonce_csp_and_only_same_origin_webcrypto(archive_client):
+  response = archive_client.get("/twitter/x-monkey/account")
+  assert response.status_code == 200
+  assert 'id="jwt-secret" type="password"' in response.text
+  assert "JWT_SECRET" in response.text
+  assert '<p id="connection-status" role="status">尚未连接。</p>' in response.text
+  assert "status.textContent = 'Connected'" in response.text
+  assert "crypto.subtle" in response.text
+  assert "exp: now + 60" in response.text
+  assert "fetch('./session'" in response.text
+  assert "fetch('./api/v1/session'" in response.text
+  assert "localStorage" not in response.text and "sessionStorage" not in response.text
+  csp = response.headers["content-security-policy"]
+  nonce = response.text.split('<script nonce="', 1)[1].split('"', 1)[0]
+  assert f"script-src 'nonce-{nonce}'" in csp
+  assert "connect-src 'self'" in csp
+  assert "unsafe-inline" not in csp
+  assert "<script src=" not in response.text
+
+
+def test_account_page_shows_peer_and_expiry_for_an_existing_session(archive_client):
+  token = _session_cookie()
+  claims = archive_session._decode_peer_token(token)
+  assert claims is not None
+  response = archive_client.get(
+    "/twitter/x-monkey/account",
+    headers={"Cookie": f"{archive_session.SESSION_COOKIE_NAME}={token}"},
+  )
+
+  assert response.status_code == 200
+  assert '<p id="connection-status" role="status">Connected</p>' in response.text
+  assert f"InKCre Peer: {settings.peer_name}" in response.text
+  assert archive_session._format_expiry(claims["exp"]) in response.text
 
 
 def test_session_get_needs_no_json_or_client_header_and_accepts_extension_origin(

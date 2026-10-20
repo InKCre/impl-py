@@ -9,8 +9,6 @@ import html
 import secrets
 import typing
 import uuid
-from dataclasses import dataclass
-from urllib.parse import urlsplit
 
 from authlib.integrations.base_client.errors import OAuthError  # pyrefly: ignore[untyped-import]
 from authlib.integrations.httpx_client import (  # pyrefly: ignore[untyped-import]
@@ -23,11 +21,6 @@ import httpx
 import pydantic
 from app.business.peer import PeerHTTPInbound, PeerManager
 from app.middleware import require_peer_jwt
-from app.schemas.peer import (
-  CorePeerConfig,
-  PeerCapabilityAdvertisement,
-  PeerInboundInterface,
-)
 
 
 if typing.TYPE_CHECKING:
@@ -35,44 +28,12 @@ if typing.TYPE_CHECKING:
 
 
 TWITTER_SETUP_STATUS_CAPABILITY = "inkcre.twitter.setup.status.v1"
-TWITTER_X_MONKEY_SESSION_CAPABILITY = "inkcre.twitter.x-monkey.session.v1"
 TWITTER_OAUTH_APP_CONFIGURE_CAPABILITY = "inkcre.twitter.oauth-app.configure.v1"
 TWITTER_OAUTH_BEGIN_CAPABILITY = "inkcre.twitter.oauth.begin.v1"
 TWITTER_OAUTH_TRANSACTION_READ_CAPABILITY = "inkcre.twitter.oauth.transaction.read.v1"
 TWITTER_OAUTH_DISCONNECT_CAPABILITY = "inkcre.twitter.oauth.disconnect.v1"
-PEER_BROWSER_FORM_PROTOCOL = "core.peer.protocol.browser-form.v1"
-
-
-@dataclass(frozen=True)
-class TwitterSessionBrowserFormInbound:
-  """Advertise the extension-owned session receiver to a browser Peer Host."""
-
-  capability: str = TWITTER_X_MONKEY_SESSION_CAPABILITY
-  path: str = "/twitter/x-monkey/session"
-  credential_field: str = "token"
-
-  def advertise(self, config: CorePeerConfig) -> PeerCapabilityAdvertisement | None:
-    if (
-      not config.http_public_base_url
-      or urlsplit(config.http_public_base_url).scheme != "https"
-    ):
-      return None
-    return PeerCapabilityAdvertisement(
-      id=self.capability,
-      inbound=PeerInboundInterface(
-        protocol=PEER_BROWSER_FORM_PROTOCOL,
-        parameters={
-          "method": "POST",
-          "path": self.path,
-          "credential_field": self.credential_field,
-        },
-      ),
-    )
-
-
 TWITTER_SETUP_INBOUNDS = (
   PeerHTTPInbound(TWITTER_SETUP_STATUS_CAPABILITY, "GET", "/twitter/setup"),
-  TwitterSessionBrowserFormInbound(),
   PeerHTTPInbound(
     TWITTER_OAUTH_APP_CONFIGURE_CAPABILITY, "PUT", "/twitter/setup/oauth-app"
   ),

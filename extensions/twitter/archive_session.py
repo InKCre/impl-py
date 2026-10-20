@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import html
+import secrets
 import time
 import re
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import urlsplit
 
 import fastapi
 import jwt
-from fastapi import Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Depends, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.business.peer import PeerManager
 from app.database_contract.constants import (
@@ -20,15 +21,16 @@ from app.database_contract.constants import (
   JWT_ISSUER,
   JWT_ROLE,
 )
-from app.middleware import decode_peer_jwt
+from app.middleware import decode_peer_jwt, require_peer_jwt
 from app.settings import settings
+from .archive_schema import SessionResponse
 
 SESSION_USE_CLAIM = "session_use"
 SESSION_USE_TWITTER_ARCHIVE = "twitter_archive"
 SESSION_COOKIE_NAME = "inkcre_twitter_archive"
 SESSION_COOKIE_PATH_SUFFIX = "/twitter/x-monkey/"
 SESSION_RENEWAL_REMAINING_FRACTION = 0.5
-MAX_CONNECT_FORM_BYTES = 8 * 1024
+CONNECT_PEER_TOKEN_LIFETIME_SECONDS = 60
 
 router = fastapi.APIRouter()
 
@@ -130,7 +132,10 @@ def renew_session_if_needed(
   return expires_at
 
 
-def _html_page(body: str, *, status_code: int = 200) -> HTMLResponse:
+def _html_page(
+  body: str, *, status_code: int = 200, script_nonce: str | None = None
+) -> HTMLResponse:
+  script_policy = f"script-src 'nonce-{script_nonce}'; " if script_nonce else ""
   return HTMLResponse(
     f"""<!doctype html>
 <html lang="zh-CN">
@@ -142,7 +147,8 @@ def _html_page(body: str, *, status_code: int = 200) -> HTMLResponse:
     headers={
       "Cache-Control": "no-store",
       "Content-Security-Policy": (
-        "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+        f"default-src 'none'; {script_policy}connect-src 'self'; form-action 'self'; "
+        "base-uri 'none'; frame-ancestors 'none'"
       ),
       "Referrer-Policy": "no-referrer",
       "X-Content-Type-Options": "nosniff",
@@ -209,79 +215,165 @@ def _is_top_level_navigation(request: Request) -> bool:
   )
 
 
-async def _connect_form_token(request: Request) -> str | None:
+@router.post("/session", response_model=SessionResponse)
+async def connect_session(
+  request: Request,
+  response: Response,
+  claims: dict = Depends(require_peer_jwt),
+):
+  if _request_origin(request) != await _core_origin():
+    return JSONResponse({"error": "same-origin request required"}, status_code=403)
+  if SESSION_USE_CLAIM in claims:
+    return JSONResponse({"error": "ordinary Peer credential required"}, status_code=401)
   content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-  if content_type != "application/x-www-form-urlencoded":
-    return None
-  body = await request.body()
-  if not body or len(body) > MAX_CONNECT_FORM_BYTES:
-    return None
-  try:
-    fields = parse_qsl(
-      body.decode("utf-8"),
-      keep_blank_values=True,
-      strict_parsing=True,
-      max_num_fields=2,
-      encoding="utf-8",
-      errors="strict",
-    )
-  except (UnicodeDecodeError, ValueError):
-    return None
-  if len(fields) != 1 or fields[0][0] != "token" or not fields[0][1]:
-    return None
-  return fields[0][1]
-
-
-@router.post("/session")
-async def connect_session(request: Request):
-  origin = _request_origin(request)
-  if (
-    origin is None
-    or not origin.startswith(("http://", "https://"))
-    or not _is_top_level_navigation(request)
-  ):
-    return _html_page("<p>请从 InKCre Web 的 Twitter 设置发起连接。</p>", status_code=403)
-
-  token = await _connect_form_token(request)
-  claims = _decode_peer_token(token) if token else None
-  if claims is None or SESSION_USE_CLAIM in claims:
-    return _html_page(
-      "<p>连接凭据无效或已失效，请返回 InKCre Web 重新连接。</p>", status_code=401
-    )
+  if content_type != "application/json":
+    return JSONResponse({"error": "application/json required"}, status_code=415)
 
   base_url = await x_monkey_base_url()
   if base_url is None:
-    return _html_page(
-      "<p>Core 尚未配置公共 HTTPS 地址，无法建立连接。</p>", status_code=503
-    )
+    return JSONResponse({"error": "public Core URL is not configured"}, status_code=503)
 
   token, expires_at = _issue_session_token()
-  response = RedirectResponse(f"{base_url}/account", status_code=303)
   _set_session_cookie(response, token=token, expires_at=expires_at, base_url=base_url)
-  return response
+  response.headers["Cache-Control"] = "no-store"
+  response.headers["X-Content-Type-Options"] = "nosniff"
+  return SessionResponse(
+    authenticated=True,
+    registered=True,
+    username=settings.peer_name,
+    expires_at=_format_expiry(expires_at),
+    account_url=f"{base_url}/account",
+  )
 
 
 @router.get("/account", response_class=HTMLResponse)
 async def account_page(request: Request):
   claims = _decode_session_cookie(request)
   base_url = await x_monkey_base_url()
-  if claims is None:
-    return _html_page(
-      "<p>尚未连接。请打开已连接此 InKCre 部署的 Web，"
-      "在 Twitter 设置中点击“连接 x-monkey”，然后返回脚本检测连接。</p>"
+  nonce = secrets.token_urlsafe(18)
+  connected_state = (
+    '<p id="connection-status" role="status">Connected</p>'
+    f'<p id="connection-peer">InKCre Peer: {html.escape(settings.peer_name)}</p>'
+    if claims is not None
+    else '<p id="connection-status" role="status">尚未连接。</p>'
+    '<p id="connection-peer" hidden></p>'
+  )
+  expiry = (
+    f'<p id="connection-expiry">会话到期时间：<time id="session-expires-at">'
+    f"{html.escape(_format_expiry(int(claims['exp'])))}</time></p>"
+    if claims is not None
+    else (
+      '<p id="connection-expiry" hidden>会话到期时间：'
+      '<time id="session-expires-at"></time></p>'
     )
-
-  expires_at = int(claims["exp"])
-  if base_url is None:
-    return _html_page("<p>连接有效，但 Core 公共 HTTPS 地址未配置。</p>", status_code=503)
-  action = html.escape(f"{base_url}/disconnect", quote=True)
-  expiry = html.escape(_format_expiry(expires_at))
-  return _html_page(
-    f"<p>已连接 InKCre Peer：{html.escape(settings.peer_name)}</p>"
-    f"<p>会话到期时间：<time>{expiry}</time></p>"
-    f'<form method="post" action="{action}">'
+  )
+  disconnect = (
+    f'<form method="post" action="{html.escape(base_url + "/disconnect", quote=True)}">'
     '<button type="submit">断开此浏览器</button></form>'
-    "<p>断开只清除此浏览器中的会话，不会删除已保存的信息。</p>"
+    if base_url
+    else ""
+  )
+  script = r"""
+<script nonce="__NONCE__">
+(() => {
+  const input = document.getElementById('jwt-secret');
+  const button = document.getElementById('connect');
+  const status = document.getElementById('connection-status');
+  const peer = document.getElementById('connection-peer');
+  const expiry = document.getElementById('connection-expiry');
+  const expiresAt = document.getElementById('session-expires-at');
+  const encoder = new TextEncoder();
+  const base64url = (bytes) => {
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
+  };
+  const encode = (value) => base64url(encoder.encode(JSON.stringify(value)));
+  const sign = async (secret) => {
+    const now = Math.floor(Date.now() / 1000);
+    const unsigned = `${encode({alg: 'HS256', typ: 'JWT'})}.${encode({
+      role: '__JWT_ROLE__', iss: '__JWT_ISSUER__', aud: '__JWT_AUDIENCE__',
+      iat: now, exp: now + __JWT_LIFETIME__
+    })}`;
+    const key = await crypto.subtle.importKey(
+      'raw', encoder.encode(secret), {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']
+    );
+    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(unsigned));
+    return `${unsigned}.${base64url(new Uint8Array(signature))}`;
+  };
+  button.addEventListener('click', async () => {
+    const secret = input.value;
+    input.value = '';
+    if (!secret) {
+      status.textContent = '请输入 JWT_SECRET。';
+      return;
+    }
+    if (!window.isSecureContext || !globalThis.crypto?.subtle) {
+      status.textContent = '连接需要 HTTPS 安全页面与 WebCrypto。';
+      return;
+    }
+    button.disabled = true;
+    status.textContent = '正在连接…';
+    let credential = '';
+    try {
+      credential = await sign(secret);
+      const response = await fetch('./session', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Authorization': `Bearer ${credential}`,
+          'Content-Type': 'application/json'
+        },
+        body: '{}'
+      });
+      if (!response.ok) throw new Error('connect');
+      const sessionResponse = await fetch('./api/v1/session', {
+        credentials: 'same-origin',
+        headers: {'Accept': 'application/json'}
+      });
+      const session = await sessionResponse.json();
+      if (!sessionResponse.ok || session.authenticated !== true) throw new Error('session');
+      status.textContent = 'Connected';
+      peer.textContent = session.username ? `InKCre Peer: ${session.username}` : '';
+      peer.hidden = !session.username;
+      expiresAt.textContent = session.expires_at || '';
+      expiry.hidden = !session.expires_at;
+    } catch {
+      status.textContent = '连接失败。请确认 JWT_SECRET 与当前 InKCre 部署匹配后重试。';
+    } finally {
+      credential = '';
+      input.value = '';
+      button.disabled = false;
+    }
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      button.click();
+    }
+  });
+})();
+</script>"""
+  for placeholder, value in (
+    ("__NONCE__", nonce),
+    ("__JWT_ROLE__", JWT_ROLE),
+    ("__JWT_ISSUER__", JWT_ISSUER),
+    ("__JWT_AUDIENCE__", JWT_AUDIENCE),
+    ("__JWT_LIFETIME__", str(CONNECT_PEER_TOKEN_LIFETIME_SECONDS)),
+  ):
+    script = script.replace(placeholder, value)
+  return _html_page(
+    connected_state
+    + expiry
+    + "<h2>连接 x-monkey</h2>"
+    + '<label for="jwt-secret">JWT_SECRET</label>'
+    + '<input id="jwt-secret" type="password" autocomplete="off" spellcheck="false">'
+    + '<button id="connect" type="button">Connect</button>'
+    + "<p>密钥只在此页面内存中用于签发短时 Peer JWT，不会保存。</p>"
+    + disconnect
+    + "<p>断开只清除此浏览器中的会话，不会删除已保存的信息。</p>"
+    + script,
+    script_nonce=nonce,
   )
 
 

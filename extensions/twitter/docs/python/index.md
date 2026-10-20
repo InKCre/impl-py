@@ -4,8 +4,9 @@ description: Twitter Python 分发的宿主要求、公共地址、授权配置�
 
 # Core 运行与配置
 
-Python 分发在所选 Core 上提供 x-monkey 归档协议、Bookmark Source 及 Twitter Resolver。它不包含 Web
-Setup 或阅读界面；用户工作流由本扩展的 **global** 文档说明，Web 另选兼容的 Module Federation 分发。
+Python 分发在所选 Core 上提供 x-monkey 归档协议与自托管账户页、Bookmark Source 及 Twitter
+Resolver。连接 x-monkey 不要求 Web 分发；需要 Web Setup 或阅读界面时，再选择兼容的 Module
+Federation 分发。用户工作流由本扩展的 **global** 文档说明。
 
 Python 分发要求 Python `>=3.12,<3.13` 和 Core Host SDK
 `>=0.3.1 <0.4.0`。选择精确分发、启用意图和实际运行属于相应 Peer；扩展配置与账号状态由部署共享。
@@ -14,8 +15,8 @@ Python 分发要求 Python `>=3.12,<3.13` 和 Core Host SDK
 
 在执行该能力的 Core Peer 配置
 `http_public_base_url`，使用浏览器或脚本实际可访问的 HTTPS 基址。Setup 由此产生
-`/twitter/auth/callback` 和 `/twitter/x-monkey`
-地址，保留部署路径前缀。不要使用 PostgREST 地址代替 Core 地址，也不要把预览环境地址作为其他部署的默认值。
+`/twitter/auth/callback` 和 `/twitter/x-monkey` 地址，x-monkey 账户页位于后者的
+`/account`；所有地址保留部署路径前缀。不要使用 PostgREST 地址代替 Core 地址，也不要把预览环境地址作为其他部署的默认值。
 
 启用 Python 分发后才会注册 Source、Resolver 和 HTTP 路由；停用撤回入口，不删除已保存的图信息。Web 独立启用不会让离线 Core 执行采集，安装状态也不等于实际运行状态。多 Peer 可以具备采集能力，但同一 Source 不应配置重复的采集计划。
 
@@ -63,17 +64,22 @@ Sources。
 
 x-monkey 的
 `/twitter/x-monkey/api/v1/session`、`/twitter/x-monkey/api/v1/archive/query`、`/twitter/x-monkey/api/v1/archive/submit`
-使用协议专用 Cookie，与以上 Bearer 路由分开。首次连接由 Web 向 `/twitter/x-monkey/session`
-顶层 POST 新鲜 Peer JWT；目标由浏览器 Host/Auth 根据所选 Peer 的 live
-lease、`inkcre.twitter.x-monkey.session.v1` 能力广告和该 Peer 公共基址及路径前缀派生，Twitter
-UI 只提交连接意图。Core 为相同完整 Peer 权限签发带 `session_use=twitter_archive`
+使用协议专用 Cookie，与以上 Bearer 路由分开。首次连接从 Core 自托管的
+`GET /twitter/x-monkey/account` 开始：用户在可信部署页面输入现有
+`JWT_SECRET`，页面用 WebCrypto 在浏览器内签发 60 秒的普通 Peer JWT，并以同 Origin
+`Authorization: Bearer` 和 JSON `{}` 请求 `POST /twitter/x-monkey/session`。该路由复用
+`require_peer_jwt`，要求 Origin 精确匹配 Core 且 JWT 不带
+`session_use`。Core 为相同完整 Peer 权限签发带 `session_use=twitter_archive`
 的会话 JWT，Cookie 路径不构成降权。Cookie 为 Secure、HttpOnly、SameSite=None，要求正式链路使用 HTTPS；普通 Core 保护路由不读取它。
 
-Python Twitter 只在 session 路由就绪且配置 HTTPS 公共基址时广告该能力，协议为
-`core.peer.protocol.browser-form.v1`，参数为
-`{"method":"POST","path":"/twitter/x-monkey/session","credential_field":"token"}`。停用随路由撤回广告；setup 响应中的服务地址仍供用户复制，连接按钮独立取决于所选 Peer 的能力广告，不能用展示地址代替 Host 的凭据投递目标校验。发起导航只返回
-`initiated`，会话是否建立仍由账户页及脚本检测确认。此交接需要 Web Host SDK
-`@inkcre/core >=0.4.1 <0.5.0`，Python Host 最低范围保持不变。
+连接路由返回 `200 SessionResponse` JSON 和 Cookie。页面随后请求
+`GET /twitter/x-monkey/api/v1/session`，确认 `authenticated=true` 后才显示
+**Connected**、Peer 与到期时间；不能只凭 POST 成功认为浏览器已接受 Cookie。
+
+账户页用随机 nonce 限定脚本，CSP 的 `connect-src 'self'`
+只允许同源请求。它不持久化或经网络发送密钥，不加载第三方脚本，不接受任意回跳；密钥输入与签名由该部署提供的页面拥有，只应信任自己确认的 HTTPS 页面。页面被篡改时，本地签名不能保护输入。用户完成后返回脚本再次检测。可选的 Web
+Setup 仅展示 `x_monkey_base_url` 和账户页普通链接，不参与签名或凭据传递。Web 分发的 Host SDK 范围为
+`@inkcre/core >=0.4.0 <0.5.0`，Python Host 范围保持不变。
 
 ## x-monkey 寿命配置
 
