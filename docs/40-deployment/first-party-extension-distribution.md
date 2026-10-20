@@ -147,7 +147,10 @@ Core Host SDK 0.3 adds `app.http.get_public_http_base_url()` without changing th
 or persistence API. Its authority is `app/version.py`, independently of the Core service package
 version in `pyproject.toml`; preparing a service Release PR does not change the Host SDK version.
 
-GitHub, Learn English, Mail, RSS, Telegram, and Twitter retain their SDK 0.2 lower bound and support
+Core Host SDK 0.3.1 adds batched JSON identity lookup and transaction advisory locking to the
+existing Graph repository. Twitter archive reconciliation requires `>=0.3.1 <0.4.0`.
+
+GitHub, Learn English, Mail, RSS, and Telegram retain their SDK 0.2 lower bound and support
 SDK 0.3 through `>=0.2.0 <0.4.0`. Memos uses the new HTTP address API and requires
 `>=0.3.0 <0.4.0`. Compatibility metadata changes require new immutable Extension
 releases; an old wheel's range must not be widened. Before upgrading a deployment, disable affected

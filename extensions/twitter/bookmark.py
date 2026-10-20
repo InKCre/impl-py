@@ -3,16 +3,12 @@
 import pydantic
 import sqlmodel
 import typing
-from app.business.info_base.commands import persist_stars
-from app.business.info_base.resolver import ImageResolver, VideoResolver, HTMLResolver
 from app.business.source import SourceBase
 from app.persistence.source.uow import source_uow
-from app.schemas.info_base.main import OutArcForm, StarsGraphForm
-from app.schemas.info_base.relation import RelationForm
 from app.schemas.job import JobModel
 from .api import TwitterAPI
-from .resolver import TweetResolver
-from .schema import Tweet
+from .model import TwitterBatch
+from .reconcile import persist_twitter
 
 
 class SourceConfig(sqlmodel.SQLModel):
@@ -28,51 +24,33 @@ class CollectConfig(pydantic.BaseModel):
   result_limit: int = pydantic.Field(default=40, ge=5, le=100)
 
 
-def _video_url(video) -> str | None:
-  supported = tuple(
-    variant
-    for variant in video.variants
-    if variant.url and variant.content_type in {None, "video/mp4"}
-  )
-  selected = max(supported, key=lambda variant: variant.bitrate or -1, default=None)
-  return selected.url if selected is not None else None
-
-
-def tweet_to_graph(tweet) -> StarsGraphForm:
-  """Map one Twitter API DTO into the persisted root and relation-owned links."""
-  canonical = Tweet(
-    id=tweet.id,
-    user_id=tweet.user_id,
-    conversation_id=tweet.conversation_id,
-    quote=tweet.quote,
-    text=tweet.text,
-  )
-  videos = tuple(
-    (video, url) for video in tweet.videos if (url := _video_url(video)) is not None
-  )
-  return StarsGraphForm(
-    block=TweetResolver.create_block(canonical),
-    out_arcs=tuple(
-      OutArcForm(
-        relation=RelationForm(content=f"attachment:photo:{photo.id}"),
-        to_graph=ImageResolver.create_graph(url=photo.url, alt_text=photo.alt_text),
-      )
-      for photo in tweet.photos
-    )
-    + tuple(
-      OutArcForm(
-        relation=RelationForm(content=f"attachment:video:{video.id}"),
-        to_graph=VideoResolver.create_graph(url=url),
-      )
-      for video, url in videos
-    )
-    + tuple(
-      OutArcForm(
-        relation=RelationForm(content="entities:url"),
-        to_graph=HTMLResolver.create_graph(url=url),
-      )
-      for url in tweet.urls
-    ),
+def _selected_batch(batch: TwitterBatch, primary_ids: tuple[str, ...]) -> TwitterBatch:
+  posts = {post.id: post for post in batch.posts}
+  selected = set(primary_ids)
+  pending = list(primary_ids)
+  while pending:
+    post = posts[pending.pop()]
+    references = [post.repostOf]
+    if post.quote is not None:
+      references.append(post.quote.postId)
+    if post.replyTo is not None:
+      references.append(post.replyTo.postId)
+    for native_id in references:
+      if native_id is not None and native_id in posts and native_id not in selected:
+        selected.add(native_id)
+        pending.append(native_id)
+  chosen = [post for post in batch.posts if post.id in selected]
+  authors = {post.authorId for post in chosen}
+  media_ids = {native_id for post in chosen for native_id in post.mediaIds or ()}
+  for post in chosen:
+    if post.article is not None:
+      media_ids.update(post.article.mediaIds or ())
+      if post.article.coverMediaId is not None:
+        media_ids.add(post.article.coverMediaId)
+  return TwitterBatch(
+    posts=chosen,
+    users=[user for user in batch.users if user.id in authors],
+    media=[media for media in batch.media if media.id in media_ids],
   )
 
 
@@ -107,35 +85,26 @@ class Source(
     api_client = await TwitterAPI.new()
     bookmarks_res = await api_client.get_bookmarks(page=page, max_results=result_limit)
 
-    # find new tweets start point
-    old_start_at = len(bookmarks_res.tweets)
-    if not full:
-      state = await self.get_state()
-      latest_tweet_id = state.get("latest_tweet_id")
-      if latest_tweet_id:
-        old_start_at = next(
-          (
-            i for i, tweet in enumerate(bookmarks_res.tweets) if tweet.id == latest_tweet_id
-          ),
-          len(bookmarks_res.tweets),
-        )
-
-    collected = []
-    for tweet in (
-      bookmarks_res.tweets if full else reversed(bookmarks_res.tweets[:old_start_at])
-    ):
-      collected.append(tweet_to_graph(tweet))
-
     async with source_uow() as uow:
       source = await uow.sources.get(self._id, lock=True)
       if source is None:
         raise ValueError("Twitter Source no longer exists")
-      for graph in reversed(collected) if full else collected:
-        await persist_stars(graph, uow.graph)
-      if not full and bookmarks_res.tweets:
+      primary_ids = bookmarks_res.primary_post_ids
+      selected = primary_ids
+      if not full:
+        latest_id = str((source.state or {}).get("latest_tweet_id", ""))
+        if latest_id in primary_ids:
+          selected = primary_ids[: primary_ids.index(latest_id)]
+      if selected:
+        await persist_twitter(
+          _selected_batch(bookmarks_res.batch, selected),
+          uow.graph,
+          text_policy="supplement",
+        )
+      if not full and primary_ids:
         source.state = {
           **(source.state or {}),
-          "latest_tweet_id": bookmarks_res.tweets[0].id,
+          "latest_tweet_id": primary_ids[0],
         }
         await uow.sources.save(source)
 

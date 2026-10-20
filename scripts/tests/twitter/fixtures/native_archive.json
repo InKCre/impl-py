@@ -1,0 +1,406 @@
+{
+  "users": [
+    {
+      "id": "17",
+      "handle": "author",
+      "name": "作者🌏",
+      "createdAt": "2024-02-29T12:00:00Z",
+      "avatarUrl": "https://pbs.twimg.com/avatar.jpg",
+      "avatarShape": "Hexagon",
+      "bannerUrl": "https://pbs.twimg.com/banner.jpg",
+      "bio": {
+        "text": "正文🌏 @author #X $BTC 01:30 https://t.co/x",
+        "visible": [
+          0,
+          9
+        ],
+        "entities": [
+          {
+            "type": "mention",
+            "range": [
+              4,
+              11
+            ],
+            "userId": "17"
+          },
+          {
+            "type": "hashtag",
+            "range": [
+              12,
+              14
+            ]
+          },
+          {
+            "type": "cashtag",
+            "range": [
+              15,
+              19
+            ],
+            "name": "Bitcoin",
+            "ticker": "BTC"
+          },
+          {
+            "type": "timestamp",
+            "range": [
+              20,
+              25
+            ]
+          },
+          {
+            "type": "url",
+            "range": [
+              26,
+              40
+            ],
+            "expanded": "https://example.org/source"
+          }
+        ],
+        "styles": [
+          {
+            "range": [
+              0,
+              2
+            ],
+            "styles": [
+              "Bold",
+              "Italic"
+            ]
+          }
+        ]
+      },
+      "location": "上海",
+      "website": "https://example.org/",
+      "pinnedPostIds": [
+        "31"
+      ],
+      "protected": false,
+      "sensitive": true,
+      "interstitial": "sensitive_media",
+      "withheldIn": [
+        "SA",
+        "AE"
+      ],
+      "verified": {
+        "blue": false,
+        "type": "Business"
+      },
+      "affiliation": {
+        "name": "示例",
+        "url": "https://example.org/",
+        "badgeUrl": "https://pbs.twimg.com/badge.jpg",
+        "kind": "AutomatedLabel",
+        "ownerId": "18"
+      },
+      "parody": "Commentary",
+      "professional": {
+        "type": "Business",
+        "categories": [
+          "Technology"
+        ]
+      },
+      "counts": {
+        "followers": 0,
+        "following": 1,
+        "posts": 2,
+        "mediaPosts": 3,
+        "likes": 4
+      },
+      "countsObservedAt": {
+        "followers": "2026-10-19T01:02:03.1200Z",
+        "following": "2026-10-19T01:02:03Z",
+        "posts": "2026-10-19T01:02:00Z",
+        "mediaPosts": "2026-10-19T01:02:03.000001Z",
+        "likes": "2026-10-19T01:02:03.0000017Z"
+      }
+    }
+  ],
+  "posts": [
+    {
+      "id": "31",
+      "authorId": "17",
+      "createdAt": "2026-10-18T12:34:56Z",
+      "repostOf": "32",
+      "conversationId": "29",
+      "replyTo": {
+        "postId": "29",
+        "userId": "18",
+        "handle": "prior",
+        "tombstone": "这个帖子已被其作者删除。"
+      },
+      "quote": {
+        "postId": "30",
+        "url": "https://x.com/prior/status/30",
+        "tombstone": "这个账号的帖子受保护。"
+      },
+      "text": {
+        "text": "正文🌏 @author #X $BTC 01:30 https://t.co/x",
+        "visible": [
+          0,
+          9
+        ],
+        "entities": [
+          {
+            "type": "mention",
+            "range": [
+              4,
+              11
+            ],
+            "userId": "17"
+          },
+          {
+            "type": "hashtag",
+            "range": [
+              12,
+              14
+            ]
+          },
+          {
+            "type": "cashtag",
+            "range": [
+              15,
+              19
+            ],
+            "name": "Bitcoin",
+            "ticker": "BTC"
+          },
+          {
+            "type": "timestamp",
+            "range": [
+              20,
+              25
+            ]
+          },
+          {
+            "type": "url",
+            "range": [
+              26,
+              40
+            ],
+            "expanded": "https://example.org/source"
+          }
+        ],
+        "styles": [
+          {
+            "range": [
+              0,
+              2
+            ],
+            "styles": [
+              "Bold",
+              "Italic"
+            ]
+          }
+        ]
+      },
+      "lang": "zh",
+      "source": "X Web App",
+      "mediaIds": [
+        "41"
+      ],
+      "card": {
+        "type": "poll2choice_text_only",
+        "url": "card://31",
+        "title": "问题",
+        "description": "详细说明",
+        "domain": "example.org",
+        "image": {
+          "url": "https://example.org/image.png",
+          "width": 640,
+          "height": 480,
+          "alt": "示例图"
+        },
+        "siteUserId": "18",
+        "creatorUserId": "17",
+        "player": {
+          "url": "https://example.org/video",
+          "width": 640,
+          "height": 480
+        },
+        "poll": {
+          "choices": [
+            {
+              "label": "是",
+              "count": 0
+            },
+            {
+              "label": "否",
+              "count": 3
+            }
+          ],
+          "endsAt": "2026-10-20T00:00:00Z",
+          "final": false,
+          "updatedAt": "2026-10-19T01:02:03Z"
+        },
+        "extra": {
+          "app_name": "example",
+          "is_enabled": false
+        }
+      },
+      "article": {
+        "id": "51",
+        "title": "长文",
+        "preview": "摘要",
+        "coverMediaId": "41",
+        "publishedAt": "2026-10-18T12:34:56Z",
+        "modifiedAt": "2026-10-18T13:34:56Z",
+        "blocks": [
+          {
+            "type": "unstyled",
+            "text": "文章🌏",
+            "styles": [
+              [
+                0,
+                2,
+                "BOLD"
+              ]
+            ],
+            "entities": [
+              [
+                2,
+                2,
+                0
+              ]
+            ],
+            "data": {
+              "future": {
+                "items": [
+                  null,
+                  true,
+                  1,
+                  2.5,
+                  "字"
+                ]
+              }
+            }
+          }
+        ],
+        "entities": [
+          {
+            "type": "MEDIA",
+            "data": {
+              "mediaId": "41",
+              "unknown": null
+            }
+          }
+        ],
+        "mediaIds": [
+          "41"
+        ]
+      },
+      "place": {
+        "id": "place:shanghai",
+        "name": "上海",
+        "fullName": "上海，中国",
+        "country": "中国",
+        "countryCode": "CN",
+        "type": "city",
+        "bbox": [
+          120,
+          30.5,
+          122.5,
+          32
+        ]
+      },
+      "counts": {
+        "replies": 0,
+        "reposts": 1,
+        "quotes": 2,
+        "likes": 3,
+        "bookmarks": 4,
+        "views": 5
+      },
+      "countsObservedAt": {
+        "replies": "2026-10-19T01:02:03.100Z",
+        "reposts": "2026-10-19T01:02:03.200Z",
+        "quotes": "2026-10-19T01:02:03.300Z",
+        "likes": "2026-10-19T01:02:03.400Z",
+        "bookmarks": "2026-10-19T01:02:03.500Z",
+        "views": "2026-10-19T01:02:03.600Z"
+      },
+      "editIds": [
+        "30",
+        "31"
+      ],
+      "communityNote": {
+        "id": "61",
+        "title": "补充背景",
+        "text": {
+          "text": "来源已核实"
+        },
+        "lang": "zh",
+        "url": "https://example.org/note"
+      },
+      "sensitive": false,
+      "contentWarning": {
+        "title": "敏感内容",
+        "text": "作者已标注"
+      },
+      "community": {
+        "id": "71",
+        "name": "示例社群"
+      },
+      "replyPolicy": "ByInvitation",
+      "paidPromotion": true,
+      "aiGenerated": {
+        "media": true,
+        "source": "C2paClient"
+      }
+    }
+  ],
+  "media": [
+    {
+      "id": "41",
+      "type": "video",
+      "url": "https://pbs.twimg.com/cover.jpg",
+      "width": 1920,
+      "height": 1080,
+      "alt": "演示视频",
+      "crops": [
+        [
+          0,
+          0,
+          640,
+          480
+        ]
+      ],
+      "faces": [
+        [
+          1,
+          2,
+          30,
+          40
+        ]
+      ],
+      "tags": [
+        {
+          "userId": "18",
+          "handle": "prior"
+        }
+      ],
+      "video": {
+        "durationMs": 1234,
+        "variants": [
+          {
+            "url": "https://video.twimg.com/a.mp4",
+            "type": "video/mp4",
+            "bitrate": 256000
+          },
+          {
+            "url": "https://video.twimg.com/a.m3u8",
+            "type": "application/x-mpegURL"
+          }
+        ]
+      },
+      "sourcePostId": "31",
+      "sourceUserId": "17",
+      "sensitive": [
+        "adult_content",
+        "other"
+      ],
+      "unavailable": "Geoblocked",
+      "title": "标题",
+      "description": "说明",
+      "link": "https://example.org/video"
+    }
+  ]
+}

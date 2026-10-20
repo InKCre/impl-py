@@ -172,6 +172,41 @@ class BlockRepository:
       statement = statement.where(sqlmodel.col(BlockModel.id).in_(tuple(block_ids)))
     return tuple(await self._session.scalars(statement))
 
+  async def find_json_field_many(
+    self,
+    resolvers: typing.Collection[str],
+    field: str,
+    values: typing.Collection[str],
+  ) -> tuple[BlockModel, ...]:
+    """Find inline JSON records in a bounded native-identity set."""
+    from sqlalchemy.dialects.postgresql import JSONB
+
+    if not resolvers or not values:
+      return ()
+    return tuple(
+      await self._session.scalars(
+        sqlmodel.select(BlockModel)
+        .where(
+          sqlmodel.col(BlockModel.resolver).in_(tuple(resolvers)),
+          sqlalchemy.case(
+            (
+              sqlalchemy.func.pg_input_is_valid(BlockModel.content, "jsonb"),
+              sqlalchemy.cast(BlockModel.content, JSONB)[field].astext,
+            )
+          ).in_(tuple(values)),
+          sqlmodel.col(BlockModel.storage).is_(None),
+        )
+        .order_by(sqlmodel.col(BlockModel.id))
+      )
+    )
+
+  async def acquire_transaction_lock(self, namespace: str) -> None:
+    """Serialize an owning use case until its surrounding transaction ends."""
+    await self._session.execute(
+      sqlalchemy.text("SELECT pg_advisory_xact_lock(hashtextextended(:name, 0))"),
+      {"name": namespace},
+    )
+
   async def get_related(
     self, block_id: BlockID, *, content: str, outgoing: bool = True
   ) -> BlockModel | None:

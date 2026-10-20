@@ -3,6 +3,8 @@ from __future__ import annotations
 import abc
 import asyncio
 import datetime
+from email.utils import parsedate_to_datetime
+import html
 from pathlib import Path
 import re
 import typing
@@ -14,34 +16,274 @@ import sqlmodel
 import twikit
 import twikit.media
 from typing import Optional as Opt
-from dd import dd
 from utils.datetime_ import get_timestamp
-from .schema import TweetPhoto, TweetVideo, VideoVariant
+from .model import TwitterBatch
 from . import Extension
-
-
-class Tweet(sqlmodel.SQLModel):
-  id: int
-  user_id: str | None = None
-  """推文用户ID"""
-  conversation_id: Opt[int] = None
-  text: str
-  """推文文本内容
-    
-    - 移除回复提及
-    - 移除媒体、网页链接（用 `[photo]`、`[video]`、`[link]` 占位）
-    """
-  quote: Opt[int] = None
-  """引用推文ID"""
-  photos: tuple[TweetPhoto, ...] = ()
-  videos: tuple[TweetVideo, ...] = ()
-  urls: tuple[str, ...] = ()
 
 
 class TwitterAPIResult(sqlmodel.SQLModel):
   next_page: Opt[str] = None
   previous_page: Opt[str] = None
-  tweets: tuple[Tweet, ...] = ()
+  batch: TwitterBatch = pydantic.Field(default_factory=TwitterBatch)
+  primary_post_ids: tuple[str, ...] = ()
+
+
+def _instant(value: str | datetime.datetime) -> str:
+  if isinstance(value, str):
+    try:
+      value = datetime.datetime.fromisoformat(value)
+    except ValueError:
+      value = parsedate_to_datetime(value)
+  if value.tzinfo is None:
+    raise ValueError("Twitter provider returned a timestamp without a timezone")
+  return (
+    value.astimezone(datetime.timezone.utc)
+    .isoformat(timespec="seconds")
+    .replace("+00:00", "Z")
+  )
+
+
+def _observed_at() -> str:
+  return (
+    datetime.datetime.now(datetime.timezone.utc)
+    .isoformat(timespec="milliseconds")
+    .replace("+00:00", "Z")
+  )
+
+
+def _media_id(media: dict) -> str | None:
+  if media.get("id"):
+    return str(media["id"])
+  match = re.fullmatch(r"(?:3|7|13)_([1-9][0-9]*)", media.get("media_key", ""))
+  return match[1] if match else None
+
+
+def _provider_counts(raw: dict, names: dict[str, str], observed_at: str) -> dict:
+  values = {
+    name: raw[source] for source, name in names.items() if raw.get(source) is not None
+  }
+  return (
+    {"counts": values, "countsObservedAt": {name: observed_at for name in values}}
+    if values
+    else {}
+  )
+
+
+def _official_archive(
+  raw_tweets: list[dict], includes: dict, observed_at: str
+) -> TwitterBatch:
+  media = []
+  media_ids = {}
+  for raw in includes.get("media", ()):
+    media_id = _media_id(raw)
+    if media_id is None:
+      continue
+    media_ids[raw["media_key"]] = media_id
+    kind = {"photo": "photo", "video": "video", "animated_gif": "gif"}.get(raw["type"])
+    url = raw.get("url") if kind == "photo" else raw.get("preview_image_url")
+    if kind is None or not url:
+      continue
+    item = {"id": media_id, "type": kind, "url": url}
+    item.update(
+      {
+        target: raw[source]
+        for source, target in {
+          "width": "width",
+          "height": "height",
+          "alt_text": "alt",
+        }.items()
+        if raw.get(source) is not None
+      }
+    )
+    if raw.get("variants"):
+      item["video"] = {
+        "variants": [
+          {
+            "url": variant["url"],
+            "type": variant["content_type"],
+            **({"bitrate": variant["bit_rate"]} if "bit_rate" in variant else {}),
+          }
+          for variant in raw["variants"]
+        ]
+      }
+      if raw.get("duration_ms") is not None:
+        item["video"]["durationMs"] = raw["duration_ms"]
+    media.append(item)
+  users = []
+  for raw in includes.get("users", ()):
+    user = {"id": raw["id"], "handle": raw["username"], "name": raw["name"]}
+    user.update(
+      {
+        target: raw[source]
+        for source, target in {
+          "profile_image_url": "avatarUrl",
+          "location": "location",
+          "url": "website",
+          "protected": "protected",
+        }.items()
+        if raw.get(source) is not None
+      }
+    )
+    if "description" in raw:
+      user["bio"] = {"text": html.unescape(raw["description"])}
+    if "created_at" in raw:
+      user["createdAt"] = _instant(raw["created_at"])
+    user.update(
+      _provider_counts(
+        raw.get("public_metrics", {}),
+        {
+          "followers_count": "followers",
+          "following_count": "following",
+          "tweet_count": "posts",
+        },
+        observed_at,
+      )
+    )
+    users.append(user)
+  posts = []
+  for raw in [*raw_tweets, *includes.get("tweets", ())]:
+    post = {
+      "id": raw["id"],
+      "authorId": raw["author_id"],
+      "createdAt": _instant(raw["created_at"]),
+    }
+    references = {
+      reference["type"]: reference["id"] for reference in raw.get("referenced_tweets", ())
+    }
+    if "retweeted" in references:
+      post["repostOf"] = references["retweeted"]
+    else:
+      post["text"] = {
+        "text": html.unescape(raw.get("note_tweet", {}).get("text", raw["text"]))
+      }
+      if "replied_to" in references:
+        post["replyTo"] = {"postId": references["replied_to"]}
+      if "quoted" in references:
+        post["quote"] = {"postId": references["quoted"]}
+      if raw.get("conversation_id") and raw["conversation_id"] != raw["id"]:
+        post["conversationId"] = raw["conversation_id"]
+      post.update(
+        {
+          target: raw[source]
+          for source, target in {"lang": "lang", "possibly_sensitive": "sensitive"}.items()
+          if raw.get(source) is not None
+        }
+      )
+      attached = [
+        media_ids[key]
+        for key in raw.get("attachments", {}).get("media_keys", ())
+        if key in media_ids
+      ]
+      if attached:
+        post["mediaIds"] = attached
+      post.update(
+        _provider_counts(
+          raw.get("public_metrics", {}),
+          {
+            "reply_count": "replies",
+            "retweet_count": "reposts",
+            "quote_count": "quotes",
+            "like_count": "likes",
+            "bookmark_count": "bookmarks",
+            "impression_count": "views",
+          },
+          observed_at,
+        )
+      )
+    posts.append(post)
+  return TwitterBatch.model_validate({"users": users, "posts": posts, "media": media})
+
+
+def _twikit_archive(
+  tweets: typing.Iterable[twikit.Tweet], observed_at: str
+) -> TwitterBatch:
+  posts: dict[str, dict] = {}
+  users: dict[str, dict] = {}
+  media: dict[str, dict] = {}
+
+  def collect(tweet: twikit.Tweet) -> None:
+    if tweet.id in posts:
+      return
+    user = tweet.user
+    post: dict[str, typing.Any] = {
+      "id": tweet.id,
+      "authorId": user.id,
+      "createdAt": _instant(tweet.created_at_datetime),
+    }
+    posts[tweet.id] = post
+    users[user.id] = {"id": user.id, "handle": user.screen_name, "name": user.name}
+    if tweet.retweeted_tweet is not None:
+      post["repostOf"] = tweet.retweeted_tweet.id
+      collect(tweet.retweeted_tweet)
+      return
+    post["text"] = {"text": html.unescape(tweet.full_text)}
+    if tweet.in_reply_to:
+      post["replyTo"] = {"postId": tweet.in_reply_to}
+    conversation_id = tweet._legacy.get("conversation_id_str")
+    if conversation_id and conversation_id != tweet.id:
+      post["conversationId"] = conversation_id
+    if tweet.quote is not None:
+      post["quote"] = {"postId": tweet.quote.id}
+      collect(tweet.quote)
+    if tweet.lang:
+      post["lang"] = tweet.lang
+    post.update(
+      _provider_counts(
+        tweet._legacy,
+        {
+          "reply_count": "replies",
+          "retweet_count": "reposts",
+          "quote_count": "quotes",
+          "favorite_count": "likes",
+          "bookmark_count": "bookmarks",
+        },
+        observed_at,
+      )
+    )
+    attached = []
+    for item in tweet.media:
+      kind = {"photo": "photo", "video": "video", "animated_gif": "gif"}.get(item.type)
+      if kind is None or not item.id or not item.media_url:
+        continue
+      value: dict[str, typing.Any] = {"id": item.id, "type": kind, "url": item.media_url}
+      original = item._data.get("original_info") or {}
+      value.update(
+        {
+          name: original[name]
+          for name in ("width", "height")
+          if original.get(name) is not None
+        }
+      )
+      if item._data.get("ext_alt_text") is not None:
+        value["alt"] = item._data["ext_alt_text"]
+      info = item._data.get("video_info") or {}
+      if info.get("variants"):
+        value["video"] = {
+          "variants": [
+            {
+              "url": variant["url"],
+              "type": variant["content_type"],
+              **({"bitrate": variant["bitrate"]} if "bitrate" in variant else {}),
+            }
+            for variant in info["variants"]
+          ]
+        }
+        if info.get("duration_millis") is not None:
+          value["video"]["durationMs"] = info["duration_millis"]
+      media[item.id] = value
+      attached.append(item.id)
+    if attached:
+      post["mediaIds"] = attached
+
+  for tweet in tweets:
+    collect(tweet)
+  return TwitterBatch.model_validate(
+    {
+      "users": list(users.values()),
+      "posts": list(posts.values()),
+      "media": list(media.values()),
+    }
+  )
 
 
 class TwitterAPI(abc.ABC):
@@ -359,74 +601,8 @@ class OfficialAPI(TwitterAPI):
 
   def _resolve_tweets(
     self, raw_tweets: list[dict], includes: dict[str, list[dict]]
-  ) -> list[Tweet]:
-    include_medias = includes.get("media", ())
-
-    tweets: list[Tweet] = []
-    for tweet in raw_tweets:
-      tweet = dd(tweet)
-      tweet_id = tweet.id()
-
-      # resolve medias
-      media_keys = tweet._.attachments.media_keys() or ()
-      photos: list[TweetPhoto] = []
-      videos: list[TweetVideo] = []
-      for media_key in media_keys:
-        for include_media in include_medias:
-          include_media = dd(include_media)
-          if include_media._.media_key() == media_key:
-            media_type = include_media._.type()
-            if media_type == "video":
-              videos.append(
-                TweetVideo(
-                  id=media_key,
-                  variants=tuple(
-                    VideoVariant(**variant)
-                    for variant in (include_media._.variants() or ())
-                  ),
-                )
-              )
-            elif media_type == "photo":
-              photos.append(
-                TweetPhoto(
-                  id=media_key,
-                  url=include_media.url(lambda x: x or ""),
-                )
-              )
-            else:
-              # TODO log warning for unsupported media type
-              pass
-            break
-
-      # resolve conversation ID
-      conversation_id = tweet._.conversation_id()
-      if conversation_id == tweet_id:
-        conversation_id = None
-
-      # resolve url entities
-      urls: list[str] = []
-      for entity in tweet._.entities.urls() or []:
-        url = entity.get("expanded_url")
-        if url:
-          urls.append(url)
-
-      # resolve text
-      tweet_text = tweet.text()
-      tweet_text = re.sub(r"^(?:@\w+\s*)+", "", tweet_text)
-
-      tweets.append(
-        Tweet(
-          id=tweet_id,
-          user_id=tweet._.author_id(),
-          text=tweet_text,
-          conversation_id=conversation_id,
-          photos=tuple(photos),
-          videos=tuple(videos),
-          urls=tuple(urls),
-        )
-      )
-
-    return tweets
+  ) -> TwitterBatch:
+    return _official_archive(raw_tweets, includes, _observed_at())
 
   async def get_bookmarks(
     self, max_results: int = 20, page: str | None = None
@@ -440,9 +616,21 @@ class OfficialAPI(TwitterAPI):
     """
     bookmarks_query = {
       "max_results": max_results,
-      "tweet.fields": "attachments,entities,lang,conversation_id",
-      "media.fields": "alt_text,media_key,url,type",
-      "expansions": "attachments.media_keys,attachments.media_source_tweet",
+      "tweet.fields": (
+        "author_id,created_at,attachments,entities,lang,conversation_id,"
+        "referenced_tweets,public_metrics,possibly_sensitive,note_tweet"
+      ),
+      "media.fields": (
+        "alt_text,media_key,url,type,preview_image_url,width,height,duration_ms,variants"
+      ),
+      "user.fields": (
+        "id,name,username,description,profile_image_url,url,"
+        "protected,location,public_metrics,created_at"
+      ),
+      "expansions": (
+        "author_id,attachments.media_keys,referenced_tweets.id,"
+        "referenced_tweets.id.author_id"
+      ),
     }
     if page:
       bookmarks_query["pagination_token"] = page
@@ -452,11 +640,12 @@ class OfficialAPI(TwitterAPI):
       path_params={"id": self.__user_id},
       query=bookmarks_query,
     )
-    tweets = self._resolve_tweets(res.get("data", []), res.get("includes", {}))
+    batch = self._resolve_tweets(res.get("data", []), res.get("includes", {}))
     return TwitterAPIResult(
       next_page=res.get("meta", {}).get("next_token"),
       previous_page=res.get("meta", {}).get("previous_token"),
-      tweets=tuple(tweets),
+      batch=batch,
+      primary_post_ids=tuple(post["id"] for post in res.get("data", ())),
     )
 
   async def get_tweets(
@@ -468,16 +657,29 @@ class OfficialAPI(TwitterAPI):
       query={
         "query": query,
         "max_results": max_results,
-        "tweet.fields": "attachments,entities,lang,conversation_id",
-        "media.fields": "alt_text,media_key,url,type",
-        "expansions": "attachments.media_keys,attachments.media_source_tweet",
+        "tweet.fields": (
+          "author_id,created_at,attachments,entities,lang,conversation_id,"
+          "referenced_tweets,public_metrics,possibly_sensitive,note_tweet"
+        ),
+        "media.fields": (
+          "alt_text,media_key,url,type,preview_image_url,width,height,duration_ms,variants"
+        ),
+        "user.fields": (
+          "id,name,username,description,profile_image_url,url,"
+          "protected,location,public_metrics,created_at"
+        ),
+        "expansions": (
+          "author_id,attachments.media_keys,referenced_tweets.id,"
+          "referenced_tweets.id.author_id"
+        ),
       },
     )
-    tweets = self._resolve_tweets(res.get("data", []), res.get("includes", {}))
+    batch = self._resolve_tweets(res.get("data", []), res.get("includes", {}))
     return TwitterAPIResult(
       next_page=res.get("meta", {}).get("next_token"),
       previous_page=res.get("meta", {}).get("previous_token"),
-      tweets=tuple(tweets),
+      batch=batch,
+      primary_post_ids=tuple(post["id"] for post in res.get("data", ())),
     )
 
   async def get_replies(
@@ -550,59 +752,8 @@ class TwikitAPI(TwitterAPI):
     )
 
   @staticmethod
-  def _resolve_tweet(tweet: twikit.Tweet) -> Tweet:
-    # resolve text
-    # remove reply mentions
-    tweet_text = re.sub(r"^(?:@\w+\s*)+", "", tweet.text)
-
-    # resolve medias
-    photos: list[TweetPhoto] = []
-    videos: list[TweetVideo] = []
-    for media in tweet.media:
-      media_url = media.url
-      if isinstance(media, twikit.media.Photo):
-        photos.append(TweetPhoto(id=media.id, url=media.media_url))
-        tweet_text = tweet_text.replace(media_url, "[photo]")
-      elif isinstance(media, twikit.media.Video):
-        videos.append(
-          TweetVideo(
-            id=media.id,
-            variants=tuple(
-              VideoVariant(
-                bitrate=variant.bitrate,
-                content_type=variant.content_type,
-                url=variant.url or "",
-              )
-              for variant in media.streams
-            ),
-          )
-        )
-        tweet_text = tweet_text.replace(media_url, "[video]")
-
-    # resolve urls
-    urls: list[str] = []
-    for i in typing.cast(dict, tweet.urls):
-      i = dd(i)
-      ex_url = i._.expanded_url()
-      url = i._.url()
-      if ex_url:
-        urls.append(ex_url)
-        if url:
-          tweet_text = tweet_text.replace(url, "[link]")
-
-    return Tweet(
-      id=int(tweet.id),
-      conversation_id=int(tweet.in_reply_to) if tweet.in_reply_to else None,
-      user_id=tweet.user.screen_name,
-      text=tweet_text,
-      photos=tuple(photos),
-      videos=tuple(videos),
-      urls=tuple(urls),
-    )
-
-  @classmethod
-  def _resolve_tweets(cls, result: twikit.utils.Result[twikit.Tweet]) -> tuple[Tweet, ...]:
-    return tuple(cls._resolve_tweet(tweet) for tweet in result)
+  def _resolve_tweets(result: typing.Iterable[twikit.Tweet]) -> TwitterBatch:
+    return _twikit_archive(result, _observed_at())
 
   async def get_bookmarks(
     self, max_results: int = 20, page: str | None = None
@@ -613,7 +764,8 @@ class TwikitAPI(TwitterAPI):
     return TwitterAPIResult(
       next_page=res.next_cursor,
       previous_page=res.previous_cursor,
-      tweets=tuple(self._resolve_tweets(res)),
+      batch=self._resolve_tweets(res),
+      primary_post_ids=tuple(tweet.id for tweet in res),
     )
 
   async def get_tweets(
@@ -635,17 +787,18 @@ class TwikitAPI(TwitterAPI):
       return TwitterAPIResult(
         next_page=res.next_cursor,
         previous_page=res.previous_cursor,
-        tweets=tuple(self._resolve_tweets(res)),
+        batch=self._resolve_tweets(res),
+        primary_post_ids=tuple(tweet.id for tweet in res),
       )
 
   async def _get_a_reply_of(
     self, from_: str, replies: twikit.utils.Result[twikit.Tweet]
-  ) -> Tweet | None:
+  ) -> twikit.Tweet | None:
     if len(replies) == 0:
       return None
     for reply in replies:
       if reply.user.screen_name == from_:
-        return self._resolve_tweet(reply)
+        return reply
     else:
       await asyncio.sleep(5)  # avoid rate limit
       replies = await replies.next()
@@ -654,7 +807,7 @@ class TwikitAPI(TwitterAPI):
   async def get_replies(
     self, *conversation_ids: str, from_: str | None = None, max_results: int = 20
   ) -> TwitterAPIResult:
-    res_tweets: list[Tweet] = []
+    res_tweets: list[twikit.Tweet] = []
     for cid in conversation_ids:
       await asyncio.sleep(3)  # avoid rate limit
       try:
@@ -672,6 +825,9 @@ class TwikitAPI(TwitterAPI):
             if the_reply:
               res_tweets.append(the_reply)
           else:
-            res_tweets.extend(self._resolve_tweets(replies))
+            res_tweets.extend(replies)
 
-    return TwitterAPIResult(tweets=tuple(res_tweets))
+    return TwitterAPIResult(
+      batch=self._resolve_tweets(res_tweets),
+      primary_post_ids=tuple(tweet.id for tweet in res_tweets),
+    )
