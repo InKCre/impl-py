@@ -1,5 +1,8 @@
 # CalDAV 第一方扩展
 
+交付状态：Python PR #146 已完成真机与 preview 验收；新增 Web 分发位于 TS PR #142，
+实现、内容渲染、连接向导、受控异常验收及教程均已完成。两 PR 保持未合并、未生产发布。
+
 用户目标：新增第一方 calDAV 插件，让 InKCre 提供日历、任务和联系人服务；以本机连接的安卓手机上的 DAVx⁵、Tasks.org 验收。不操作现有个人数据。用户随后授权提交、推送、创建 PR，并要求完成 preview 环境验收、保存教程截图。
 
 ## 当前事实
@@ -120,3 +123,62 @@ diagnostics，pre-commit 全部通过。GitHub run `39424968303` 的仓库检查
 原始响应、受限日志、生命周期检查和重新部署前的集合快照保存在忽略目录
 `.runtime/caldav/preview/`。专用密码仅在其权限 0600 的 `password` 文件。最终 PR
 检查与部署状态由 GitHub checks 提供；保留的规模限制仍是全图事务和变化后的完整重扫。
+
+## Web 分发补齐（2026-10-20）
+
+用户追加要求 setup wizard 与 content render；继续沿用独立 worktree、免人工阶段核对、
+提交推送与 PR、preview 验收及教程截图授权。TS 工作树为相邻
+`/Users/lanzhijiang/Development/.worktrees/caldav-extension/impl-ts`，
+从 `origin/main` 的 `2d260e3` 创建 `feat/caldav-extension`；不修改原 TS/UI 工作区的在途变更。
+
+产品范围为连接准备和只读内容阅读：选择能执行 Python 分发的 Peer，保留已有版本／密码，
+缺失时显式安装并生成密码，确认重启完成及实际运行后提供地址、用户名与遮蔽密码。
+集合、事件／任务、联系人均接入现有 Info-base 预览和内容视图；不增加完整日历编辑器。
+
+顾问核对后采用现有 setup contribution 和三个 resolver。选择发行版时使用目标 Peer 的
+Registry；不能用浏览器 Registry 替代。select 后观察 restart_required／operation，
+未知写入结果先刷新原目标，不自动重发。准备完成要求 running、loaded_version 与 selection
+相符及连接接口成功。原生 iCalendar/vCard 使用 ical.js 解析，只生成内存展示投影；
+保留 DATE、源墙上时间与 TZID／UTC，主事件与每个例外分别展示，不展开未来重复次数。
+照片只自动显示嵌入式栅格数据，远程 URI 保留显式链接；解析失败保留原文和错误。
+
+实施顺序：新增 MF 包与解析／渲染；实现安装重启感知的向导；同步构建、preview inventory、
+发布意图与文档；验证真实手机数据、未知结果恢复及窄屏显示，再交付 TS PR 与截图。
+终验使用现有 Python PR #146 preview 的持久数据，确认 Web 打开与刷新不写配置、
+不重置密码，信息预览和完整内容能够读取事件例外、全天日期、父子任务和联系人照片。
+
+Web PR：https://github.com/InKCre/impl-ts/pull/142 。preview：
+https://preview-client-web-pr-142.inkcre-client-web.pages.dev/ 。Web preview 分发当前版本为
+`0.0.0`，首次正式发布由 minor Changeset 决定；Python preview 分发保持 `0.1.0`。
+
+Web 验收已经观察到：
+
+- 从扩展卡片实际安装并启用 MF，打开「设置」直接取得已运行 Python Peer 的连接信息；
+  密码默认遮蔽，主动显示／隐藏及复制可用。打开与刷新前后，共享扩展记录 SHA-256
+  一致，未改密码、配置或原生内容。
+- 冷启动直达事件、联系人、全天事件、任务集合内容链接均恢复 MF renderer。主事件与
+  离线例外、原始 UTC、15 分钟提醒、全天排他结束日期、照片及双电话号码均可读。
+  集合成员按钮跳转子任务，显示 Tasks.org 父 UID。390px 与桌面截图已保存。
+- 浏览器受控响应模拟（拦截目标管理写入，未发送到真实服务）覆盖首次 select 仅一次、
+  重启期间停止写入、enable 响应丢失后锁定原目标、刷新读到 downloading 仍阻止重发、
+  failed + restart_required 明确显示失败且保持禁止写入。后两种状态没有增加写请求。
+  移除模拟后刷新重新显示真实连接。模拟脚本在 TS `.runtime/caldav/setup-faults.js`。
+- 10 项解析／状态／配置契约测试通过；最新全仓 `pnpm check` 通过。日历内容 axe 为
+  0 violations、0 incomplete；窄屏向导和联系人为 0 violations，但 axe 对折叠下拉
+  aria-controls 与叠层背景对比度留有人工判断项，不能宣称完整 WCAG 认证。
+
+首次安装联调发现 Python Peer 的 Registry override 可为 null；本 preview 的有效默认
+来自进程环境，shared configs 中没有 extension.registry。向导现仅接受目标 override 或
+共享显式配置，缺失时提示设置目标 Registry，不猜浏览器默认。通过 Python Peer 原生
+配置表单填写 `https://pr-146.inkcre-core-py-extension-registry-preview.pages.dev`，
+确认持久配置仍仅有原来的两个 Python 字段，公共 URL 不变。已有 selection 不需要补地址。
+没有扩展 management v2 响应字段，避免旧 Python 严格 schema 与 Runtime 协调升级。
+
+本机浏览器对代理 DNS 的 Heroku 虚拟地址直连失败。验收浏览器使用隔离 profile 与
+仅允许 Web/Python 两个 preview 及其 Registry 域名的 loopback CONNECT 代理 18792；
+TLS 证书校验保持启用。原华为手机的 18790 USB 隧道未改动。Web 教程和 9 张截图位于
+TS `extensions/caldav/docs/module-federation/`，不含密码明文。TS 功能源码为 `9b0875e`，教程提交为 `e868fef`；最终检查状态由各 PR checks 提供。
+
+最新补充：Registry 缺失模拟显示明确配置提示且写请求为 0；恢复显式配置并刷新后，
+只发送一次 Python 0.1.0 的 select。信息图已显示集合与联系人的自定义预览。
+独立工作树保留用于 PR 审阅，原 checkout 的无关修改未纳入提交。
