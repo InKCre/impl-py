@@ -1,6 +1,6 @@
 """Versioned native DAV content projections for info-base consumers."""
 
-import vobject
+import vobject  # pyrefly: ignore[untyped-import]
 
 from app.business.info_base.resolver import Resolver, TextProjectionContext
 from app.business.info_base.resolver.label import format_label

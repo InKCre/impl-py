@@ -351,7 +351,7 @@ def test_collection_delete_serializes_direct_peer_membership_writes(
               RelationModel.from_ == source_id, RelationModel.content == "member"
             )
           ).one()
-          session.execute(sqlalchemy.text("SET LOCAL lock_timeout = '150ms'"))
+          session.connection().execute(sqlalchemy.text("SET LOCAL lock_timeout = '150ms'"))
           with pytest.raises(OperationalError) as failed:
             if change == "move":
               member.from_ = target_id
