@@ -46,9 +46,9 @@ sync-token 由当前有序内容计算；相同 token 返回无变化，变化�
 
 华为已成功安装从本机小米读取的 DAVx⁵ 4.5.14-ose 与 Tasks.org 15.3 APK（只复制安装包，不复制账号或应用数据）。worktree 的 SVC 隔离 PostgreSQL 已健康；最初 ensure 的探测早于 runtime.json 落盘，后续 status 已确认 ready/provider/source 均匹配。
 
-## 交付与验收记录（2026-10-20）
+## 本地实现与验收记录（2026-10-20）
 
-技术方案、验收设计、实施准备、实现与本地验证已完成。当前继续 PR 与 preview 交付：先同步最新 main、推送源码，等待可信 preview workflow 部署同一提交；通过实际 Registry 安装和启用扩展，再让华为连接 HTTPS preview，验证三类对象双向同步、离线恢复与删除。同步截取连接、集合选择和各应用操作页面，补入用户教程。持久设计见 `docs/30-unit-tdd/caldav-extension.md`；安装连接说明见 `extensions/caldav/docs/python/index.md`。本地初始 wheel 位于 `.runtime/caldav/wheels/inkcre_ext_caldav-0.1.0-py3-none-any.whl`，已通过 build-shape 校验。
+技术方案、验收设计、实施准备、实现与本地验证已完成。后续 preview 结果见下节。持久设计见 `docs/30-unit-tdd/caldav-extension.md`；安装连接说明见 `extensions/caldav/docs/python/index.md`。本地初始 wheel 位于 `.runtime/caldav/wheels/inkcre_ext_caldav-0.1.0-py3-none-any.whl`，已通过 build-shape 校验。
 
 自动化证据：
 
@@ -75,3 +75,48 @@ sync-token 由当前有序内容计算；相同 token 返回无变化，变化�
 开发服务通过 `.runtime/caldav/run.py python .runtime/caldav/serve.py` 启动；该脚本仅为本机隔离验收组合真实 Extension 生命周期和图存储，不作为发布部署入口。手机账户依赖 USB 转发与此进程存活，未配置永久 HTTPS 服务。未做大规模集合性能或其他客户端兼容测试；变化后的完整重扫是已明确的规模限制。
 
 参考：https://tasks.org/docs/sync_davx5/ 、https://manual.davx5.com/accounts_collections.html 、https://manual.davx5.com/tasks_notes.html 、https://www.rfc-editor.org/info/rfc4791/
+
+## PR、preview 与教程（2026-10-20）
+
+已同步 main `10ac178`，复用其事务锁接口并将 Host SDK 下限更新为 0.3.2。PR：
+https://github.com/InKCre/impl-py/pull/146 。功能验收源码为 `92f9324`；后续提交补充教程、
+截图和验收记录，不改变运行实现。未合并、未正式发布 Registry Release、未操作生产环境。
+
+preview Core：https://inkcre-core-py-pr-146-5bf318fbfb58.herokuapp.com/ 。
+Registry：https://pr-146.inkcre-core-py-extension-registry-preview.pages.dev 。
+部署 run `39424964601` 成功。通过 Core `selection` 安装独立 wheel，等待进程重启后启用，
+确认 `loaded_version=0.1.0`、`running=true`，再设置专用密码；没有使用本地测试发布钩子。
+
+| preview 观察 | 结果 |
+| --- | --- |
+| 三类集合与双向同步 | DAVx⁵ 登录、集合选择成功；系统日历、Tasks.org、联系人均出现 preview 数据 |
+| 离线单次例外 | 断开 DAVx⁵ 的网络隧道后编辑一次日程，服务端仍为旧内容；重连后同一资源保留 master 与 RECURRENCE-ID |
+| 任务 | 手机改名和完成进入服务端；服务端恢复未完成进入手机；手机新建父子任务，RELATED-TO 指向正确父 UID |
+| 联系人 | 手机姓名上传；服务端姓名与照片下载；手机再次改名后，服务端仍有照片 bytes 和两个电话 |
+| 全天事件 | 华为系统日历创建的无效 ZoneId 导致 DAVx⁵ 本地失败，两种创建流程均复现；改用 Etar 1.0.57 后保存 UTC，上传 DATE 范围 2026-10-20 至排他结束 2026-10-21 |
+| 冲突与删除 | 旧 ETag PUT 返回 412；服务端删除旧测试任务，后续重复同步检查其不存在 |
+| 信息权威 | PostgREST 读到相同原生资源内容；4 个 collection Blocks 包括 principal 和 3 个业务集合 |
+| 生命周期 | 停用后 DAV 404；重启用内容不变；撤销密码 401、恢复后 207 |
+
+华为使用测试账户 `preview146@example.invalid`。系统日历的 master／例外 ID 为 835／836，
+Etar 全天事件为 839，联系人为 130；两条无法上传的华为全天测试事件已通过界面删除。
+Etar 从 F-Droid 官方包安装，只授予日历读写权限。DAVx⁵ 已允许后台运行。
+
+手机直连将 Heroku 域名解析为错误地址并超时；本次采用 DAVx⁵ 的 HTTP 代理
+`localhost:18790`，通过 `adb reverse tcp:18790 tcp:18790` 接入本机仅允许该 preview
+主机 443 端口的 CONNECT 转发。TLS 与密码仍由手机和 preview 处理，未关闭证书校验。
+转发脚本为 `.runtime/caldav/preview/tunnel.py`。该网络条件依赖 USB 和本机进程；
+切换到能够直接访问部署的网络后，在 DAVx⁵「设置 → 代理类型」恢复「系统默认」。
+
+教程：`extensions/caldav/docs/global/android.md`；服务端步骤：
+`extensions/caldav/docs/python/index.md`。13 张真实手机截图位于相邻 `images/`，
+两套 VitePress 文档均已构建通过。截图使用测试内容，密码保持遮蔽。
+
+验证补充：同步 main 后 22 项 DAV/Memos PostgreSQL 回归通过；严格 Pyrefly 已为 0
+diagnostics，pre-commit 全部通过。GitHub run `39424968303` 的仓库检查为 60 passed、
+64 条按环境条件跳过，CLI 与可移植数据库运行时检查通过。CalDAV 的 6 项真实数据库测试
+已另行执行通过，不能把 CI 中的跳过视为数据库测试证据。
+
+原始响应、受限日志、生命周期检查和重新部署前的集合快照保存在忽略目录
+`.runtime/caldav/preview/`。专用密码仅在其权限 0600 的 `password` 文件。最终 PR
+检查与部署状态由 GitHub checks 提供；保留的规模限制仍是全图事务和变化后的完整重扫。

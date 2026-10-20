@@ -13,6 +13,32 @@ Radicale 进程，不创建文件存储。
 用户名固定为 `inkcre`。密码初值为空，尚不能认证；清空即撤销访问。每个请求读取当前
 共享配置，因此密码轮换无需重启。密码不是 Peer JWT，也不应放入 URL 或日志。
 
+使用 Core REST 管理接口时，可以按下面的顺序选择准确版本并启用。`CORE_URL` 是
+目标 Peer 的 HTTPS 基址，`PEER_JWT` 是管理该部署的有效凭据；版本必须存在于该 Peer
+配置的 Registry。首次下载 wheel 会暂停执行并重启 Python 进程，待 `/readyz` 恢复后
+再执行后续步骤。
+
+```sh
+curl --fail-with-body "$CORE_URL/extensions/inkcre/caldav/selection" \
+  -H "Authorization: Bearer $PEER_JWT" -H 'Content-Type: application/json' \
+  -d '{"distribution":"python","version":"0.1.0"}'
+
+curl --fail-with-body -X POST "$CORE_URL/extensions/inkcre/caldav/enable" \
+  -H "Authorization: Bearer $PEER_JWT"
+```
+
+将专用密码保存到仅自己可读的 `caldav-config.json`，内容为 `{"password":"你的随机密码"}`，
+然后写入配置。响应含扩展配置，应避免把它保存到共享日志。
+
+```sh
+curl --fail-with-body -X PATCH "$CORE_URL/extensions/inkcre/caldav/config" \
+  -H "Authorization: Bearer $PEER_JWT" -H 'Content-Type: application/json' \
+  --data-binary @caldav-config.json --output /dev/null
+
+curl --fail-with-body "$CORE_URL/caldav/connection" \
+  -H "Authorization: Bearer $PEER_JWT"
+```
+
 客户端服务地址为 Core 公共 HTTP 基址加 `/caldav/`。`caldav.connection.v1` 在运行时
 发布 GET `/caldav/connection`，要求 Peer JWT，返回服务地址和用户名，不返回密码。
 未配置公共 HTTP 基址时返回 409。此接口只提供连接信息，不证明手机能够访问。

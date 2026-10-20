@@ -17,6 +17,8 @@ CalDAV 扩展让日历应用、Tasks.org 和联系人应用通过 DAVx⁵ 双向
 然后勾选要同步的集合。在日历和联系人应用中创建对象时，选择该 DAVx⁵ 账户；
 在 Tasks.org 中选择对应的 InKCre 任务列表。
 
+按截图操作见[连接 Android 手机](android)。
+
 通过 DAVx⁵ 同步时，Tasks.org 不能创建、重命名或删除远程列表；使用 DAVx⁵ 的集合管理。
 不要同时在 Tasks.org 中为同一个服务重复配置直接 CalDAV 同步。
 
