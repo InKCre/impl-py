@@ -4,7 +4,7 @@ import uuid
 
 
 CONTRACT_FORMAT = 1
-CONTRACT_REVISION = "peer-jwt-signing-defaults-v1"
+CONTRACT_REVISION = "capture-receipts-v1"
 
 PROTOCOL_SCHEMA = "inkcre"
 INTERNAL_SCHEMA = "inkcre_internal"
@@ -36,6 +36,7 @@ APPLICATION_TABLES = (
   "block_embeddings",
   "block_lexical_records",
   "blocks",
+  "capture_receipts",
   "peers",
   "configs",
   "extensions",

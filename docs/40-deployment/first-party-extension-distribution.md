@@ -152,6 +152,11 @@ Core Host SDK 0.3 adds `app.http.get_public_http_base_url()` without changing th
 or persistence API. Its authority is `app/version.py`, independently of the Core service package
 version in `pyproject.toml`; preparing a service Release PR does not change the Host SDK version.
 
+Host SDK 0.3.4 adds `app.persistence.capture.capture_uow` and the typed Capture receipt/result
+models. Capture requires `>=0.3.4 <0.4.0` because it commits the graph, image bytes, and
+idempotency receipt in one transaction. Existing lifecycle and graph interfaces are unchanged.
+Database admission must also include the `capture_receipts` migration before enabling Capture.
+
 Core Host SDK 0.3.1 adds batched JSON identity lookup and transaction advisory locking to the
 existing Graph repository. Twitter archive reconciliation requires `>=0.3.1 <0.4.0`.
 

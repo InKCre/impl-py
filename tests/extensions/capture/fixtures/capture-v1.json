@@ -1,0 +1,44 @@
+[
+  {
+    "payload": {
+      "submission_id": "00000000-0000-4000-8000-000000000001",
+      "captured_at": "2026-10-21T01:02:03.123Z",
+      "entry": "paste",
+      "origin": null,
+      "materials": [
+        {
+          "kind": "text",
+          "text": "中文 👩🏽‍💻 é\n/ <script> & \u000b\t\""
+        }
+      ],
+      "annotation": null
+    },
+    "digest": "ba75764323c460566d33947277f12b71582409404ed0b6778a026887174eda91"
+  },
+  {
+    "payload": {
+      "submission_id": "00000000-0000-4000-8000-000000000002",
+      "captured_at": "2026-10-21T01:02:03.123Z",
+      "entry": "paste",
+      "origin": {
+        "application_id": "test.fixture",
+        "title": "原文",
+        "url": "https://example.test/a?b=c"
+      },
+      "materials": [
+        {
+          "kind": "text",
+          "text": "第一份原文"
+        },
+        {
+          "kind": "image",
+          "mime_type": "image/png",
+          "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAAUAAAAHCAIAAABPxRC5AAAAE0lEQVR4nGPkUbJgQAJMyBwa8AEvKAB0sOhdcgAAAABJRU5ErkJggg==",
+          "filename": "截图.png"
+        }
+      ],
+      "annotation": "自己的想法"
+    },
+    "digest": "2b9846cb9cc1aba40a968745b9a858c1611ca84a87721bea67c6f55b9c74b997"
+  }
+]
