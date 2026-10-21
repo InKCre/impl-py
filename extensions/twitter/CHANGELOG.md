@@ -5,6 +5,13 @@ association. New entries are rendered from project-local fragments by [Towncrier
 
 <!-- towncrier release notes start -->
 
+## 0.5.0 - 2026-10-21
+
+### Added
+
+- 支持以现有 JWT 连接 x-monkey，保存与合并用户、帖子和媒体元数据，与 Bookmark 共用原生身份；媒体保持按需读取，会话默认七天并自动续签。
+
+
 ## 0.4.1 - 2026-09-21
 
 ### Changed

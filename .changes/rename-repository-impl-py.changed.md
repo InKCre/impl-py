@@ -1,1 +1,0 @@
-Rename GitHub repository references from `InKCre/core-py` to `InKCre/impl-py`, including CI workflow repository checks, deployment docs, and the `cli` package Repository URL. The `core-py` peer instance name, GHCR image name (derived from repository), and `host-sdk = "core-py"` SDK identifier are preserved.
