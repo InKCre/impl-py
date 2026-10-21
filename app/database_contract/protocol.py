@@ -18,6 +18,16 @@ PROTOCOL_DOCUMENT_FORMAT = 1
 POSTGREST_OCTET_STREAM_TYPE = f'{PROTOCOL_SCHEMA}."application/octet-stream"'
 
 PROTOCOL_FUNCTIONS: dict[str, dict[str, object]] = {
+  "commit_capture": {
+    "arguments": [
+      {"name": "submission_id", "type": {"kind": "string", "format": "uuid"}},
+      {"name": "payload_digest", "type": {"kind": "string"}},
+      {"name": "graph", "type": {"kind": "json", "database_type": "jsonb"}},
+    ],
+    "returns": {"kind": "json", "database_type": "jsonb"},
+    "returns_set": False,
+    "volatility": "volatile",
+  },
   "create_storage_blob": {
     "arguments": [
       {
