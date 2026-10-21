@@ -58,12 +58,11 @@ class StorageRepository:
     await self._session.flush()
     return storage
 
-  async def read_blob(self, blob_id: UUID) -> bytes | None:
-    return (
-      await self._session.scalars(
-        sqlmodel.select(StorageBlobModel.data).where(StorageBlobModel.id == blob_id)
-      )
-    ).one_or_none()
+  async def read_blob(self, blob_id: UUID, *, lock: bool = False) -> bytes | None:
+    statement = sqlmodel.select(StorageBlobModel.data).where(StorageBlobModel.id == blob_id)
+    if lock:
+      statement = statement.with_for_update()
+    return (await self._session.scalars(statement)).one_or_none()
 
   async def create_blob(self, content: bytes) -> UUID:
     blob = StorageBlobModel(data=content)

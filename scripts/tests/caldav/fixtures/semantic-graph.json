@@ -1,0 +1,196 @@
+[
+  {
+    "kind": "contact",
+    "remainder": "BEGIN:VCARD\r\nVERSION:3.0\r\nPRODID:+//IDN bitfire.at//DAVx5/4.5.14-ose ez-vcard/0.12.2 (ez-vcard/0.12.2\r\n )\r\nUID:inkcre-preview146-contact\r\nFN:InKCre Preview Photo Contact\r\nN:;InKCre Preview Photo Contact;;;\r\nREV:2026-10-20T13:14:58Z\r\nEND:VCARD\r\n",
+    "text": "BEGIN:VCARD\r\nVERSION:3.0\r\nPRODID:+//IDN bitfire.at//DAVx5/4.5.14-ose ez-vcard/0.12.2 (ez-vcard/0.12.2\r\n )\r\nUID:inkcre-preview146-contact\r\nEMAIL:preview146@example.invalid\r\nFN:InKCre Preview Photo Contact\r\nN:;InKCre Preview Photo Contact;;;\r\nNOTE:PR 146 HTTPS acceptance test\r\nPHOTO;ENCODING=b;TYPE=jpeg:/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAACAAMDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABgf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCcgKKCP//Z\r\nREV:2026-10-20T13:14:58Z\r\nTEL;TYPE=cell:+8613800000000\r\nTEL;TYPE=work:+8613900000000\r\nEND:VCARD\r\n",
+    "properties": [
+      {
+        "id": 1,
+        "link": {
+          "component": null,
+          "alarm": null,
+          "name": "EMAIL",
+          "params": {},
+          "group": null,
+          "position": 0,
+          "representation": "text",
+          "media_type": null
+        },
+        "value": "preview146@example.invalid",
+        "binary": false
+      },
+      {
+        "id": 2,
+        "link": {
+          "component": null,
+          "alarm": null,
+          "name": "NOTE",
+          "params": {},
+          "group": null,
+          "position": 0,
+          "representation": "text",
+          "media_type": null
+        },
+        "value": "PR 146 HTTPS acceptance test",
+        "binary": false
+      },
+      {
+        "id": 3,
+        "link": {
+          "component": null,
+          "alarm": null,
+          "name": "PHOTO",
+          "params": {
+            "ENCODING": [
+              "b"
+            ],
+            "TYPE": [
+              "jpeg"
+            ]
+          },
+          "group": null,
+          "position": 0,
+          "representation": "binary",
+          "media_type": "image/jpeg"
+        },
+        "value": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAACAAMDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABgf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCcgKKCP//Z",
+        "binary": true
+      },
+      {
+        "id": 4,
+        "link": {
+          "component": null,
+          "alarm": null,
+          "name": "TEL",
+          "params": {
+            "TYPE": [
+              "cell"
+            ]
+          },
+          "group": null,
+          "position": 0,
+          "representation": "text",
+          "media_type": null
+        },
+        "value": "+8613800000000",
+        "binary": false
+      },
+      {
+        "id": 5,
+        "link": {
+          "component": null,
+          "alarm": null,
+          "name": "TEL",
+          "params": {
+            "TYPE": [
+              "work"
+            ]
+          },
+          "group": null,
+          "position": 1,
+          "representation": "text",
+          "media_type": null
+        },
+        "value": "+8613900000000",
+        "binary": false
+      }
+    ]
+  },
+  {
+    "kind": "calendar",
+    "remainder": "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//InKCre//graph fixture//EN\r\nBEGIN:VTIMEZONE\r\nTZID:Asia/Shanghai\r\nBEGIN:STANDARD\r\nDTSTART:20000101T000000\r\nRRULE:FREQ=YEARLY;BYMONTH=1\r\nTZNAME:CST\r\nTZOFFSETFROM:+0800\r\nTZOFFSETTO:+0800\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:shared-event\r\nDTSTART;TZID=Asia/Shanghai:20261020T090000\r\nDTSTAMP:20261021T025758Z\r\nRRULE:FREQ=DAILY;COUNT=3\r\nSUMMARY:共享日程\r\nBEGIN:VALARM\r\nACTION:AUDIO\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:shared-event\r\nRECURRENCE-ID;TZID=Asia/Shanghai:20261021T090000\r\nDTSTART;TZID=Asia/Shanghai:20261021T100000\r\nDTSTAMP:20261021T025758Z\r\nSUMMARY:单次例外\r\nX-UNKNOWN;X-KEEP=yes:保留\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+    "text": "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//InKCre//graph fixture//EN\r\nBEGIN:VTIMEZONE\r\nTZID:Asia/Shanghai\r\nBEGIN:STANDARD\r\nDTSTART:20000101T000000\r\nRRULE:FREQ=YEARLY;BYMONTH=1\r\nTZNAME:CST\r\nTZOFFSETFROM:+0800\r\nTZOFFSETTO:+0800\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\nBEGIN:VEVENT\r\nUID:shared-event\r\nDTSTART;TZID=Asia/Shanghai:20261020T090000\r\nATTACH;FMTTYPE=application/pdf:https://example.invalid/plan.pdf\r\nDESCRIPTION:共同正文\r\nDTSTAMP:20261021T025758Z\r\nRRULE:FREQ=DAILY;COUNT=3\r\nSUMMARY:共享日程\r\nBEGIN:VALARM\r\nACTION:AUDIO\r\nATTACH;ENCODING=BASE64;FMTTYPE=audio/wav;VALUE=BINARY:aGVsbG8=\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:shared-event\r\nRECURRENCE-ID;TZID=Asia/Shanghai:20261021T090000\r\nDTSTART;TZID=Asia/Shanghai:20261021T100000\r\nDESCRIPTION:例外正文\r\nDTSTAMP:20261021T025758Z\r\nSUMMARY:单次例外\r\nX-UNKNOWN;X-KEEP=yes:保留\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+    "properties": [
+      {
+        "id": 1,
+        "link": {
+          "component": [
+            "VEVENT",
+            "shared-event",
+            ""
+          ],
+          "alarm": null,
+          "name": "DESCRIPTION",
+          "params": {},
+          "group": null,
+          "position": 0,
+          "representation": "text",
+          "media_type": null
+        },
+        "value": "共同正文",
+        "binary": false
+      },
+      {
+        "id": 2,
+        "link": {
+          "component": [
+            "VEVENT",
+            "shared-event",
+            ""
+          ],
+          "alarm": null,
+          "name": "ATTACH",
+          "params": {
+            "FMTTYPE": [
+              "application/pdf"
+            ]
+          },
+          "group": null,
+          "position": 0,
+          "representation": "uri",
+          "media_type": "application/pdf"
+        },
+        "value": "https://example.invalid/plan.pdf",
+        "binary": false
+      },
+      {
+        "id": 3,
+        "link": {
+          "component": [
+            "VEVENT",
+            "shared-event",
+            ""
+          ],
+          "alarm": 0,
+          "name": "ATTACH",
+          "params": {
+            "VALUE": [
+              "BINARY"
+            ],
+            "ENCODING": [
+              "BASE64"
+            ],
+            "FMTTYPE": [
+              "audio/wav"
+            ]
+          },
+          "group": null,
+          "position": 0,
+          "representation": "binary",
+          "media_type": "audio/wav"
+        },
+        "value": "aGVsbG8=",
+        "binary": true
+      },
+      {
+        "id": 4,
+        "link": {
+          "component": [
+            "VEVENT",
+            "shared-event",
+            "RECURRENCE-ID;TZID=Asia/Shanghai:20261021T090000"
+          ],
+          "alarm": null,
+          "name": "DESCRIPTION",
+          "params": {},
+          "group": null,
+          "position": 0,
+          "representation": "text",
+          "media_type": null
+        },
+        "value": "例外正文",
+        "binary": false
+      }
+    ]
+  }
+]
