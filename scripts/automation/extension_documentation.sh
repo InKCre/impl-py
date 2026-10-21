@@ -2,7 +2,7 @@
 
 source "$(dirname "$0")/_common.sh"
 
-extension_metadata() {
+extension_coordinate() {
   python3 - "$EXTENSION" <<'PY'
 import sys
 import tomllib
@@ -11,21 +11,19 @@ from pathlib import Path
 project = Path("extensions") / sys.argv[1] / "pyproject.toml"
 data = tomllib.loads(project.read_text())
 print(data["tool"]["inkcre-extension"]["name"])
-print(data["project"]["version"])
 PY
 }
 
 case "${1:-}" in
   prepare)
     for name in EXTENSION CANDIDATE_ROOT GITHUB_REPOSITORY GITHUB_RUN_ID \
-      GITHUB_SERVER_URL GITHUB_SHA INKCRE_EXTENSION_REGISTRY_URL; do
+      GITHUB_SERVER_URL GITHUB_SHA INKCRE_EXTENSION_REGISTRY_URL \
+      NATIVE_DISTRIBUTION RELEASE_VERSION; do
       require_env "$name"
     done
     test ! -e "$CANDIDATE_ROOT"
-    metadata=()
-    while IFS= read -r value; do metadata+=("$value"); done < <(extension_metadata)
-    coordinate="${metadata[0]}"
-    version="${metadata[1]}"
+    coordinate="$(extension_coordinate)"
+    version="$RELEASE_VERSION"
     docs_root="extensions/$EXTENSION/docs"
     scopes=()
     while IFS= read -r scope; do scopes+=("$scope"); done < <(
@@ -34,14 +32,20 @@ case "${1:-}" in
         sed -E 's#/.vitepress/config\.mts$##; s#^.*/##' |
         sort
     )
+    case "$NATIVE_DISTRIBUTION" in
+      python) ;;
+      module_federation) scopes=(global) ;;
+      *) echo "Unsupported native Distribution: $NATIVE_DISTRIBUTION" >&2; exit 2 ;;
+    esac
     test "${#scopes[@]}" -gt 0
+    for scope in "${scopes[@]}"; do test -f "$docs_root/$scope/.vitepress/config.mts"; done
 
     mkdir -p "$CANDIDATE_ROOT"
     printf '%s\n' "${scopes[@]}" > "$CANDIDATE_ROOT/scopes.txt"
     pdm run inkcre-ext docs show \
       --registry-url "$INKCRE_EXTENSION_REGISTRY_URL" \
       --name "$coordinate" --version "$version" \
-      --distribution python > "$CANDIDATE_ROOT/current.json"
+      --distribution "$NATIVE_DISTRIBUTION" > "$CANDIDATE_ROOT/current.json"
 
     for scope in "${scopes[@]}"; do
       site="$docs_root/$scope"
@@ -53,7 +57,7 @@ case "${1:-}" in
         --name "$coordinate"
         --version "$version"
         --scope "$scope"
-        --distribution python
+        --distribution "$NATIVE_DISTRIBUTION"
         --source-repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
         --source-revision "$GITHUB_SHA"
         --build-id "$GITHUB_RUN_ID"
@@ -94,10 +98,11 @@ case "${1:-}" in
     first_scope="$(head -n 1 "$CANDIDATE_ROOT/scopes.txt")"
     coordinate="$(jq -r '.name' "$CANDIDATE_ROOT/$first_scope/candidate.json")"
     version="$(jq -r '.version' "$CANDIDATE_ROOT/$first_scope/candidate.json")"
+    distribution="$(jq -er '.distribution' "$CANDIDATE_ROOT/$first_scope/candidate.json")"
     current="$(pdm run inkcre-ext docs show \
       --registry-url "$INKCRE_EXTENSION_REGISTRY_URL" \
       --name "$coordinate" --version "$version" \
-      --distribution python)"
+      --distribution "$distribution")"
     while IFS= read -r scope; do
       record="$(jq -ce --arg scope "$scope" --arg revision "$GITHUB_SHA" \
         --arg build "$GITHUB_RUN_ID" \

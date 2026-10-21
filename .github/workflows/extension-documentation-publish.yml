@@ -8,6 +8,18 @@ on:
         required: true
         default: memos
         type: string
+      distribution:
+        description: Exact native Distribution owning the documentation
+        required: true
+        default: python
+        type: choice
+        options:
+          - python
+          - module_federation
+      version:
+        description: Exact published native Release version
+        required: true
+        type: string
       confirmation:
         description: Confirm a new immutable documentation candidate
         required: true
@@ -26,6 +38,8 @@ env:
   ARTIFACT_NAME: extension-documentation-${{ inputs.extension }}-${{ github.run_id }}
   CANDIDATE_ROOT: ${{ github.workspace }}/extension-documentation-candidate
   EXTENSION: ${{ inputs.extension }}
+  NATIVE_DISTRIBUTION: ${{ inputs.distribution }}
+  RELEASE_VERSION: ${{ inputs.version }}
   INKCRE_EXTENSION_REGISTRY_URL: >-
     ${{ vars.INKCRE_EXTENSION_REGISTRY_URL || 'https://registry.inkcre.dev' }}
 
