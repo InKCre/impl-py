@@ -4,6 +4,18 @@ Core release notes start from the current `0.1.1` baseline. Earlier repository h
 
 <!-- towncrier release notes start -->
 
+## 0.8.0 - 2026-10-21
+
+### Added
+
+- 图事务支持共享命名空间锁、Block／Relation／PostgreSQL blob 行锁和一致性读取，保护 DAV 与普通 Peer 之间的条件写入。 (#caldav)
+- 新增可配置的 Peer JWT 签发默认期限并移除 admission 的强制最大寿命；Host SDK 0.3.1 支持扩展在既有 Graph 事务中批量定位原生身份并串行合并。
+
+### Changed
+
+- Rename GitHub repository references from `InKCre/core-py` to `InKCre/impl-py`, including CI workflow repository checks, deployment docs, and the `cli` package Repository URL. The `core-py` peer instance name, GHCR image name (derived from repository), and `host-sdk = "core-py"` SDK identifier are preserved. (#rename-repository-impl-py)
+
+
 ## 0.7.2 - 2026-10-14
 
 ### Changed
