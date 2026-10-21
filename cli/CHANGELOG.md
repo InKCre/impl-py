@@ -2,6 +2,13 @@
 
 <!-- towncrier release notes start -->
 
+## 0.2.1 - 2026-10-21
+
+### Changed
+
+- Rename the package Repository URL from `InKCre/core-py` to `InKCre/impl-py`. (#rename-repository-impl-py)
+
+
 ## 0.2.0 - 2026-09-20
 
 ### Added
