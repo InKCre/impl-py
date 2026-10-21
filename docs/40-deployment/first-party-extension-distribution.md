@@ -150,9 +150,9 @@ version in `pyproject.toml`; preparing a service Release PR does not change the 
 Core Host SDK 0.3.1 adds batched JSON identity lookup and transaction advisory locking to the
 existing Graph repository. Twitter archive reconciliation requires `>=0.3.1 <0.4.0`.
 
-Host SDK 0.3.2 adds shared graph namespace locks, optional Block/Relation row locks and repeatable-read
+Host SDK 0.3.3 adds optional PostgreSQL blob row locks to shared graph namespace locks, Block/Relation row locks and repeatable-read
 graph scopes. Existing consumers retain their defaults. The CalDAV Distribution requires
-`>=0.3.2 <0.4.0` because its conditional writes depend on these capabilities.
+`>=0.3.3 <0.4.0` because its conditional writes depend on these capabilities.
 
 GitHub, Learn English, Mail, RSS, and Telegram retain their SDK 0.2 lower bound and support
 SDK 0.3 through `>=0.2.0 <0.4.0`. Memos uses the new HTTP address API and requires

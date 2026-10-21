@@ -13,6 +13,7 @@ from radicale import item as dav_item
 from radicale import storage
 
 from .graph import DAVGraph, dav_transaction
+from .codec import normalize
 from .schema import (
   CALENDAR,
   CONTACT,
@@ -77,7 +78,7 @@ class DAVCollection(storage.BaseCollection):
     item.prepare()
     old = self.value.items.get(href)
     self.value.items[href] = Resource(
-      ResourceContent(href=href, text=item.serialize()),
+      ResourceContent(href=href, text=normalize(item.serialize())),
       CONTACT if self.tag == "VADDRESSBOOK" else CALENDAR,
       block_id=old.block_id if old else None,
     )

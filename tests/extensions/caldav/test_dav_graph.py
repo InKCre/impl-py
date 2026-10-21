@@ -14,7 +14,7 @@ from app.engine import ASYNC_DB_ENGINE
 from app.persistence.info_base.uow import graph_uow
 from app.business.info_base.resolver import ResolverManager
 from extensions.caldav import Extension
-from extensions.caldav.schema import CALENDAR, ResourceContent
+from extensions.caldav.schema import CALENDAR, GraphContent
 from tests.extensions.runtime_support import publish_extension
 
 pytestmark = pytest.mark.skipif(
@@ -104,13 +104,19 @@ def test_native_roundtrip_graph_conflicts_and_sync_recovery(dav):
       assert fact in stored.text
 
     async def read_info_base():
+      from extensions.caldav.graph import DAVGraph
+
       async with graph_uow() as uow:
-        roots = await uow.blocks.get_by_resolvers((CALENDAR,))
-        root = next(
-          b
-          for b in roots
-          if ResourceContent.model_validate_json(b.content).href == "event.ics"
+        graph = DAVGraph(uow)
+        await graph.load()
+        root_id = (
+          graph.collections[path.removeprefix("/caldav/").strip("/")]
+          .items["event.ics"]
+          .block_id
         )
+        assert root_id is not None
+        root = await uow.blocks.get(root_id)
+        assert root is not None
         resolver = ResolverManager.get(root)
         return await resolver.get_label(), await resolver.get_text()
 
@@ -359,8 +365,8 @@ def test_collection_delete_serializes_direct_peer_membership_writes(
             else:
               item = BlockModel(
                 resolver=CALENDAR,
-                content=ResourceContent(
-                  href="new.ics", text=calendar("并发新增")
+                content=GraphContent(
+                  href="new.ics", remainder=calendar("并发新增")
                 ).model_dump_json(),
               )
               session.add(item)

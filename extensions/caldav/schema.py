@@ -1,27 +1,72 @@
-"""DAV graph facts; native component text remains the sole content authority."""
+"""DAV resource envelopes and their graph-owned semantic properties."""
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict
+from typing import Literal
 
-COLLECTION = "extensions.caldav.collection.v1"
-CALENDAR = "extensions.caldav.calendar.v1"
-CONTACT = "extensions.caldav.contact.v1"
+from pydantic import BaseModel, ConfigDict, Field
+
+LEGACY_COLLECTION = "extensions.caldav.collection.v1"
+COLLECTION = "extensions.caldav.collection.v2"
+LEGACY_CALENDAR = "extensions.caldav.calendar.v1"
+LEGACY_CONTACT = "extensions.caldav.contact.v1"
+CALENDAR = "extensions.caldav.calendar.v2"
+CONTACT = "extensions.caldav.contact.v2"
 MEMBER = "member"
-RESOLVERS = (COLLECTION, CALENDAR, CONTACT)
+PROPERTY_PREFIX = "caldav:property:"
+RESOLVERS = (
+  COLLECTION,
+  CALENDAR,
+  CONTACT,
+  LEGACY_COLLECTION,
+  LEGACY_CALENDAR,
+  LEGACY_CONTACT,
+)
 
 
 class CollectionContent(BaseModel):
   model_config = ConfigDict(extra="forbid")
   path: str
   props: dict[str, str]
+  published: bool = True
 
 
 class ResourceContent(BaseModel):
+  """Complete wire content, also the persisted legacy v1 contract."""
+
   model_config = ConfigDict(extra="forbid")
   href: str
   text: str
+
+
+class GraphContent(BaseModel):
+  """v2 stores only properties not owned by semantic Blocks or Relations."""
+
+  model_config = ConfigDict(extra="forbid")
+  href: str
+  remainder: str
+
+
+class PropertyLink(BaseModel):
+  model_config = ConfigDict(extra="forbid")
+  component: tuple[str, str, str] | None = None
+  alarm: int | None = Field(default=None, ge=0)
+  name: str
+  params: dict[str, list[str]] = Field(default_factory=dict)
+  group: str | None = None
+  position: int = Field(ge=0)
+  representation: Literal["text", "uri", "binary", "data-uri", "reference"]
+  media_type: str | None = None
+
+  def to_relation(self) -> str:
+    return PROPERTY_PREFIX + self.model_dump_json()
+
+  @classmethod
+  def from_relation(cls, value: str) -> "PropertyLink":
+    if not value.startswith(PROPERTY_PREFIX):
+      raise ValueError("Not a DAV property relation")
+    return cls.model_validate_json(value[len(PROPERTY_PREFIX) :])
 
 
 @dataclass

@@ -21,7 +21,7 @@ Radicale 进程，不创建文件存储。
 ```sh
 curl --fail-with-body "$CORE_URL/extensions/inkcre/caldav/selection" \
   -H "Authorization: Bearer $PEER_JWT" -H 'Content-Type: application/json' \
-  -d '{"distribution":"python","version":"0.1.0"}'
+  -d '{"distribution":"python","version":"0.2.0"}'
 
 curl --fail-with-body -X POST "$CORE_URL/extensions/inkcre/caldav/enable" \
   -H "Authorization: Bearer $PEER_JWT"
@@ -58,3 +58,9 @@ Overwrite 头。有路径前缀时正确设置 ASGI root_path。客户端应填�
 
 本地手机验收可以通过 `adb reverse` 将手机回环端口转发到开发服务。此方式依赖 USB
 连接及开发进程存活，不能替代可持续使用的 HTTPS 部署。
+
+## 共享内容与升级
+
+0.2.0 在启用时将旧资源原子迁移为 v2 图模型，保留根对象 ID、凭据与外部引用。电话、邮箱、正文和媒体成为普通内容 Block；其他 Peer 的修改会进入手机同步。手机换值会改为引用新内容，不覆盖其他图引用的旧值。
+
+在 DAV 客户端删除资源是撤下同步发布，信息库对象仍保留；需要彻底删除时须在信息库中明确删除对象。升级可能使 ETag 改变并触发重新同步，不支持回退到只理解 v1 的旧分发。

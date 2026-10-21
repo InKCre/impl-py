@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inkcre-ext-caldav"
-version = "0.1.0"
+version = "0.2.0"
 description = "CalDAV and CardDAV access to the InKCre info-base"
 requires-python = ">=3.12,<3.13"
 license = "MIT"
@@ -23,7 +23,7 @@ caldav = "extensions.caldav:Extension"
 name = "inkcre/caldav"
 nickname = "CalDAV"
 host-sdk = "core-py"
-host-sdk-version = ">=0.3.2 <0.4.0"
+host-sdk-version = ">=0.3.3 <0.4.0"
 
 [tool.setuptools]
 packages = ["extensions.caldav"]

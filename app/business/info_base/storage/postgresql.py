@@ -36,9 +36,11 @@ class PostgreSQLBinaryStorage(
     blob_id = pydantic.TypeAdapter(uuid.UUID).validate_python(pointer)
     return PostgreSQLBlobPointer(blob_id=blob_id).model_dump_json()
 
-  async def read_content(self, block_content: str, storage: StorageRepository) -> bytes:
+  async def read_content(
+    self, block_content: str, storage: StorageRepository, *, lock: bool = False
+  ) -> bytes:
     pointer = PostgreSQLBlobPointer.model_validate_json(block_content)
-    content = await storage.read_blob(pointer.blob_id)
+    content = await storage.read_blob(pointer.blob_id, lock=lock)
     if content is None:
       raise StorageBlobNotFoundError(f"Storage blob {pointer.blob_id} not found")
     return content

@@ -26,3 +26,10 @@ class Extension(ExtensionBase[CalDAVConfig], ext_id="caldav", config_cls=CalDAVC
   @classmethod
   def _init_resolvers(cls):
     from . import resolver  # noqa: F401
+
+  @classmethod
+  async def on_start_async(cls, app):
+    await super().on_start_async(app)
+    from .graph import migrate_legacy_graph
+
+    await migrate_legacy_graph()
