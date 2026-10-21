@@ -6,8 +6,10 @@ description: 用刊物名找到邮件，通过文章目录阅读正文，再回�
 
 Mail 通过 IMAP 把 newsletter 采集到 InKCre。你可以按刊物名或正文中的关键词搜索，打开清理后的正文阅读，再从刊物归档回看往期。
 
-> **开发预览**：本页展示尚未发布的 newsletter 增强功能。截图来自 2026-10-20 至 2026-10-21 的桌面端实际验收，使用 Python
-> Weekly 邮件；现有正式版本可能没有这些界面。采集端与网页端都需要配套更新。
+本页介绍 Mail 0.4.0 的 newsletter 功能。采集端的 Python 分发与网页端的 Module Federation 分发都需要更新到
+0.4.0，并使用支持 newsletter 搜索聚合的新版 Web Peer。截图来自 2026-10-20 至 2026-10-21 的桌面端实际验收，使用 Python Weekly 邮件。
+
+Mail 的网页分发兼容 Core SDK 0.4。旧版 Web Peer 可以阅读正文和刊物归档，但只有支持 newsletter 搜索聚合接口的宿主才会把同封邮件的多条命中合并展示。
 
 ## 搜索找到邮件
 
