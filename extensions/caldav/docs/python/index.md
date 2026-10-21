@@ -5,7 +5,7 @@ description: 安装和运行 CalDAV Python Distribution。
 # 在 Python Peer 上运行
 
 选择 `inkcre/caldav` 的 Python Distribution，并在目标 Peer 上启用。该分发需要
-Core Host SDK `>=0.3.2 <0.4.0`，使用此版本新增的共享事务锁与一致性读取能力。
+Core Host SDK `>=0.3.3 <0.4.0`，使用此版本提供的共享事务锁、blob 行锁与一致性读取能力。
 扩展按标准 wheel 安装，直接依赖固定的 Radicale 3.8.3 和 vobject；不启动独立
 Radicale 进程，不创建文件存储。
 
@@ -21,7 +21,7 @@ Radicale 进程，不创建文件存储。
 ```sh
 curl --fail-with-body "$CORE_URL/extensions/inkcre/caldav/selection" \
   -H "Authorization: Bearer $PEER_JWT" -H 'Content-Type: application/json' \
-  -d '{"distribution":"python","version":"0.2.0"}'
+  -d '{"distribution":"python","version":"0.3.0"}'
 
 curl --fail-with-body -X POST "$CORE_URL/extensions/inkcre/caldav/enable" \
   -H "Authorization: Bearer $PEER_JWT"
