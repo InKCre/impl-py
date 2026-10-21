@@ -172,9 +172,6 @@ $$;
   )
   op.execute("REVOKE ALL ON FUNCTION inkcre.commit_capture(uuid, text, jsonb) FROM PUBLIC")
   op.execute(
-    "GRANT EXECUTE ON FUNCTION inkcre.commit_capture(uuid, text, jsonb) TO authenticated"
-  )
-  op.execute(
     "UPDATE inkcre_internal.contract_state "
     "SET contract_revision = 'capture-direct-commit-v1', "
     "updated_at = CURRENT_TIMESTAMP WHERE singleton"
