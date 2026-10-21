@@ -75,6 +75,9 @@ jobs:
       - name: Run repository contract
         run: pdm run check
 
+      - name: Verify native documentation publication
+        run: pdm run python -m pytest -q scripts/tests/test_extension_documentation.py
+
       - name: Build and verify all first-party wheels
         env:
           SOURCE_DATE_EPOCH: "315532800"

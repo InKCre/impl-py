@@ -116,11 +116,16 @@ returns 421 for other wildcard matches. Core deployment and Extension packages m
 production DNS compromise or treat DNS/TLS success as proof that a documentation set exists.
 
 `.github/workflows/extension-documentation-publish.yml` is the protected manual publication lane
-for first-party producer documentation. It builds every scope under the selected producer with the
-pinned shared VitePress toolchain, reads the current Python Distribution's scope ETags, and saves
+for first-party producer documentation. The operator selects the producer, native Distribution and
+exact published version; a Module Federation version is never inferred from the Python producer.
+Python publication builds every scope under the selected producer; Module Federation publication
+builds only the shared `global` scope. The pinned shared VitePress toolchain reads the selected
+native Release's scope ETags and saves
 complete Toolkit candidates before any Registry write. The publish job restores those exact
 candidates, revalidates their source against current `main`, publishes them, and checks their public
 snapshot origins.
+Each native Release owns its documentation records. A shared guide must be published for both
+native coordinates to be discoverable from either participation's Extension card.
 Recovery reruns only the failed publish job; rerunning all jobs is rejected because it would create
 new snapshot identities. Candidate artifacts are retained for 90 days.
 
