@@ -23,6 +23,7 @@ __all__ = [
   "DeploymentConfigModel",
   "SinkModel",
   "SinkTypeModel",
+  "CaptureReceiptModel",
 ]
 
 import sqlalchemy.orm
@@ -54,3 +55,4 @@ from .peer import PeerModel
 from .deployment_config import DeploymentConfigModel
 from .lexical_retrieval import BlockLexicalRecordModel
 from .sink import SinkModel, SinkTypeModel
+from .capture import CaptureReceiptModel
