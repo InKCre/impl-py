@@ -1,6 +1,6 @@
 # CalDAV 第一方扩展
 
-当前阶段：2026-10-21 用户明确「开始处理」后，按免人工阶段核对的 staged-collaboration 完成共享语义图实现，正在准备升级 preview 和补充真机、Web 验收。Python PR #146 与 Web PR #142 保持未合并；此前原范围验收记录保留为历史，不能替代本轮图语义证据。
+当前阶段：2026-10-21 已完成共享语义图实现、preview 升级和指定华为手机／Web 验收，正在提交教程证据并等待最终 PR 检查。两 PR 保持未合并、未生产发布。用户授权覆盖实现、提交、推送、preview 和截图；免人工阶段核对继续有效。
 
 已采用并实现的模型：稳定联系人／事件系列／任务根保存 `href + remainder`，只保留尚未提升的原生属性；电话、邮箱、URL、备注、描述成为 `core.text.v1`，内嵌媒体成为既有语义 resolver + PostgreSQL blob，RELATED-TO 唯一匹配同集合资源时直接指向根。`caldav:property:` Relation 保存组件、例外、提醒、角色、参数和顺序。Python 与 Web 从当前图组合内容，不另存完整可写副本。
 
@@ -10,7 +10,7 @@
 
 本地证据：14 项 DAV 检查通过，包含电话重排、图片通用 resolver、直接 Peer 内容编辑、旧 ETag 412、电话和 blob 锁竞争、子任务先于父任务、撤销发布保留引用、迁移失败回滚；Python/Web 共用保真 fixture 覆盖时区、例外、未知参数与二进制提醒附件。Web 13 项测试、全工作区格式／lint／类型／构建通过。Python foundation、锁文件、Ruff、Pyrefly、数据库边界、发布契约通过。独立顾问发现的 iCalendar 附件双重 Base64 编码已修复并加入原始 bytes 检查。
 
-后续：保留现有 preview 资源快照，升级 Python 分发到 0.2.0（Web 仍由 Changeset 决定正式版本），核实 ID／引用／协议内容迁移；直接修改电话与媒体并同步华为，再验证 Web 关联内容跳转，补齐截图教程与最终提交检查。preview PostgREST 首次读取返回 503，正在查明运行状态；未执行数据重置。
+最终收尾：推送本轮教程和证据，等待 CI／preview 重新部署，比较信息图摘要及联系人 ETag，确认重启不改变信息。保留手机专用 CONNECT 代理；关闭本轮浏览器和 Web 代理。
 
 用户目标：新增第一方 calDAV 插件，让 InKCre 提供日历、任务和联系人服务；以本机连接的安卓手机上的 DAVx⁵、Tasks.org 验收。不操作现有个人数据。用户随后授权提交、推送、创建 PR，并要求完成 preview 环境验收、保存教程截图。
 
@@ -191,3 +191,17 @@ TS `extensions/caldav/docs/module-federation/`，不含密码明文。TS 功能�
 最新补充：Registry 缺失模拟显示明确配置提示且写请求为 0；恢复显式配置并刷新后，
 只发送一次 Python 0.1.0 的 select。信息图已显示集合与联系人的自定义预览。
 独立工作树保留用于 PR 审阅，原 checkout 的无关修改未纳入提交。
+
+## 共享语义图 preview 和真机验收（2026-10-21）
+
+实现提交为 Python `342ae9a`、Web `fc07fe7`；Python 分发 0.2.0，Host SDK 0.3.3。14 项 DAV、17 项 Memos／分发回归、13 项 Web 测试通过；Python pre-commit 和 Web 全仓 check 通过。GitHub Python run `39537244735`／deploy `39537242950`、Web run `39537203874`／deploy `39537201107` 成功；本次最后的文档提交另由最终 checks 覆盖。
+
+preview facade 只保留当前候选版本，更新到 0.2.0 后旧选择 0.1.0 无法在新容器恢复。通过 PostgREST 只将该 Python Peer 的 participation.enabled 改为 false，重启恢复管理接口，然后正常 selection 0.2.0、自动重启、enable。此恢复没有修改密码或信息；不能描述成无干预升级。生产不可变 Registry 的版本保留规则不在本任务修改范围。
+
+- 迁移：9 个根 ID、5 份协议资源及成员保持不变，12 个语义属性关系出现，旧完整文本不再作为第二事实来源。完整共享扩展配置 SHA-256 前后一致。
+- 直接共享编辑：PostgREST 编辑电话 #18 和图片 #17 的 blob，DAV GET 返回新内容与 ETag，旧 ETag PUT 为 412；华为联系人 #130 显示尾号 0146 和绿色头像。
+- 手机回写：改名为 InKCre Shared Graph Contact 后进入同一个根 #7。电话 #18 保留；手机 JPEG 重新编码为 341 bytes，关联新图片 #25；被独立引用的图片 #17 及其 bytes 保留。
+- 删除保留：Tasks.org 实际显示并删除专用任务 #22，手动同步后 DAV 404，member 关系撤销。描述 #23、引用者 #24 及两条外部引用保留，手机只剩原有父子任务，Web 可按原根地址继续阅读。
+- Web：向导读取 0.2.0 并保留遮蔽密码；联系人关联内容分别跳转通用图片 #17、文本 #18；子任务 #8 跳转父任务 #9。刷新深链接恢复 v2，390px 文档宽度也是 390px，未横向溢出。教程新增 3 张手机截图、6 张 Web 截图，并更新向导截图。
+
+证据保存在 `.runtime/caldav/preview/semantic-*.json`／`.vcf` 及截图目录。手机使用旧账号 preview146@example.invalid，未操作其他个人账号；本轮恢复了因本机进程结束而停止的 18790 CONNECT 代理。只依赖 Last-Modified 的客户端仍未验收：该时间只表示根记录时间，变化检测必须使用组合内容 ETag。全图扫描、变化后全量重扫、无自动垃圾回收仍为明确限制。

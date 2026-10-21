@@ -71,11 +71,24 @@ Tasks.org 的任务访问权限与 Android 日历权限不同。如果任务列�
 <img src="./images/contact-details.png" alt="系统联系人显示同步的两个电话、邮箱和备注" width="320">
 <img src="./images/contact-photo.png" alt="服务端更新姓名和测试头像后，系统联系人显示同步结果" width="320">
 
+## 从信息库更新联系人
+
+联系人中的电话、邮箱、备注和照片也是信息库中的独立内容。其他 Peer 修改共享电话或照片后，在 DAVx⁵ 点击「立即同步」，手机会取得这些变化。图中电话号码末尾的 `0146` 与绿色测试头像来自直接编辑共享电话 Block 和图片内容，并非重新导入联系人。
+
+<img src="./images/contact-shared-content.png" alt="华为联系人同步到共享电话的新号码和绿色测试头像" width="320">
+
+手机编辑并上传联系人时，相同内容继续关联原 Block；值发生变化时重新关联新内容。手机可能重新编码照片，这会产生新图片 Block，原图片及其他位置的引用仍然保留。Web 中打开独立内容的方法见 [CalDAV Web 教程](https://github.com/InKCre/impl-ts/blob/feat/caldav-extension/extensions/caldav/docs/module-federation/index.md)。
+
 ## 确认同步与处理连接问题
 
 保存修改后，在 DAVx⁵ 点击「立即同步」，再从另一台使用同一服务的客户端查看修改结果。
 离线期间可以继续编辑，恢复网络后再次同步。删除会撤销服务端的 DAV 发布，并从其他客户端移除对象；
 信息库中的原对象、独立内容及已有引用仍保留。如果只是暂时不想同步，请取消勾选集合，避免执行删除集合。
+
+在 Tasks.org 打开要删除的任务，点击删除并确认，再用 DAVx⁵ 立即同步。下面的专用测试任务删除后从手机列表消失；信息库中的任务根、描述和已有引用仍可读取。
+
+<img src="./images/tasks-shared-before-delete.png" alt="删除前，Tasks.org 显示专用的共享图测试任务" width="320">
+<img src="./images/tasks-shared-after-delete.png" alt="同步删除后，只保留原有父子任务" width="320">
 
 | 现象 | 检查 |
 | --- | --- |

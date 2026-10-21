@@ -58,6 +58,7 @@ class DAVCollection(storage.BaseCollection):
     self.value.modified = datetime.now(UTC)
 
   def _item(self, value: Resource):
+    # shortcut: root time is approximate; add dependency clocks for date-only clients.
     return dav_item.Item(
       collection=self,
       href=value.content.href,
