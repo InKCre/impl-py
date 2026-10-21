@@ -4,7 +4,7 @@ import uuid
 
 
 CONTRACT_FORMAT = 1
-CONTRACT_REVISION = "capture-direct-commit-v1"
+CONTRACT_REVISION = "capture-native-v1"
 
 PROTOCOL_SCHEMA = "inkcre"
 INTERNAL_SCHEMA = "inkcre_internal"

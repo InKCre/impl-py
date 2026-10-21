@@ -22,9 +22,8 @@ class CaptureReceiptModel(sqlmodel.SQLModel, table=True):
   payload_digest: str = sqlmodel.Field(
     sa_column=sqlalchemy.Column(sqlalchemy.Text, nullable=False)
   )
-  # NULL belongs only to receipts written before the direct database commit protocol.
-  graph_digest: str | None = sqlmodel.Field(
-    default=None, sa_column=sqlalchemy.Column(sqlalchemy.Text, nullable=True)
+  graph_digest: str = sqlmodel.Field(
+    sa_column=sqlalchemy.Column(sqlalchemy.Text, nullable=False)
   )
   # A historical reference must survive deletion, or delayed retries resurrect content.
   root_block_id: int = sqlmodel.Field(nullable=False)
