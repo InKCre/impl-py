@@ -13,6 +13,7 @@ import email.utils
 import quopri
 import re
 import typing
+from urllib.parse import urlsplit, urlunsplit
 
 from imapclient import IMAPClient
 from imapclient.exceptions import IMAPClientError
@@ -23,6 +24,7 @@ from .schema import (
   BodyFact,
   CanonicalEmail,
   CanonicalMailbox,
+  CanonicalMailingList,
   CanonicalMimePart,
   FlagChangeFact,
   IMAPCheckpoint,
@@ -108,6 +110,60 @@ def _message_ids(value: str | None) -> tuple[str, ...]:
   if not value:
     return ()
   return tuple(match.group(1).strip() for match in _MESSAGE_ID.finditer(value))
+
+
+def _mailing_list(message: email.message.Message) -> CanonicalMailingList | None:
+  values = message.get_all("List-ID", [])
+  if not values:
+    return _beehiiv_publication(message)
+  if len(values) != 1:
+    return None
+  match = re.fullmatch(r"\s*([^<>]*)<([^<>]+)>\s*", str(values[0]))
+  if match is None:
+    return None
+  list_id = re.sub(r"\s+", "", match[2]).lower()
+  if len(list_id) > 255 or not re.fullmatch(
+    r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)+",
+    list_id,
+  ):
+    return None
+  return CanonicalMailingList(
+    list_id=list_id, name=_decode_header(match[1].strip().strip('"'))
+  )
+
+
+def _beehiiv_publication(message: email.message.Message) -> CanonicalMailingList | None:
+  """Use the declared publication URL, never an issue or subscriber URL."""
+  markers = message.get_all("X-Beehiiv-Type", [])
+  identities = message.get_all("X-Newsletter-ID", [])
+  if len(markers) != 1 or str(markers[0]).strip().lower() != "newsletter":
+    return None
+  if len(identities) != 1:
+    return None
+  identity = str(identities[0]).strip()
+  if re.search(r"\s", identity):
+    return None
+  try:
+    url = urlsplit(identity)
+    port = url.port
+    host = url.hostname
+  except ValueError:
+    return None
+  if (
+    url.scheme not in {"https", "http"}
+    or not host
+    or not re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", host)
+    or url.username is not None
+    or url.password is not None
+    or url.query
+    or url.fragment
+  ):
+    return None
+  authority = host
+  if port is not None and (url.scheme, port) not in {("https", 443), ("http", 80)}:
+    authority = f"{host}:{port}"
+  canonical = urlunsplit((url.scheme, authority, url.path or "/", "", ""))
+  return CanonicalMailingList(list_id=f"beehiiv:{canonical}", name=host)
 
 
 def _canonical_address(address: str) -> str:
@@ -197,6 +253,7 @@ class _PartDescriptor(pydantic.BaseModel):
   encoded_size: int | None = None
   content_location: str | None = None
   disposition: str | None = None
+  alternative_groups: tuple[str, ...] = ()
 
   @property
   def is_body(self) -> bool:
@@ -210,14 +267,17 @@ class _PartDescriptor(pydantic.BaseModel):
 def _walk_body_structure(
   body: typing.Any,
   prefix: str = "",
+  alternative_groups: tuple[str, ...] = (),
 ) -> tuple[_PartDescriptor, ...]:
   if not isinstance(body, (tuple, list)) or not body:
     return ()
   if isinstance(body[0], list):
+    if len(body) > 1 and (_text(body[1]) or "").lower() == "alternative":
+      alternative_groups = (*alternative_groups, prefix or "root")
     parts: list[_PartDescriptor] = []
     for index, child in enumerate(body[0], start=1):
       part_id = f"{prefix}.{index}" if prefix else str(index)
-      parts.extend(_walk_body_structure(child, part_id))
+      parts.extend(_walk_body_structure(child, part_id, alternative_groups))
     return tuple(parts)
 
   part_id = prefix or "1"
@@ -261,6 +321,7 @@ def _walk_body_structure(
       encoded_size=encoded_size,
       content_location=content_location,
       disposition=disposition,
+      alternative_groups=alternative_groups,
     ),
   )
 
@@ -637,6 +698,7 @@ class IMAPAdapter:
               part_id=descriptor.part_id,
               media_type=typing.cast(typing.Any, descriptor.media_type),
               content=rendered,
+              alternative_groups=descriptor.alternative_groups,
             )
           )
           continue
@@ -686,6 +748,7 @@ class IMAPAdapter:
             authored_at=authored_at,
           ),
           participants=_participants(message),
+          mailing_list=_mailing_list(message),
           bodies=tuple(bodies),
           mime_parts=tuple(mime_parts),
           in_reply_to=_message_ids(str(message.get("In-Reply-To") or "")),
