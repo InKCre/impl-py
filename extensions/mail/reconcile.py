@@ -25,6 +25,13 @@ from .schema import (
   MessageFact,
   ParticipantRelation,
 )
+from .newsletter import (
+  HTML_BODY_RESOLVERS,
+  MAILING_LIST_RESOLVER,
+  NEWSLETTER_HTML_RESOLVER,
+  NEWSLETTER_TEXT_RESOLVER,
+  TEXT_BODY_RESOLVERS,
+)
 
 
 EMAIL_RESOLVER = "extensions.mail.email.v1"
@@ -171,11 +178,37 @@ class MailGraphReconciler:
       )
 
     part_blocks, html_bodies = await self._reconcile_components(email_block, fact)
+    await self._reconcile_mailing_list(email_block, fact)
     await self._reconcile_participants(email_block, fact)
     await self._reconcile_references(email_block, fact)
     await self.replace_flags(mailbox, email_block, fact.flags)
     await self._reconcile_embedded_references(html_bodies, part_blocks)
     return email_block
+
+  async def _reconcile_mailing_list(
+    self, email_block: BlockModel, fact: MessageFact
+  ) -> None:
+    if fact.mailing_list is None:
+      return
+    matches = await self.uow.graph.blocks.find_json_field(
+      MAILING_LIST_RESOLVER, "list_id", fact.mailing_list.list_id
+    )
+    publication = (
+      min(matches, key=_persisted_id)
+      if matches
+      else await self.uow.graph.blocks.create(
+        BlockForm(
+          resolver=MAILING_LIST_RESOLVER, content=fact.mailing_list.model_dump_json()
+        )
+      )
+    )
+    await self.uow.graph.relations.fetchsert(
+      RelationModel(
+        from_=_persisted_id(publication),
+        to_=_persisted_id(email_block),
+        content="publishes",
+      )
+    )
 
   async def reconcile_flag_change(
     self,
@@ -435,11 +468,27 @@ class MailGraphReconciler:
     html_bodies: list[tuple[BlockModel, str]] = []
     for body in fact.bodies:
       resolver = TEXT_RESOLVER if body.media_type == "text/plain" else HTML_RESOLVER
+      if fact.mailing_list is not None:
+        resolver = (
+          NEWSLETTER_TEXT_RESOLVER
+          if body.media_type == "text/plain"
+          else NEWSLETTER_HTML_RESOLVER
+        )
       relation = by_part_id.get(body.part_id)
       block = (
         await self.uow.graph.blocks.get(relation.to_) if relation is not None else None
       )
-      if block is None or block.resolver != resolver:
+      component = compact_json(
+        ComponentRelation(
+          role="body",
+          part_id=body.part_id,
+          alternative_groups=body.alternative_groups,
+        )
+      )
+      compatible = (
+        TEXT_BODY_RESOLVERS if body.media_type == "text/plain" else HTML_BODY_RESOLVERS
+      )
+      if block is None or block.resolver not in compatible:
         block = await self.uow.graph.blocks.create(
           BlockForm(resolver=resolver, content=body.content),
         )
@@ -447,15 +496,23 @@ class MailGraphReconciler:
           RelationModel(
             from_=email_id,
             to_=_persisted_id(block),
-            content=compact_json(ComponentRelation(role="body", part_id=body.part_id)),
+            content=component,
           ),
         )
-      elif block.content != body.content or block.storage is not None:
+      elif (
+        block.content != body.content
+        or block.storage is not None
+        or (fact.mailing_list is not None and block.resolver != resolver)
+      ):
         block.storage = None
         block.content = body.content
+        block.resolver = resolver
         await self.uow.graph.blocks.save(block)
+      if relation is not None and relation.content != component:
+        relation.content = component
+        await self.uow.graph.relations.save(relation)
       part_blocks[body.part_id] = block
-      if resolver == HTML_RESOLVER:
+      if resolver in HTML_BODY_RESOLVERS:
         html_bodies.append((block, body.content))
 
     for part in fact.mime_parts:

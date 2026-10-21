@@ -34,6 +34,7 @@ extensions/mail/
   source.py         ordinary/backfill Source policy and state advancement
   reconcile.py      reconciliation ladder and transactional graph effects
   resolver.py       read projections and remote MIME materialization
+  newsletter.py     offline newsletter body projections and exact body resolver IDs
 ```
 
 `MailProtocol = Literal["imap"]` 是公开协议选择，不是 InKCre adapter ID。`create_mail_adapter(protocol, parameters)`
@@ -50,6 +51,9 @@ collection 语义。
   - `extensions.mail.email_address.v1`；
   - `extensions.mail.flag.v1`；
   - `extensions.mail.mime_part.v1`；
+  - `extensions.mail.mailing_list.v1`；
+  - `extensions.mail.newsletter_html.v1`；
+  - `extensions.mail.newsletter_text.v1`；
 - remote materialization capability：`extensions.mail.mime_part.materialize.v1`；
 - provider route：`POST /mail/mime-parts/materialize`。
 
@@ -87,6 +91,8 @@ Ordinary collection 默认只接纳 Source creation time 之后的信息；第�
 Source anchor --manages--> Mailbox
 Mailbox --contains {uid_validity, uid}--> Email
 Email --{role:"body", part_id}--> core.text.v1 / core.html.v1
+MailingList --publishes--> Email
+Email --{role:"body", part_id, alternative_groups}--> newsletter_text.v1 / newsletter_html.v1
 Email --{role:"inline|attachment", part_id}--> MIME-part metadata
 Email --{role, order, display_name}--> EmailAddress
 MailFlag --tags--> Email
@@ -122,7 +128,70 @@ Mailbox 永远 Source-scoped，不跨 Source merge。同一 Mailbox/canonical Em
 FLAGS response 替换当前 observed set。可靠 removal 只删除 exact membership 与相关 tag effects，不删除 canonical
 Email graph。
 
+## Newsletter 阅读与刊物归档
+
+Adapter 优先使用邮件中单个、格式有效的 `List-ID` 提取刊物声明。`list_id` 按
+[RFC 2919](https://www.rfc-editor.org/rfc/rfc2919) 规范化大小写，显示名称独立保存；
+发件地址、主题或 `List-Unsubscribe` 不能代替刊物身份。`List-ID` 表示邮件声明的列表归属，
+不是发件人认证，也不能区分编辑型 newsletter 与讨论型邮件列表。
+
+缺少 `List-ID` 时，仅支持 Beehiiv 的显式刊物声明：单个 `X-Beehiiv-Type: newsletter`
+和单个 `X-Newsletter-ID`。后者必须是无凭据、查询参数及片段的 HTTP(S) 刊物 URL，
+以 `beehiiv:<规范化 URL>` 保存到现有 `list_id` 字段。规范化只处理协议、域名、默认端口和空路径，
+保留路径大小写；域名用作显示名称。重复或无效的 `List-ID` 不会触发该分支。
+两类声明都不代表身份认证；如果供应商后来改用 `List-ID`，系统不会猜测两个身份相等并自动合并归档。
+
+Reconciler 通过 `extensions.mail.mailing_list.v1` 的 `list_id` 查找刊物 Block，
+不存在时创建，存在时稳定复用 ID 最小的节点，并建立幂等 `publishes` 关系。
+并发首次采集可能留下多个同身份节点，归档按相同 `list_id` 汇集各节点的关系；
+后续采集和重放不会继续制造刊物节点，也不删除已有关系。
+刊物分组不参与 Email 身份 reconciliation，不改变 UID 或附件定位。网页端从邮件进入刊物归档，
+按日期展示各期；仅把同刊物内非空 Message-ID、主题、发送时间均相同的 Email 折叠显示。
+每个副本仍保有独立入口；相同主题但 Message-ID 不同的期数保持分开。折叠是阅读行为，不删除或合并邮件数据。
+
+已识别刊物的 text/plain 与 text/html body 分别使用 `newsletter_text.v1` 和
+`newsletter_html.v1`；内容仍为未经改写的正文字符串。Resolver 生成清理后的 solved content，
+其文本投影供默认读取和 lexical 索引使用。HTML 清理移除显式隐藏内容、跟踪像素以及标签明确的
+退订、偏好设置、浏览器阅读链接。对于链接文字只有 “here” 的邮件，清理器也识别整段文字完全匹配
+已知订阅操作的段落；不删除这些链接所在的整张表格或包含其他文章文字的段落。
+已知 `utm_*`、`fbclid`、`gclid`、`mc_cid`、`mc_eid` 查询参数被移除，其余参数保留原始编码和顺序。
+带已知签名参数的链接整体保留，避免清理查询参数使签名失效。
+无法本地解释的跳转链接保持原样，不为展开链接而请求外网。纯文本只移除明确操作行。
+
+正文 Relation 的 `alternative_groups` 保存 MIME multipart/alternative 的全部祖先分组。
+阅读与 Email 默认文本投影逐层优先选择含 HTML 的分支，保留所选分支内全部独立正文片段。
+空数组表示已知没有 alternatives；null 或缺失表示旧记录未保留 MIME 树，网页沿用原来的首个 HTML 优先视图。
+Email 的 lexical 投影继续只含邮件自身标题，正文子 Block 负责正文索引。
+HTML 阅读和原文视图都经过同样的安全隔离；原文切换不会允许被动远程图片加载。
+Newsletter 阅读模式将显式 `role="none"` / `role="presentation"` 的布局表格改为随容器宽度排版，
+保留嵌套数据表的尺寸、跨行及跨列信息，并为 H4–H6 设置可读字号。
+被阻止加载的外图显示替代文字；图片独占的有效链接显示“查看图片链接”，避免链接随图片隐藏而丢失。
+精确匹配社交分享操作的图片链接会被清理。原文视图与普通邮件不应用这组阅读排版处理。
+
+Web 的 newsletter 阅读以桌面为先：宽容器显示常驻文章目录，正文自动展开到全文高度，
+由宿主统一滚动；目录支持标题定位和前后导航。浏览器本地记录正文 Block 的阅读位置，
+重新打开提供继续阅读，内容更新时间改变后不恢复旧位置。窄容器折叠目录。
+清理后的阅读 iframe 允许父页面同源读取标题和尺寸，sandbox 和 CSP 均禁止邮件脚本；
+原文视图不开放同源访问，外部图片继续禁止被动加载。
+
+Web 的列表和图把同一 Email 的 newsletter 正文命中呈现为一个阅读入口，显示刊物和日期；
+详情保留全部原始 Block、摘要和匹配证据。正文必须具有唯一直接 Email body 归属且 Email 属于刊物，
+否则保留原节点。该规则不改变 Python 的逐 Block 检索响应，也不把子正文复制到 Email 索引。
+不同 Email 副本仅在刊物归档中折叠，搜索仍按各自 Block 身份展示。
+
+Newsletter HTML 的 `lexical` 投影提取清理后 HTML 的可见文字，不生成表格 Markdown，
+也不把 href/src 属性中的跳转地址追加到正文。作者在正文中直接写出的 URL 和代码保留；
+`default` 投影及阅读 HTML 仍保留有效链接。Python 与 TypeScript 遵守同一边界。
+升级投影后需要显式 lexical rebuild；仅运行 maintain 不会重建正文时间戳未变的旧索引。
+
+旧 `core.text.v1` / `core.html.v1` 正文继续可读。升级不会自动扫描历史邮箱或改写历史记录；
+显式 backfill 再次读到带受支持刊物声明的历史邮件时，会原位升级对应 body 的 Resolver 并补齐刊物关系，
+保留正文 Block ID 和原始内容。Python 与 TypeScript Mail Distribution 均需支持新增 Resolver ID 后，
+才能消费新产生的 newsletter graph。不存在单独的 newsletter 订阅状态或自动退订功能。
+
 ## MIME Materialization
+
+MIME materialization 的 locator 与授权规则对普通邮件和 newsletter 一致。
 
 Collection 保存 body content 与 MIME metadata，但不默认下载 attachment/inline bytes。`MailMimePartResolver` 先通过
 singular `content` relation 返回任意 existing child；只有缺失且 `materialize_missing=true` 才：
@@ -165,3 +234,10 @@ PostgreSQL，以及 built client-web/Mail remote：
 
 低层 schema/helper tests 不是 Mail 产品有效性的 authority；static checks 保证 mechanical contracts，真实纵向旅程
 证明 feature behavior。
+
+Newsletter 回归另覆盖 `tests/extensions/mail/test_newsletter.py` 的协议解析和无损投影、
+`test_newsletter_graph.py` 的 disposable PostgreSQL 归档/回放/历史升级，以及 TypeScript
+`extensions/mail/tests` 的实际浏览器阅读、原文切换、刊物导航和副本折叠。
+浏览器用内存数据替代持久层，不能代替 J1–J4 的真实 IMAP 全链路验收。
+在 `impl-ts` 执行 `pnpm exec playwright test --config extensions/mail/tests/playwright.config.ts`
+运行 newsletter 浏览器旅程。
