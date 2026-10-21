@@ -89,10 +89,9 @@ Radicale 要求返回 `Last-Modified`，当前使用 DAV 根记录的时间；�
 
 ## 验证依据
 
-`tests/extensions/caldav/test_dav_graph.py` 使用显式选定的已迁移 PostgreSQL，
-从 HTTP 边界检查原生字段往返、Resolver 读取、双写 ETag 冲突、提交失败回滚、
-移动的版本约束、直接 Peer 成员修改与集合删除竞争、密码撤销及路由撤销。
-这些检查保护图适配与事务行为，不重复测试 Radicale 的完整协议实现。
+`scripts/tests/caldav/` 保留 codec、图适配与事务排查脚本，不纳入默认测试收集或 CI 门槛，也不替代真机验收。按需运行 `pdm run python -m pytest -q scripts/tests/caldav`；数据库脚本要求通过 `INKCRE_TEST_DATABASE_URL` 显式指定已迁移的隔离 PostgreSQL。该目录的 `conftest.py` 复用既有隔离进程环境，禁止加载开发或 preview 的隐式连接。
+
+这些脚本可辅助检查字段往返、Resolver 读取、ETag 冲突、提交回滚、MOVE、成员并发、凭据撤销，以及共享内容、迁移和引用保留。
 
 2026-10-20 在华为 JKM-AL00a（Android 9）上使用 DAVx⁵ 4.5.14-ose、Tasks.org 15.3
 及系统日历／通讯录完成了真实同步验证：重复事件与提醒、离线修改单次例外、任务完成与
@@ -112,6 +111,6 @@ Radicale 要求返回 `Last-Modified`，当前使用 DAV 根记录的时间；�
 上传为 DATE 类型，并保留正确的排他结束日期。此设备的全天事件创建以 Etar 为验收
 基线；系统日历的重复事件显示、单次例外编辑仍有独立通过证据。
 
-2026-10-21 的共享图升级验收使用 Python `342ae9a`（0.2.0）和 Web `fc07fe7`。14 项 DAV 检查覆盖电话重排、共享内容写入、blob 行锁、迁移回滚和删除保留；两分发共用 fixture 检查原生参数、时区、例外与二进制附件。旧 preview 的 9 个根 ID 和 5 份资源内容迁移后不变，共享扩展配置摘要不变。
+2026-10-21 的共享图升级验收使用 Python `342ae9a`（0.2.0）和 Web `fc07fe7`。14 项 DAV 脚本检查覆盖电话重排、共享内容写入、blob 行锁、迁移回滚和删除保留；两分发共用 fixture 检查原生参数、时区、例外与二进制附件。旧 preview 的 9 个根 ID 和 5 份资源内容迁移后不变，共享扩展配置摘要不变。
 
 通过 PostgREST 修改电话 Block #18 和图片 #17 的 blob 后，DAV 正文／ETag 改变，旧 ETag PUT 返回 412；华为联系人显示新号码和头像。手机改名上传时保留电话 #18，将重新编码的照片关联到新图片 #25，原图片 #17 的独立引用和字节摘要不变。Tasks.org 删除测试任务 #22 并同步后 DAV 返回 404，成员关系消失，但根、描述 #23 和外部引用 #24 保留；Web 可继续读取原任务和描述。Web 还实际验证了父任务跳转、独立图片与电话视图、390px 内容阅读及正常向导，截图在两分发教程目录。

@@ -31,7 +31,7 @@ from extensions.caldav.schema import (
   ResourceContent,
 )
 from tests.database import TestSession
-from tests.extensions.caldav.test_dav_graph import dav, pytestmark, create_calendar  # noqa: F401
+from scripts.tests.caldav.test_dav_graph import dav, pytestmark, create_calendar  # noqa: F401
 
 PHOTO = base64.b64decode(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQXpAHAAIbATIqos84AAAAAElFTkSuQmCC"

@@ -1,6 +1,6 @@
 # CalDAV 第一方扩展
 
-当前阶段：2026-10-21 已完成共享语义图实现、preview 升级和指定华为手机／Web 验收，正在提交教程证据并等待最终 PR 检查。两 PR 保持未合并、未生产发布。用户授权覆盖实现、提交、推送、preview 和截图；免人工阶段核对继续有效。
+当前阶段：2026-10-21 已完成共享语义图实现、preview 升级和指定华为手机／Web 验收，最终 CI 与重新部署持久性核对通过。按用户反馈将本任务新增的 6 个检查文件及 fixture 降为按需脚本，已完成检查脚本的迁移、入口核对和本地验证。两 PR 保持未合并、未生产发布。用户授权覆盖实现、提交、推送、preview 和截图；免人工阶段核对继续有效。
 
 已采用并实现的模型：稳定联系人／事件系列／任务根保存 `href + remainder`，只保留尚未提升的原生属性；电话、邮箱、URL、备注、描述成为 `core.text.v1`，内嵌媒体成为既有语义 resolver + PostgreSQL blob，RELATED-TO 唯一匹配同集合资源时直接指向根。`caldav:property:` Relation 保存组件、例外、提醒、角色、参数和顺序。Python 与 Web 从当前图组合内容，不另存完整可写副本。
 
@@ -8,9 +8,9 @@
 
 并发：写事务依次锁定根、关系、语义目标和 blob，数据库 blob 锁接口要求 Host SDK 0.3.3；旧 ETag 写入拒绝覆盖。读事务使用一致快照，ETag 来自实际组合文本。当前仍扫描全部 DAV 图，含未发布资源，不实现自动垃圾回收。
 
-本地证据：14 项 DAV 检查通过，包含电话重排、图片通用 resolver、直接 Peer 内容编辑、旧 ETag 412、电话和 blob 锁竞争、子任务先于父任务、撤销发布保留引用、迁移失败回滚；Python/Web 共用保真 fixture 覆盖时区、例外、未知参数与二进制提醒附件。Web 13 项测试、全工作区格式／lint／类型／构建通过。Python foundation、锁文件、Ruff、Pyrefly、数据库边界、发布契约通过。独立顾问发现的 iCalendar 附件双重 Base64 编码已修复并加入原始 bytes 检查。
+本地证据：14 项 DAV 脚本检查通过，包含电话重排、图片通用 resolver、直接 Peer 内容编辑、旧 ETag 412、电话和 blob 锁竞争、子任务先于父任务、撤销发布保留引用、迁移失败回滚；Python/Web 共用保真 fixture 覆盖时区、例外、未知参数与二进制提醒附件。Web 13 项脚本检查、全工作区格式／lint／类型／构建通过。Python foundation、锁文件、Ruff、Pyrefly、数据库边界、发布契约通过。独立顾问发现的 iCalendar 附件双重 Base64 编码已修复并加入原始 bytes 检查。
 
-最终收尾：推送本轮教程和证据，等待 CI／preview 重新部署，比较信息图摘要及联系人 ETag，确认重启不改变信息。保留手机专用 CONNECT 代理；关闭本轮浏览器和 Web 代理。
+已完成收尾：Python `278bf9b` 与 Web `0f30a6e` 的 CI／preview 部署通过；重新部署前后信息图摘要及联系人 ETag 相同。手机专用 CONNECT 代理保留，本轮浏览器和 Web 代理已关闭。
 
 用户目标：新增第一方 calDAV 插件，让 InKCre 提供日历、任务和联系人服务；以本机连接的安卓手机上的 DAVx⁵、Tasks.org 验收。不操作现有个人数据。用户随后授权提交、推送、创建 PR，并要求完成 preview 环境验收、保存教程截图。
 
@@ -67,7 +67,7 @@ sync-token 由当前有序内容计算；相同 token 返回无变化，变化�
 - CalDAV PostgreSQL HTTP 集成：6 passed。覆盖原生内容与 Resolver、并发 ETag、提交失败回滚、MOVE 版本保护、集合删除与另一 Peer 成员移动／新增竞争、同步令牌失效、密码撤销与路由撤销。
 - Memos PostgreSQL 集成：16 passed，验证共享图持久化接口的既有行为。
 - 既有扩展安装、分发、配置和生命周期相关测试：25 passed。
-- foundation、lock current、全仓 Ruff／格式、全仓 Pyrefly、数据库边界、发布契约、wheel 构建与校验、diff whitespace 检查通过。类型检查有 vobject 缺少 stubs 与测试 SQLModel deprecated API 的提示，无错误。
+- foundation、lock current、全仓 Ruff／格式、全仓 Pyrefly、数据库边界、发布契约、wheel 构建与校验、diff whitespace 检查通过。类型检查有 vobject 缺少 stubs 与脚本 SQLModel deprecated API 的提示，无错误。
 
 真机使用唯一测试账户 `inkcre-caldav-test@example.invalid`，通过 `adb reverse tcp:18789 tcp:18789` 连接工作树服务；只创建或修改显式测试数据。
 
@@ -126,7 +126,7 @@ Etar 从 F-Droid 官方包安装，只授予日历读写权限。DAVx⁵ 已允�
 
 验证补充：同步 main 后 22 项 DAV/Memos PostgreSQL 回归通过；严格 Pyrefly 已为 0
 diagnostics，pre-commit 全部通过。GitHub run `39424968303` 的仓库检查为 60 passed、
-64 条按环境条件跳过，CLI 与可移植数据库运行时检查通过。CalDAV 的 6 项真实数据库测试
+64 条按环境条件跳过，CLI 与可移植数据库运行时检查通过。CalDAV 的 6 项数据库脚本检查
 已另行执行通过，不能把 CI 中的跳过视为数据库测试证据。
 
 原始响应、受限日志、生命周期检查和重新部署前的集合快照保存在忽略目录
@@ -172,7 +172,7 @@ Web 验收已经观察到：
   重启期间停止写入、enable 响应丢失后锁定原目标、刷新读到 downloading 仍阻止重发、
   failed + restart_required 明确显示失败且保持禁止写入。后两种状态没有增加写请求。
   移除模拟后刷新重新显示真实连接。模拟脚本在 TS `.runtime/caldav/setup-faults.js`。
-- 10 项解析／状态／配置契约测试通过；最新全仓 `pnpm check` 通过。日历内容 axe 为
+- 10 项解析／状态／配置脚本检查通过；最新全仓 `pnpm check` 通过。日历内容 axe 为
   0 violations、0 incomplete；窄屏向导和联系人为 0 violations，但 axe 对折叠下拉
   aria-controls 与叠层背景对比度留有人工判断项，不能宣称完整 WCAG 认证。
 
@@ -194,7 +194,7 @@ TS `extensions/caldav/docs/module-federation/`，不含密码明文。TS 功能�
 
 ## 共享语义图 preview 和真机验收（2026-10-21）
 
-实现提交为 Python `342ae9a`、Web `fc07fe7`；Python 分发 0.2.0，Host SDK 0.3.3。14 项 DAV、17 项 Memos／分发回归、13 项 Web 测试通过；Python pre-commit 和 Web 全仓 check 通过。GitHub Python run `39537244735`／deploy `39537242950`、Web run `39537203874`／deploy `39537201107` 成功；本次最后的文档提交另由最终 checks 覆盖。
+实现提交为 Python `342ae9a`、Web `fc07fe7`；Python 分发 0.2.0，Host SDK 0.3.3。14 项 DAV 脚本检查、17 项既有 Memos／分发回归、13 项 Web 脚本检查通过；Python pre-commit 和 Web 全仓 check 通过。GitHub Python run `39537244735`／deploy `39537242950`、Web run `39537203874`／deploy `39537201107` 成功；本次最后的文档提交另由最终 checks 覆盖。
 
 preview facade 只保留当前候选版本，更新到 0.2.0 后旧选择 0.1.0 无法在新容器恢复。通过 PostgREST 只将该 Python Peer 的 participation.enabled 改为 false，重启恢复管理接口，然后正常 selection 0.2.0、自动重启、enable。此恢复没有修改密码或信息；不能描述成无干预升级。生产不可变 Registry 的版本保留规则不在本任务修改范围。
 
@@ -205,3 +205,9 @@ preview facade 只保留当前候选版本，更新到 0.2.0 后旧选择 0.1.0 
 - Web：向导读取 0.2.0 并保留遮蔽密码；联系人关联内容分别跳转通用图片 #17、文本 #18；子任务 #8 跳转父任务 #9。刷新深链接恢复 v2，390px 文档宽度也是 390px，未横向溢出。教程新增 3 张手机截图、6 张 Web 截图，并更新向导截图。
 
 证据保存在 `.runtime/caldav/preview/semantic-*.json`／`.vcf` 及截图目录。手机使用旧账号 preview146@example.invalid，未操作其他个人账号；本轮恢复了因本机进程结束而停止的 18790 CONNECT 代理。只依赖 Last-Modified 的客户端仍未验收：该时间只表示根记录时间，变化检测必须使用组合内容 ETag。全图扫描、变化后全量重扫、无自动垃圾回收仍为明确限制。
+
+## 检查脚本归类调整（2026-10-21）
+
+用户明确要求取消本任务新增文件的正式测试归类，改放 `scripts/tests` 或 `scripts`。Python 的三个文件及 fixture 移至 `scripts/tests/caldav/`，沿用既有 Twitter 脚本隔离环境方式，默认 pytest 的 `testpaths = ["tests"]` 不收集它们。Web 的三个文件及 fixture 移至扩展自身 `scripts/tests/`，包入口改为显式 `verify`，移除本任务增加的 CI 执行步骤。不增加替代测试或门槛，不改变运行实现。此前 14／13 项结果仅作为脚本排查记录；产品验收依据仍为独立记录的 preview／华为实测。
+
+迁移后已显式执行 Python 14 项和 Web 13 项脚本检查，均通过；Python 默认收集的 118 项中没有 CalDAV，Pyrefly 为 0 diagnostics；Ruff、数据库边界和 Web 全仓 `pnpm check` 通过。两 PR 同步更新目录、入口和证据表述，后续 CI 状态以 GitHub checks 为准。此次目录与入口调整不重新宣称真机验收。
