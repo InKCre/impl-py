@@ -16,6 +16,7 @@
     "b8c1d2e3f4a5_native_extension_distribution_cutover.py": "c0527edff210a9646c69de2da01c2877bce4acbc05af969c5bfb8d1a3fd0d3c8",
     "b8f1c2d3e4a5_add_storage_hydration_protocol.py": "87162d8376aaaac7ceb56bbfc1e03eb3e893607b0d51c4a2fd235d9f6201f395",
     "b9c0d1e2f3a4_add_agent_definitions.py": "59529e759610193da3427c5b18e0c9be25e46e5e2419a3237bcf9ef88c263fa3",
+    "be4d80fcf999_add_capture_direct_commit.py": "3ccc116738081300a74f978142ce8c777e8b6a9d6d70fe42b7e053ba870705c8",
     "c0d1e2f3a4b5_adopt_peer_capability_delegation.py": "7474fcda0b55fe2ce2047f761579459385aac9f43e7359ced881b8eb1fc6c265",
     "c4e8a7b6d5f0_converge_production_schema.py": "fb5687ad523c64297fe101d109918af2501bec26219de78353944a762eadfe4e",
     "c6d7e8f9a0b1_add_extension_setup_state.py": "5aab0d1dda6932fbac53f5a6adf4b504f994e8c860833b64fc21fb9cb8d8fc3e",

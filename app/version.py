@@ -3,7 +3,7 @@
 from pathlib import Path
 import tomllib
 
-CORE_VERSION = "0.3.4"
+CORE_VERSION = "0.3.3"
 APPLICATION_VERSION = tomllib.loads(
   (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 )["project"]["version"]

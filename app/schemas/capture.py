@@ -1,10 +1,8 @@
 """Shared receipts for committed capture commands; graph content remains authoritative."""
 
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
-import pydantic
 import sqlalchemy
 import sqlmodel
 
@@ -15,11 +13,18 @@ class CaptureReceiptModel(sqlmodel.SQLModel, table=True):
     sqlalchemy.CheckConstraint(
       "payload_digest ~ '^[0-9a-f]{64}$'", name="capture_receipt_digest"
     ),
+    sqlalchemy.CheckConstraint(
+      "graph_digest ~ '^[0-9a-f]{64}$'", name="capture_receipt_graph_digest"
+    ),
   )
 
   submission_id: UUID = sqlmodel.Field(primary_key=True)
   payload_digest: str = sqlmodel.Field(
     sa_column=sqlalchemy.Column(sqlalchemy.Text, nullable=False)
+  )
+  # NULL belongs only to receipts written before the direct database commit protocol.
+  graph_digest: str | None = sqlmodel.Field(
+    default=None, sa_column=sqlalchemy.Column(sqlalchemy.Text, nullable=True)
   )
   # A historical reference must survive deletion, or delayed retries resurrect content.
   root_block_id: int = sqlmodel.Field(nullable=False)
@@ -31,21 +36,3 @@ class CaptureReceiptModel(sqlmodel.SQLModel, table=True):
       server_default=sqlalchemy.text("CURRENT_TIMESTAMP"),
     ),
   )
-
-
-class CaptureReceipt(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(frozen=True, from_attributes=True)
-
-  submission_id: UUID
-  payload_digest: str
-  root_block_id: int
-  committed_at: datetime
-
-
-class CaptureResult(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(frozen=True)
-
-  submission_id: UUID
-  root_block_id: int
-  committed_at: datetime
-  availability: Literal["available", "deleted"]
