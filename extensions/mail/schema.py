@@ -121,6 +121,15 @@ class CanonicalMailbox(pydantic.BaseModel):
   mailbox_id: str | None = None
 
 
+class CanonicalMailingList(pydantic.BaseModel):
+  """Publisher-declared list identity; not proof of sender authenticity."""
+
+  model_config = pydantic.ConfigDict(extra="forbid")
+
+  list_id: str
+  name: str | None = None
+
+
 class CanonicalEmailAddress(pydantic.BaseModel):
   """Shared canonical addr-spec without occurrence-local display name."""
 
@@ -172,6 +181,7 @@ class BodyFact(pydantic.BaseModel):
   part_id: str
   media_type: typing.Literal["text/plain", "text/html"]
   content: str
+  alternative_groups: tuple[str, ...] = ()
 
 
 class MimePartFact(pydantic.BaseModel):
@@ -202,6 +212,7 @@ class MessageFact(pydantic.BaseModel):
   uid_validity: int = pydantic.Field(gt=0)
   internal_date: datetime.datetime | None = None
   root: CanonicalEmail
+  mailing_list: CanonicalMailingList | None = None
   participants: tuple[ParticipantFact, ...] = ()
   bodies: tuple[BodyFact, ...] = ()
   mime_parts: tuple[MimePartFact, ...] = ()
@@ -246,6 +257,7 @@ class ComponentRelation(pydantic.BaseModel):
 
   role: typing.Literal["body", "attachment", "inline"]
   part_id: str
+  alternative_groups: tuple[str, ...] | None = None
 
 
 class ParticipantRelation(pydantic.BaseModel):
@@ -272,6 +284,15 @@ class SolvedBlock(pydantic.BaseModel):
   solved_content: typing.Any
 
 
+class SolvedBody(SolvedBlock):
+  relation: ComponentRelation
+
+
+class SolvedMailingList(pydantic.BaseModel):
+  root: CanonicalMailingList
+  emails: tuple[SolvedBlock, ...] = ()
+
+
 class SolvedMimePart(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
@@ -285,7 +306,8 @@ class SolvedEmail(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
   root: CanonicalEmail
-  bodies: tuple[SolvedBlock, ...] = ()
+  bodies: tuple[SolvedBody, ...] = ()
+  mailing_lists: tuple[SolvedBlock, ...] = ()
   mime_parts: tuple[SolvedBlock, ...] = ()
   participants: tuple[dict[str, typing.Any], ...] = ()
   mailboxes: tuple[dict[str, typing.Any], ...] = ()

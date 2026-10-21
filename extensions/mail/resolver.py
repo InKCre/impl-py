@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import typing
 
+from bs4 import BeautifulSoup
 
 from app.business.info_base.services import BlockService
 from app.business.info_base.commands import get_related_block
@@ -15,9 +17,12 @@ from app.business.info_base.resolver import (
 )
 from app.business.info_base.resolver.inspection import detect_media_type
 from app.business.info_base.resolver.label import format_label
+from app.business.info_base.resolver.html import HTMLResolver
+from app.business.info_base.resolver.text import TextResolver
 from app.business.info_base.storage import WritableStorage
 from app.business.source.config import resolve_writable_storage_async
 from app.persistence.source.uow import source_uow
+from app.persistence.info_base.uow import graph_uow
 from app.schemas.info_base.block import BlockForm, BlockModel
 from app.schemas.source import SourceModel
 
@@ -36,12 +41,25 @@ from .schema import (
   CanonicalEmailAddress,
   CanonicalMailbox,
   CanonicalMailFlag,
+  CanonicalMailingList,
   CanonicalMimePart,
   MailSourceConfig,
   MailSourceState,
   SolvedBlock,
+  SolvedBody,
   SolvedEmail,
+  SolvedMailingList,
   SolvedMimePart,
+  ComponentRelation,
+)
+from .newsletter import (
+  HTML_BODY_RESOLVERS,
+  TEXT_BODY_RESOLVERS,
+  MAILING_LIST_RESOLVER,
+  NEWSLETTER_HTML_RESOLVER,
+  NEWSLETTER_TEXT_RESOLVER,
+  clean_newsletter_html,
+  clean_newsletter_text,
 )
 
 
@@ -72,6 +90,112 @@ async def _solve_block(block: BlockModel, *, refresh: bool = False) -> SolvedBlo
   return SolvedBlock(block=block, solved_content=solved)
 
 
+def reading_bodies(bodies: tuple[SolvedBody, ...]) -> list[SolvedBody]:
+  ordered = sorted(
+    bodies, key=lambda body: tuple(map(int, body.relation.part_id.split(".")))
+  )
+  preferred: dict[str, str] = {}
+  for body in ordered:
+    for group in body.relation.alternative_groups or ():
+      depth = 0 if group == "root" else len(group.split("."))
+      branch = body.relation.part_id.split(".")[depth]
+      if group not in preferred or body.block.resolver in HTML_BODY_RESOLVERS:
+        preferred[group] = branch
+  return [
+    body
+    for body in ordered
+    if all(
+      body.relation.part_id.split(".")[0 if group == "root" else len(group.split("."))]
+      == preferred[group]
+      for group in body.relation.alternative_groups or ()
+    )
+  ]
+
+
+class NewsletterHTMLResolver(HTMLResolver, rso_type=NEWSLETTER_HTML_RESOLVER):
+  async def _get_solved_content(self, *, refresh=False, materialize_missing=True) -> str:
+    source = await super()._get_solved_content(
+      refresh=refresh, materialize_missing=materialize_missing
+    )
+    return await asyncio.to_thread(clean_newsletter_html, source)
+
+  async def get_text(
+    self,
+    *,
+    context: TextProjectionContext = "default",
+    refresh: bool = False,
+    materialize_missing: bool = True,
+  ) -> str:
+    if context != "lexical":
+      return await super().get_text(
+        context=context, refresh=refresh, materialize_missing=materialize_missing
+      )
+    source = await self.get_solved_content(
+      refresh=refresh, materialize_missing=materialize_missing
+    )
+    # Index visible words, not Markdown layout or derived subscriber/image URLs.
+    return await asyncio.to_thread(
+      lambda: " ".join(
+        BeautifulSoup(source, "html.parser").get_text(" ", strip=True).split()
+      )
+    )
+
+
+class NewsletterTextResolver(TextResolver, rso_type=NEWSLETTER_TEXT_RESOLVER):
+  draft_description = None
+  draft_input_model = None
+
+  async def _get_solved_content(self, *, refresh=False, materialize_missing=True) -> str:
+    source = await super()._get_solved_content(
+      refresh=refresh, materialize_missing=materialize_missing
+    )
+    return clean_newsletter_text(source)
+
+
+class MailingListResolver(
+  Resolver[CanonicalMailingList | SolvedMailingList, str], rso_type=MAILING_LIST_RESOLVER
+):
+  async def _get_solved_content(self, *, refresh=False, materialize_missing=True):
+    del materialize_missing
+    root = CanonicalMailingList.model_validate_json(
+      await self.get_raw_content(refresh=refresh)
+    )
+    async with graph_uow() as uow:
+      publications = await uow.blocks.find_json_field(
+        MAILING_LIST_RESOLVER, "list_id", root.list_id
+      )
+      relations = await uow.relations.get_outgoing_many(
+        tuple(_persisted_id(block) for block in publications)
+      )
+      ids = {relation.to_ for relation in relations if relation.content == "publishes"}
+    emails = tuple(
+      SolvedBlock(
+        block=block, solved_content=CanonicalEmail.model_validate_json(block.content)
+      )
+      for block in await BlockService.get_many(ids)
+      if block.resolver == EMAIL_RESOLVER
+    )
+    return SolvedMailingList(root=root, emails=emails)
+
+  async def get_text(
+    self,
+    *,
+    context: TextProjectionContext = "default",
+    refresh: bool = False,
+    materialize_missing: bool = True,
+  ) -> str:
+    root = CanonicalMailingList.model_validate_json(
+      await self.get_raw_content(refresh=refresh)
+    )
+    return "\n".join(value for value in (root.name, root.list_id) if value)
+
+  async def get_label(self, *, refresh: bool = False) -> str:
+    root = CanonicalMailingList.model_validate_json(
+      await self.get_raw_content(refresh=refresh)
+    )
+    return format_label("mailing list", root.name or root.list_id)
+
+
 class EmailResolver(
   Resolver[CanonicalEmail | SolvedEmail, str],
   rso_type=EMAIL_RESOLVER,
@@ -91,7 +215,8 @@ class EmailResolver(
     }
     blocks = {block.id: block for block in await BlockService.get_many(block_ids)}
 
-    bodies: list[SolvedBlock] = []
+    bodies: list[SolvedBody] = []
+    mailing_lists: list[SolvedBlock] = []
     mime_parts: list[SolvedBlock] = []
     participants: list[dict[str, typing.Any]] = []
     mailboxes: list[dict[str, typing.Any]] = []
@@ -107,13 +232,16 @@ class EmailResolver(
         if (
           value
           and value.get("role") == "body"
-          and target.resolver
-          in {
-            TEXT_RESOLVER,
-            HTML_RESOLVER,
-          }
+          and target.resolver in TEXT_BODY_RESOLVERS | HTML_BODY_RESOLVERS
         ):
-          bodies.append(await _solve_block(target, refresh=refresh))
+          solved_body = await _solve_block(target, refresh=refresh)
+          bodies.append(
+            SolvedBody(
+              block=target,
+              solved_content=solved_body.solved_content,
+              relation=ComponentRelation.model_validate(value),
+            )
+          )
         elif (
           value
           and value.get("role") in {"attachment", "inline"}
@@ -147,6 +275,13 @@ class EmailResolver(
         if source is None:
           continue
         value = _json(relation.content)
+        if relation.content == "publishes" and source.resolver == MAILING_LIST_RESOLVER:
+          mailing_lists.append(
+            SolvedBlock(
+              block=source,
+              solved_content=CanonicalMailingList.model_validate_json(source.content),
+            )
+          )
         if (
           value and value.get("type") == "contains" and source.resolver == MAILBOX_RESOLVER
         ):
@@ -158,6 +293,7 @@ class EmailResolver(
     return SolvedEmail(
       root=root,
       bodies=tuple(bodies),
+      mailing_lists=tuple(mailing_lists),
       mime_parts=tuple(mime_parts),
       participants=tuple(participants),
       mailboxes=tuple(mailboxes),
@@ -184,7 +320,7 @@ class EmailResolver(
       if context == "lexical"
       else [
         text
-        for body in solved.bodies
+        for body in reading_bodies(solved.bodies)
         if (
           text := await ResolverManager.get(body.block).get_text(
             refresh=refresh,
