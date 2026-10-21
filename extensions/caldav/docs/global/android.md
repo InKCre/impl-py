@@ -77,7 +77,7 @@ Tasks.org 的任务访问权限与 Android 日历权限不同。如果任务列�
 
 <img src="./images/contact-shared-content.png" alt="华为联系人同步到共享电话的新号码和绿色测试头像" width="320">
 
-手机编辑并上传联系人时，相同内容继续关联原 Block；值发生变化时重新关联新内容。手机可能重新编码照片，这会产生新图片 Block，原图片及其他位置的引用仍然保留。Web 中打开独立内容的方法见 [CalDAV Web 教程](https://github.com/InKCre/impl-ts/blob/feat/caldav-extension/extensions/caldav/docs/module-federation/index.md)。
+手机编辑并上传联系人时，相同内容继续关联原 Block；值发生变化时重新关联新内容。手机可能重新编码照片，这会产生新图片 Block，原图片及其他位置的引用仍然保留。Web 中打开独立内容的方法见 [CalDAV Web 教程](https://github.com/InKCre/impl-ts/blob/main/extensions/caldav/docs/module-federation/index.md)。
 
 ## 确认同步与处理连接问题
 
