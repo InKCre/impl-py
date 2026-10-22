@@ -75,8 +75,22 @@ jobs:
       - name: Run repository contract
         run: pdm run check
 
-      - name: Verify native documentation publication
-        run: pdm run python -m pytest -q scripts/tests/test_extension_documentation.py
+      - name: Initialize disposable business-test database
+        env:
+          INKCRE_ENV_FILE: ""
+          MIGRATION_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/inkcre
+          CORE_DATABASE_PASSWORD: ci-core-test-password-at-least-32-bytes
+          POSTGREST_DATABASE_PASSWORD: ci-postgrest-test-password-at-least-32-bytes
+        run: pdm run db:init --profile development
+
+      - name: Run required PostgreSQL business scenarios
+        env:
+          INKCRE_TEST_DATABASE_URL: postgresql+psycopg://inkcre_core:ci-core-test-password-at-least-32-bytes@127.0.0.1:5432/inkcre
+          MIGRATION_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/inkcre
+        run: pdm run test:database
+
+      - name: Verify documentation publication and partial Preview reporting
+        run: pdm run python -m pytest -q scripts/tests/test_extension_documentation.py scripts/tests/test_preview_delivery.py
 
       - name: Build and verify all first-party wheels
         env:

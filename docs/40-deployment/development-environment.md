@@ -153,6 +153,14 @@ Credentialed semantic-quality acceptance is explicit and separate from the ordin
 selected migrated `INKCRE_TEST_DATABASE_URL`; see the local Semantic Retrieval Unit TDD for the command and pass/fail
 authority.
 
+`pdm run test:database` 是无需真实 AI／IMAP 服务的 PostgreSQL 业务回归入口，具体场景清单由
+`scripts/automation/repository_check.sh` 拥有。它要求显式 `INKCRE_TEST_DATABASE_URL`；未设置时直接失败，
+不会将整组 skip 当作通过。数据库必须已经迁移且可丢弃：场景包含清空数据、事务回滚和迁移往返验证，
+不能连接共享开发库、Preview 或生产。Memos 迁移场景还要求该独占 PostgreSQL 的 `MIGRATION_DATABASE_URL`
+具有创建数据库权限；它建立随机命名的历史数据库，只往返附件所属 revision，并在结束后删除该数据库。
+这保留实际 migration 编排和应用下载读回，不会回退当前业务测试库或声称验证了整条历史 downgrade 链。
+CI 在自身临时 PostgreSQL service 上先初始化再执行这一组；外部服务和真实凭据验收继续由各自专项入口负责。
+
 ## Database Branch Workflow In CI
 
 The repository currently uses Neon branch automation for pull requests.

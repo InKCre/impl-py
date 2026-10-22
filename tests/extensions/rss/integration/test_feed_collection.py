@@ -655,6 +655,7 @@ async def _exercise_atom_and_failures() -> None:
 def test_rss_collection_reconciliation_watermark_conditional_and_manual_enclosure(
   async_runner,
 ):
+  JobManager.start()
   register_core_resolvers()
   Extension._init_resolvers()
   Extension._init_sources()
@@ -667,6 +668,7 @@ def test_rss_collection_reconciliation_watermark_conditional_and_manual_enclosur
 def test_atom_family_failure_and_automatic_enclosure_materialization(
   async_runner,
 ):
+  JobManager.start()
   register_core_resolvers()
   Extension._init_resolvers()
   Extension._init_sources()
