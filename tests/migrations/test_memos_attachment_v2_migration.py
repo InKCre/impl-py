@@ -20,7 +20,7 @@ import sqlmodel
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.database_contract.connection import psycopg_database_url
+from app.database_contract.connection import normalized_database_url, psycopg_database_url
 from app.business.info_base.storage.postgresql import PostgreSQLBlobPointer
 from tests.database import TestSession
 from app.schemas.info_base.block import BlockModel
@@ -45,19 +45,19 @@ PREVIOUS_REVISION = "d0e3f4a5b6c7"
 @pytest.fixture
 def attachment_database(monkeypatch):
   """Own a legacy schema instead of downgrading the shared current-contract fixture."""
-  owner_url = os.environ["MIGRATION_DATABASE_URL"]
+  owner_url = normalized_database_url(os.environ["MIGRATION_DATABASE_URL"])
   database = f"memos_migration_{uuid.uuid4().hex}"
   database_url = (
     sqlalchemy.engine.make_url(owner_url)
     .set(database=database)
     .render_as_string(hide_password=False)
   )
-  with psycopg.connect(psycopg_database_url(owner_url), autocommit=True) as owner:
-    owner.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
   engine = sqlalchemy.create_engine(database_url, poolclass=NullPool)
   async_engine = create_async_engine(database_url, poolclass=NullPool)
   config = Config(PROJECT_ROOT / "alembic.ini")
   config.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
+  with psycopg.connect(psycopg_database_url(owner_url), autocommit=True) as owner:
+    owner.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
   try:
     monkeypatch.setenv("MIGRATION_DATABASE_URL", database_url)
     monkeypatch.setattr("tests.database.TEST_ENGINE", engine)
