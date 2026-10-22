@@ -1,0 +1,1 @@
+用 `extension select --distribution python|module_federation --version VERSION` 和 `extension unselect` 替换旧的 `install/uninstall` 命令，修复对当前 Core 返回 405 的请求。选择和取消选择均可用 `--peer` 指定目标；取消选择保留共享配置和信息。新增 `extension status` 读取接入 Peer 的状态，配置 schema 同样从该 Peer 读取，不再访问共享身份上已移除的字段。该版本要求 Core 的 Extension management v2 接口，不兼容旧管理接口。
