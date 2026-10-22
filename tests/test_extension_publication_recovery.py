@@ -32,8 +32,6 @@ def test_full_rerun_fails_capture_and_publish_only_rerun_restores_saved_artifact
 
   # GitHub evaluates the step condition for a full rerun (attempt 2), then runs
   # this exact guard. Check its observable failure, not just the YAML wiring.
-  rerun_attempt = 2
-  assert rerun_attempt != 1
   result = subprocess.run(  # noqa: S603 - executes the checked-in workflow guard body.
     ["bash", "-e", "-c", script], capture_output=True, text=True, check=False
   )

@@ -1,4 +1,4 @@
-"""Online data-preservation proof for the Memos attachment v2 migration."""
+"""Memos migration round trips in their own historical PostgreSQL database."""
 
 from tests.database import read_block, read_relations
 
@@ -12,10 +12,15 @@ import uuid
 
 from alembic import command
 from alembic.config import Config
+import psycopg
+from psycopg import sql
 import pytest
 import sqlalchemy
 import sqlmodel
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
+from app.database_contract.connection import normalized_database_url, psycopg_database_url
 from app.business.info_base.storage.postgresql import PostgreSQLBlobPointer
 from tests.database import TestSession
 from app.schemas.info_base.block import BlockModel
@@ -33,13 +38,53 @@ pytestmark = pytest.mark.skipif(
 PROJECT_ROOT = Path(__file__).parents[2]
 V1 = "extensions.memos.attachment.v1"
 V2 = "extensions.memos.attachment.v2"
+ATTACHMENT_REVISION = "e1f4a5b6c7d8"
 PREVIOUS_REVISION = "d0e3f4a5b6c7"
 
 
-def _alembic() -> Config:
+@pytest.fixture
+def attachment_database(monkeypatch):
+  """Own a legacy schema instead of downgrading the shared current-contract fixture."""
+  owner_url = normalized_database_url(os.environ["MIGRATION_DATABASE_URL"])
+  database = f"memos_migration_{uuid.uuid4().hex}"
+  database_url = (
+    sqlalchemy.engine.make_url(owner_url)
+    .set(database=database)
+    .render_as_string(hide_password=False)
+  )
+  engine = sqlalchemy.create_engine(database_url, poolclass=NullPool)
+  async_engine = create_async_engine(database_url, poolclass=NullPool)
   config = Config(PROJECT_ROOT / "alembic.ini")
   config.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
-  return config
+  with psycopg.connect(psycopg_database_url(owner_url), autocommit=True) as owner:
+    owner.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+  try:
+    monkeypatch.setenv("MIGRATION_DATABASE_URL", database_url)
+    monkeypatch.setattr("tests.database.TEST_ENGINE", engine)
+    monkeypatch.setattr(
+      "app.persistence.info_base.uow.AsyncSessionFactory",
+      async_sessionmaker(async_engine, expire_on_commit=False),
+    )
+    command.upgrade(config, ATTACHMENT_REVISION)
+    with engine.begin() as connection:
+      connection.execute(
+        sqlalchemy.text(
+          "INSERT INTO inkcre.storage_types (id, description, config_schema) "
+          "VALUES ('postgresql_binary', 'Migration fixture', '{}'::jsonb)"
+        )
+      )
+      connection.execute(
+        sqlalchemy.text(
+          "INSERT INTO inkcre.storages (id, type, config) "
+          "VALUES (-4, 'postgresql_binary', '{}'::jsonb)"
+        )
+      )
+    yield config
+  finally:
+    engine.dispose()
+    asyncio.run(async_engine.dispose())
+    with psycopg.connect(psycopg_database_url(owner_url), autocommit=True) as owner:
+      owner.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
 
 
 def _cleanup(block_ids: set[int], blob_ids: set[uuid.UUID]) -> None:
@@ -62,8 +107,10 @@ def _cleanup(block_ids: set[int], blob_ids: set[uuid.UUID]) -> None:
     db_session.commit()
 
 
-def test_seeded_v1_upgrade_and_downgrade_preserve_identity_blob_and_owner_slot():
-  config = _alembic()
+def test_seeded_v1_upgrade_and_downgrade_preserve_identity_blob_and_owner_slot(
+  attachment_database,
+):
+  config = attachment_database
   block_ids: set[int] = set()
   blob_ids: set[uuid.UUID] = set()
   command.downgrade(config, PREVIOUS_REVISION)
@@ -104,7 +151,7 @@ def test_seeded_v1_upgrade_and_downgrade_preserve_identity_blob_and_owner_slot()
       memo_id = memo.id
       blob_id = blob.id
 
-    command.upgrade(config, "head")
+    command.upgrade(config, ATTACHMENT_REVISION)
     Extension._init_resolvers()
     with TestSession() as db_session:
       metadata = read_block(attachment_id, db_session)
@@ -170,11 +217,10 @@ def test_seeded_v1_upgrade_and_downgrade_preserve_identity_blob_and_owner_slot()
       assert [(item.from_, item.to_) for item in owner] == [(memo_id, attachment_id)]
   finally:
     _cleanup(block_ids, blob_ids)
-    command.upgrade(config, "head")
 
 
-def test_downgrade_refuses_shared_semantic_content_before_mutation():
-  config = _alembic()
+def test_failed_downgrade_preserves_shared_semantic_content(attachment_database):
+  config = attachment_database
   block_ids: set[int] = set()
   blob_ids: set[uuid.UUID] = set()
 
@@ -210,14 +256,45 @@ def test_downgrade_refuses_shared_semantic_content_before_mutation():
       metadata_ids = tuple(item.id for item in metadata if item.id is not None)
       block_ids.update((semantic.id, *metadata_ids))
 
+    with TestSession() as db_session:
+      original_blocks = []
+      for block_id in (semantic.id, *metadata_ids):
+        block = db_session.get(BlockModel, block_id)
+        assert block is not None
+        original_blocks.append(block.model_dump())
+      original_relations = [
+        relation.model_dump()
+        for relation in db_session.exec(
+          sqlmodel.select(RelationModel)
+          .where(
+            RelationModel.from_.in_(metadata_ids)  # pyrefly: ignore[missing-attribute]
+          )
+          .order_by(sqlmodel.col(RelationModel.id))
+        ).all()
+      ]
+
     with pytest.raises(RuntimeError, match="post-upgrade information"):
       command.downgrade(config, PREVIOUS_REVISION)
 
     with TestSession() as db_session:
-      assert all(
-        db_session.get(BlockModel, item_id) is not None for item_id in metadata_ids
-      )
-      assert db_session.get(BlockModel, semantic.id) is not None
+      for block_id, original in zip(
+        (semantic.id, *metadata_ids), original_blocks, strict=True
+      ):
+        block = db_session.get(BlockModel, block_id)
+        assert block is not None
+        assert block.model_dump() == original
+      assert [
+        relation.model_dump()
+        for relation in db_session.exec(
+          sqlmodel.select(RelationModel)
+          .where(
+            RelationModel.from_.in_(metadata_ids)  # pyrefly: ignore[missing-attribute]
+          )
+          .order_by(sqlmodel.col(RelationModel.id))
+        ).all()
+      ] == original_relations
+      persisted_blob = db_session.get(StorageBlobModel, blob.id)
+      assert persisted_blob is not None
+      assert persisted_blob.data == b"shared"
   finally:
     _cleanup(block_ids, blob_ids)
-    command.upgrade(config, "head")

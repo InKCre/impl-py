@@ -77,6 +77,18 @@ reads and consumer acceptance are deliberately independent and do not block Core
 Repository-qualified app and branch identities keep an impl-py PR and an impl-ts PR with
 the same number from addressing the same review resources.
 
+交付摘要在失败时也报告目标 SHA、Registry snapshot、数据库初始化、进程 release、Peer 广告和探测的
+各自结果。数据库输出保留初始化前后的实际 migration head 与候选期望 head／contract；没有取得的观察
+明确留空，不推断旧服务已经停止。Core 镜像写入目标 SHA label。Heroku 当前 release 身份另外只读查询，
+该身份本身不证明本轮源码已生效。进程 Registry fallback 也不能覆盖 Peer／deployment 的优先配置，
+跨仓业务验收仍需核对实际 Distribution 和 Registry 来源。
+
+同一 PR 的 Neon 分支保留状态。若候选移除了该分支已经执行的未发布迁移，重复交付不会自动 reset、
+downgrade 或补回迁移。先保留原分支作诊断：需要验证保留状态升级时，修复候选，使它能从当前 head
+前进；需要验证全新候选时，将同一明确源码放到新的 PR，使现有分支 owner 从 `preview-base` 创建新的
+隔离分支。原 PR 的关闭清理只在不再需要其数据与证据时执行。这里不增加隐式“自愈”或复用其他 PR
+数据库的行为；失败时 Registry 可能已经更新，不表示整个组合已经就绪。
+
 ## Canonical Production
 
 Production is one logical environment containing two peer transports:

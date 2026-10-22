@@ -3,6 +3,16 @@
 source "$(dirname "$0")/_common.sh"
 
 case "${1:-}" in
+  database-tests)
+    require_env INKCRE_TEST_DATABASE_URL
+    # This admitted suite needs migrated, disposable PostgreSQL, but no live AI or IMAP service.
+    pdm run python -m pytest -q -rs \
+      tests/agent/integration tests/ai/integration tests/deployment_config/integration \
+      tests/info_base/integration tests/lexical_retrieval/integration \
+      tests/organization/integration tests/peer/integration tests/semantic_retrieval/integration \
+      tests/extensions/memos/integration tests/extensions/rss/integration/test_feed_collection.py \
+      tests/migrations/test_memos_attachment_v2_migration.py
+    ;;
   release-intent)
     arguments=()
     if [[ "${BASE_REVISION:-}" =~ ^[0-9a-f]{40}$ ]] &&
@@ -25,5 +35,5 @@ case "${1:-}" in
         --project "extensions/$extension" --wheel "$wheel"
     done
     ;;
-  *) echo "usage: $0 release-intent|extension-wheels" >&2; exit 2 ;;
+  *) echo "usage: $0 database-tests|release-intent|extension-wheels" >&2; exit 2 ;;
 esac
