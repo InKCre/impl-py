@@ -32,6 +32,11 @@ The full validation gate used by CI is `pdm run check`. See [CONTRIBUTING.md](CO
 - [Local unit design](docs/30-unit-tdd/README.md)
 - Shared product truth Hub: [`InKCre/docs`](https://github.com/InKCre/docs) (mounted read-only at `docs/_shared/`)
 
+## Acknowledgements
+
+内容提取工作受 [Hister](https://github.com/asciimoo/hister) 启发。感谢 asciimoo 与贡献者；本功能未复制其源码或资源。
+具体借鉴范围见 [Organization](docs/30-unit-tdd/organization.md)。
+
 ## Security
 
 Report vulnerabilities privately through [SECURITY.md](SECURITY.md). Security design follows the shared [Security Boundary Model](docs/_shared/20-product-tdd/security-boundary-model.md) and the local [runtime projection](docs/30-unit-tdd/security-model.md).

@@ -19,6 +19,7 @@ from .evidence_stance import (
   SUPPORTS_RELATION,
   EvidenceStanceBehaviorResolver,
 )
+from .extraction import ExtractionBehaviorResolver
 from .referent_anchoring import (
   HAS_MENTION_RELATION,
   REFERS_TO_RELATION,
@@ -40,6 +41,8 @@ from .synthesis import SYNTHESIS_RELATION, SynthesisBehaviorResolver
 from .tools import (
   ANCHOR_EXISTING_REFERENT_TOOL,
   CREATE_SYNTHESIS_TOOL,
+  CREATE_EXTRACTION_TOOL,
+  READ_EXTRACTION_MATERIAL_TOOL,
   DRAFT_GRAPH_TOOL,
   GET_DRAFT_GRAPH_SCHEMA_TOOL,
   RECORD_DUPLICATE_ASSERTION_TOOL,
@@ -55,6 +58,9 @@ __all__ = [
   "ANCHOR_EXISTING_REFERENT_TOOL",
   "CHALLENGES_RELATION",
   "CREATE_SYNTHESIS_TOOL",
+  "CREATE_EXTRACTION_TOOL",
+  "READ_EXTRACTION_MATERIAL_TOOL",
+  "ExtractionBehaviorResolver",
   "DRAFT_GRAPH_TOOL",
   "DUPLICATES_ASSERTION_RELATION",
   "DuplicateAssertionBehaviorResolver",

@@ -28,6 +28,7 @@ from app.schemas.organization_behavior import (
   SupersessionProposal,
   SynthesisProposal,
 )
+from app.schemas.organization_extraction import ExtractionProposal, ExtractionRequest
 from ._shared import behavior_resolver_classes, get_behavior_resolver
 from .contracts import OrganizationError
 from .duplicate_assertion import (
@@ -35,6 +36,7 @@ from .duplicate_assertion import (
   DuplicateAssertionBehaviorResolver,
 )
 from .evidence_stance import EvidenceStanceBehaviorResolver
+from .extraction import ExtractionBehaviorResolver
 from .referent_anchoring import ExistingReferentAnchoringBehaviorResolver
 from .refinement import REFINES_RELATION, RefinementBehaviorResolver
 from .supersession import SUPERSEDES_RELATION, SupersessionBehaviorResolver
@@ -48,6 +50,8 @@ RECORD_SUPERSESSION_TOOL = "record_supersession"
 RECORD_REFINEMENT_TOOL = "record_refinement"
 RECORD_EVIDENCE_STANCE_TOOL = "record_evidence_stance"
 CREATE_SYNTHESIS_TOOL = "create_synthesis"
+READ_EXTRACTION_MATERIAL_TOOL = "read_extraction_material"
+CREATE_EXTRACTION_TOOL = "create_extraction"
 ANCHOR_EXISTING_REFERENT_TOOL = "anchor_existing_referent"
 RECORD_DUPLICATE_ASSERTION_TOOL = "record_duplicate_assertion"
 RECORD_ORGANIZATION_CANDIDATE_TOOL = "record_organization_candidate"
@@ -287,6 +291,28 @@ async def create_synthesis(input: SynthesisProposal) -> JSONValue:
       input.previous_synthesis_block_id,
     )
   )
+
+
+@AgentManager.tool(
+  READ_EXTRACTION_MATERIAL_TOOL,
+  description=(
+    "Read material and direct relations, retaining this run's exact text for extraction."
+  ),
+)
+async def read_extraction_material(input: ExtractionRequest) -> JSONValue:
+  return await _exact_result(ExtractionBehaviorResolver.read_material(input.block_id))
+
+
+@AgentManager.tool(
+  CREATE_EXTRACTION_TOOL,
+  description=(
+    "Save independently useful information with exact excerpts from this run's reads. "
+    "Preserve attribution, context and uncertainty. Reuse sufficient existing information; "
+    "do not create copies merely to finish."
+  ),
+)
+async def create_extraction(input: ExtractionProposal) -> JSONValue:
+  return await _exact_result(ExtractionBehaviorResolver.create_extraction(input))
 
 
 @AgentManager.tool(
