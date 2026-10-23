@@ -347,6 +347,24 @@ BUILTIN_JOB_TYPES = (
     1800,
   ),
   JobTypeProfile(
+    "core.organization.extraction.explicit.v1",
+    "Extract reusable information from one explicitly selected material.",
+    {
+      "additionalProperties": False,
+      "properties": {"block_id": {"title": "Block Id", "type": "integer"}},
+      "required": ["block_id"],
+      "title": "ExtractionRequest",
+      "type": "object",
+    },
+    1800,
+  ),
+  JobTypeProfile(
+    "core.organization.extraction.automatic.v1",
+    "Extract reusable information from bounded automatic material candidates.",
+    AUTOMATIC_ORGANIZATION_PARAMETERS_SCHEMA,
+    1800,
+  ),
+  JobTypeProfile(
     "core.organization.existing-referent-anchoring.automatic.v1",
     "Automatically anchor bounded mentions to existing referents.",
     AUTOMATIC_ORGANIZATION_PARAMETERS_SCHEMA,

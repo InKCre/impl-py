@@ -7,6 +7,7 @@ def register_core_resolvers() -> None:
   """Register built-in decoders independently of extension loading."""
   from .audio import AudioResolver
   from .epub import EPUBResolver
+  from .extraction import ExtractionResultResolver
   from .file import FileResolver
   from .html import HTMLResolver
   from .image import ImageResolver
@@ -25,5 +26,6 @@ def register_core_resolvers() -> None:
     EPUBResolver,
     ZIPResolver,
     FileResolver,
+    ExtractionResultResolver,
   ):
     ResolverManager.register_resolver(resolver_class)
