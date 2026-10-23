@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -96,3 +98,71 @@ def test_failed_migration_keeps_observed_heads_and_reports_partial_delivery(tmp_
   assert '"version":7' in summary
   assert "https://snapshot.pages.dev" in summary
   assert "secret-not-for-report" not in summary + failed.stdout + failed.stderr
+
+
+@pytest.mark.parametrize(
+  "paths,changed_files,scenario,required",
+  [
+    (["tests/a.py", "tests/b.py"], 2, None, "false"),
+    (["tests/a.py", "app/main.py"], 2, None, "true"),
+    (["tests/a.py"], 1, "rename-from-app", "true"),
+    (["scripts/tests/a.py"], 1, None, "true"),
+    (["tests/a.py"], 3001, None, "true"),
+    (["tests/a.py"], 1, "head", "true"),
+    (["tests/a.py"], 1, "base", "true"),
+    (["tests/a.py"], 1, "api-failure", "true"),
+    ([], 0, None, "true"),
+  ],
+)
+def test_preview_skips_only_a_complete_stable_tests_only_diff(
+  tmp_path, paths, changed_files, scenario, required
+):
+  pull = {
+    "state": "open",
+    "head": {"sha": "a" * 40, "repo": {"full_name": "InKCre/impl-py"}},
+    "base": {
+      "sha": "b" * 40,
+      "ref": "main",
+      "repo": {"full_name": "InKCre/impl-py"},
+    },
+    "changed_files": changed_files,
+  }
+  (tmp_path / "before.json").write_text(json.dumps(pull))
+  if scenario in ("head", "base"):
+    pull[scenario]["sha"] = "c" * 40
+  (tmp_path / "after.json").write_text(json.dumps(pull))
+  pages = [[{"filename": path}] for path in paths]
+  if scenario == "rename-from-app":
+    pages[0][0]["previous_filename"] = "app/main.py"
+  (tmp_path / "files.json").write_text(json.dumps(pages))
+  binary = tmp_path / "gh"
+  binary.write_text(
+    "#!/bin/sh\n"
+    'cd "$GH_SCOPE_FIXTURE" || exit 1\n'
+    'case "$*" in\n'
+    '  *"/files?"*) [ "$GH_SCOPE_FAILURE" = false ] || exit 17; cat files.json ;;\n'
+    "  *) if [ -e called ]; then cat after.json; "
+    "else touch called; cat before.json; fi ;;\n"
+    "esac\n"
+  )
+  binary.chmod(0o700)
+  output = tmp_path / "output"
+  result = _run(
+    "preview_workflow.sh",
+    "application-required",
+    {
+      **os.environ,
+      "PATH": f"{tmp_path}:{os.environ['PATH']}",
+      "GH_SCOPE_FIXTURE": str(tmp_path),
+      "GH_SCOPE_FAILURE": str(scenario == "api-failure").lower(),
+      "GH_TOKEN": "fixture-only",
+      "GITHUB_REPOSITORY": "InKCre/impl-py",
+      "GITHUB_OUTPUT": str(output),
+      "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
+      "HEAD_SHA": "a" * 40,
+      "BASE_SHA": "b" * 40,
+      "PR_NUMBER": "123",
+    },
+  )
+  assert result.returncode == 0, result.stderr
+  assert output.read_text() == f"required={required}\n"

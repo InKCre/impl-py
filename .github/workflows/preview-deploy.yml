@@ -18,10 +18,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  scope:
+    name: impl-py preview checks
     if: >-
       github.event.action != 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
+    steps:
+      - name: Checkout trusted preview scope controller
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      - name: Check the complete exact-head pull request diff
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bash scripts/automation/preview_workflow.sh application-required
+
+  deploy:
+    name: impl-py preview
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
     runs-on: ubuntu-latest
     environment: preview
     steps:
@@ -128,7 +152,7 @@ jobs:
         run: bash .delivery/scripts/automation/preview_workflow.sh summarize
 
   cleanup:
-    name: Retire preview resources
+    name: impl-py preview cleanup
     if: >-
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
