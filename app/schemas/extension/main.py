@@ -32,7 +32,7 @@ class SelectExtensionCommand(pydantic.BaseModel):
 
   action: typing.Literal["select"]
   extension: ExtensionName
-  distribution: typing.Literal["python", "module_federation"]
+  distribution: typing.Literal["python", "module_federation", "swift_bundled"]
   version: str = pydantic.Field(pattern=EXTENSION_SEMVER_PATTERN)
 
 
@@ -77,11 +77,13 @@ class ExtensionPeerStatusRow(pydantic.BaseModel):
 
   name: ExtensionName
   peer_id: uuid.UUID
-  distribution: typing.Literal["python", "module_federation"] | None
+  distribution: typing.Literal["python", "module_federation", "swift_bundled"] | None
   version: str | None
   enabled: bool
   config_schema: dict[str, typing.Any] | None
-  supported_distributions: tuple[typing.Literal["python", "module_federation"], ...]
+  supported_distributions: tuple[
+    typing.Literal["python", "module_federation", "swift_bundled"], ...
+  ]
   loaded_version: str | None
   running: bool
   restart_required: bool
@@ -93,14 +95,16 @@ class ExtensionPeerStatus(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
   peer_id: uuid.UUID
-  supported_distributions: tuple[typing.Literal["python", "module_federation"], ...]
+  supported_distributions: tuple[
+    typing.Literal["python", "module_federation", "swift_bundled"], ...
+  ]
   extensions: tuple[ExtensionPeerStatusRow, ...]
 
 
 class SelectExtensionInput(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-  distribution: typing.Literal["python", "module_federation"]
+  distribution: typing.Literal["python", "module_federation", "swift_bundled"]
   version: str = pydantic.Field(pattern=EXTENSION_SEMVER_PATTERN)
 
 
@@ -169,7 +173,8 @@ class ExtensionPeerParticipationModel(sqlmodel.SQLModel, table=True):
       name="extension_peer_participations_version_canonical",
     ),
     sqlalchemy.CheckConstraint(
-      "distribution IS NULL OR distribution IN ('python', 'module_federation')",
+      "distribution IS NULL OR distribution IN "
+      "('python', 'module_federation', 'swift_bundled')",
       name="extension_peer_participations_distribution_valid",
     ),
     sqlalchemy.CheckConstraint(
