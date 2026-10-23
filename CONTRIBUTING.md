@@ -2,7 +2,7 @@
 
 The organization-wide Git and pull-request policy lives in
 [InKCre Git and GitHub Governance](https://github.com/InKCre/.github/blob/main/GOVERNANCE.md).
-This guide adds the `core-py` setup, validation, migration, and delivery details required by that
+This guide adds the `impl-py` setup, validation, migration, and delivery details required by that
 policy; it does not weaken the organization baseline.
 
 ## Security Reports
@@ -25,7 +25,7 @@ pdm run check
 
 `check` is the same hermetic repository gate used by CI. It verifies the lock and
 requirements export, migration configuration and append-only baseline, Ruff formatting,
-repository lint, and static types. Use narrower commands while iterating:
+repository lint, static types, and the repository test suite. Use narrower commands while iterating:
 
 ```bash
 pdm run format:check
@@ -53,6 +53,13 @@ Core fragments live in `.changes/`; CLI fragments live in `cli/.changes/`; Exten
 `extensions/<extension-id>/.changes/`. Valid types are `added`, `changed`, `deprecated`, `removed`,
 `fixed`, and `security`. Pure release-tooling or contributor-documentation changes do not invent
 project news.
+
+Use the primary project or implementation area as the `type(scope): summary` scope: `core`, `cli`,
+or an Extension ID such as `mail`. Use `extensions` for one coherent change spanning several
+Extensions and `release` for release tooling. The title is a navigation aid, not a version plan; list
+every affected release project in the pull-request body and add a fragment under each affected
+project. Examples: `fix(core): preserve extension state on restart`, `feat(mail): collect newsletter
+issues`, and `ref(extensions): share distribution validation`.
 
 After feature fragments merge, the checked-main controller updates the independent `release/next`
 pull request. Only that pull request runs `pdm run release:prepare`, consumes fragments, applies the
@@ -98,11 +105,14 @@ python scripts/container.py ready
 `web` honors `$PORT`; `migrate` only applies checked-in revisions; `ready` performs a
 read-only connectivity and Alembic-head check. The Core image owns the supported dependency
 baseline and excludes first-party Extension source. The Extension Host acquires only exact
-published wheels and never resolves or mutates host dependencies while enabling them.
+published wheels. Applying a selected Python Distribution runs pip dependency resolution in
+the shared Host environment and can install or upgrade dependencies before a managed restart.
+The [native distribution contract](docs/40-deployment/first-party-extension-distribution.md)
+owns admission, environment application, and restart behavior.
 
 ## Shared Docs And Skill Discovery
 
-`core-py` is a Spoke repo and consumes shared Hub truth from `docs/_shared/`.
+`impl-py` is a Spoke repo and consumes shared Hub truth from `docs/_shared/`.
 
 The canonical shared-doc editing skill lives in:
 
@@ -119,6 +129,6 @@ Use the repo-root wrapper only to discover the canonical skill. Do not fork the 
 1. Capture the local pressure in the active Spoke task packet.
 2. Edit shared docs in `InKCre/docs`.
 3. Push the shared Hub commit first.
-4. Bump `core-py/docs/_shared` to that pushed commit.
+4. Bump `impl-py/docs/_shared` to that pushed commit.
 5. Keep Spoke-local runtime and implementation docs outside `docs/_shared`.
 6. Do not mix shared-doc edits, ref bumps, and local implementation changes in one commit.
