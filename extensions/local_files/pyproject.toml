@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=80,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inkcre-ext-local-files"
+version = "0.1.0"
+description = "Read shared local file bodies and locations in Python peers"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+  "pydantic>=2.11.7,<3.0.0",
+]
+
+[project.entry-points."inkcre.core.extensions"]
+local_files = "extensions.local_files:Extension"
+
+[tool.inkcre-extension]
+name = "inkcre/local-files"
+nickname = "本地文件"
+host-sdk = "core-py"
+host-sdk-version = ">=0.3.3 <0.4.0"
+
+[tool.setuptools]
+packages = ["extensions.local_files"]
+
+[tool.setuptools.package-dir]
+"extensions.local_files" = "."
