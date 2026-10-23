@@ -87,214 +87,179 @@ def attachment_database(monkeypatch):
       owner.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
 
 
-def _cleanup(block_ids: set[int], blob_ids: set[uuid.UUID]) -> None:
-  with TestSession() as db_session:
-    for relation in db_session.exec(
-      sqlmodel.select(RelationModel).where(
-        sqlalchemy.or_(
-          RelationModel.from_.in_(block_ids),  # pyrefly: ignore[missing-attribute]
-          RelationModel.to_.in_(block_ids),  # pyrefly: ignore[missing-attribute]
-        )
-      )
-    ).all():
-      db_session.delete(relation)
-    for block_id in block_ids:
-      if (block := db_session.get(BlockModel, block_id)) is not None:
-        db_session.delete(block)
-    for blob_id in blob_ids:
-      if (blob := db_session.get(StorageBlobModel, blob_id)) is not None:
-        db_session.delete(blob)
-    db_session.commit()
-
-
 def test_seeded_v1_upgrade_and_downgrade_preserve_identity_blob_and_owner_slot(
   attachment_database,
 ):
   config = attachment_database
-  block_ids: set[int] = set()
-  blob_ids: set[uuid.UUID] = set()
   command.downgrade(config, PREVIOUS_REVISION)
 
-  try:
-    with TestSession() as db_session:
-      blob = StorageBlobModel(data=b"migration bytes")
-      db_session.add(blob)
-      db_session.flush()
-      blob_ids.add(blob.id)
-      memo = BlockModel(resolver="extensions.memos.memo.v1", content="{}")
-      db_session.add(memo)
-      db_session.flush()
-      canonical_v1 = {
-        "filename": "migration.png",
-        "media_type": "image/png",
-        "size": len(blob.data),
-        "created_at": "2026-08-01T08:00:00Z",
-        "blob_id": str(blob.id),
-      }
-      attachment = BlockModel(
-        resolver=V1,
-        storage=-4,
-        content=json.dumps(canonical_v1, separators=(",", ":")),
-      )
-      db_session.add(attachment)
-      db_session.flush()
-      assert memo.id is not None and attachment.id is not None
-      block_ids.update((memo.id, attachment.id))
-      relation = RelationModel(
-        from_=memo.id,
-        to_=attachment.id,
-        content="attachment:0",
-      )
-      db_session.add(relation)
-      db_session.commit()
-      attachment_id = attachment.id
-      memo_id = memo.id
-      blob_id = blob.id
+  with TestSession() as db_session:
+    blob = StorageBlobModel(data=b"migration bytes")
+    db_session.add(blob)
+    db_session.flush()
+    memo = BlockModel(resolver="extensions.memos.memo.v1", content="{}")
+    db_session.add(memo)
+    db_session.flush()
+    canonical_v1 = {
+      "filename": "migration.png",
+      "media_type": "image/png",
+      "size": len(blob.data),
+      "created_at": "2026-08-01T08:00:00Z",
+      "blob_id": str(blob.id),
+    }
+    attachment = BlockModel(
+      resolver=V1,
+      storage=-4,
+      content=json.dumps(canonical_v1, separators=(",", ":")),
+    )
+    db_session.add(attachment)
+    db_session.flush()
+    assert memo.id is not None and attachment.id is not None
+    relation = RelationModel(
+      from_=memo.id,
+      to_=attachment.id,
+      content="attachment:0",
+    )
+    db_session.add(relation)
+    db_session.commit()
+    attachment_id = attachment.id
+    memo_id = memo.id
+    blob_id = blob.id
 
-    command.upgrade(config, ATTACHMENT_REVISION)
-    Extension._init_resolvers()
-    with TestSession() as db_session:
-      metadata = read_block(attachment_id, db_session)
-      assert metadata is not None
-      assert metadata.resolver == V2
-      assert metadata.storage is None
-      canonical = CanonicalAttachment.from_block_content(metadata.content)
-      assert canonical.filename == "migration.png"
-      content_relations = read_relations(
+  command.upgrade(config, ATTACHMENT_REVISION)
+  Extension._init_resolvers()
+  with TestSession() as db_session:
+    metadata = read_block(attachment_id, db_session)
+    assert metadata is not None
+    assert metadata.resolver == V2
+    assert metadata.storage is None
+    canonical = CanonicalAttachment.from_block_content(metadata.content)
+    assert canonical.filename == "migration.png"
+    content_relations = read_relations(
+      attachment_id,
+      include_in=False,
+      include_out=True,
+      content="content",
+      db_session=db_session,
+    )
+    assert len(content_relations) == 1
+    semantic_id = content_relations[0].to_
+    semantic = read_block(semantic_id, db_session)
+    assert semantic is not None
+    assert semantic.resolver == "core.image.v1"
+    assert semantic.storage == -4
+    assert PostgreSQLBlobPointer.model_validate_json(semantic.content).blob_id == blob_id
+    owner = read_relations(
+      memo_id,
+      include_in=False,
+      include_out=True,
+      content="attachment:0",
+      db_session=db_session,
+    )
+    assert [(item.from_, item.to_) for item in owner] == [(memo_id, attachment_id)]
+  assert asyncio.run(
+    AttachmentApplicationService.download(attachment_id, "migration.png")
+  ) == ("image/png", b"migration bytes")
+
+  command.downgrade(config, PREVIOUS_REVISION)
+  with TestSession() as db_session:
+    metadata = read_block(attachment_id, db_session)
+    assert metadata is not None
+    assert metadata.resolver == V1
+    assert metadata.storage == -4
+    restored = json.loads(metadata.content)
+    assert restored["blob_id"] == str(blob_id)
+    assert db_session.get(StorageBlobModel, blob_id).data == b"migration bytes"  # type: ignore[union-attr]
+    assert read_block(semantic_id, db_session) is None
+    assert (
+      read_relations(
         attachment_id,
         include_in=False,
         include_out=True,
         content="content",
         db_session=db_session,
       )
-      assert len(content_relations) == 1
-      semantic_id = content_relations[0].to_
-      block_ids.add(semantic_id)
-      semantic = read_block(semantic_id, db_session)
-      assert semantic is not None
-      assert semantic.resolver == "core.image.v1"
-      assert semantic.storage == -4
-      assert PostgreSQLBlobPointer.model_validate_json(semantic.content).blob_id == blob_id
-      owner = read_relations(
-        memo_id,
-        include_in=False,
-        include_out=True,
-        content="attachment:0",
-        db_session=db_session,
-      )
-      assert [(item.from_, item.to_) for item in owner] == [(memo_id, attachment_id)]
-    assert asyncio.run(
-      AttachmentApplicationService.download(attachment_id, "migration.png")
-    ) == ("image/png", b"migration bytes")
-
-    command.downgrade(config, PREVIOUS_REVISION)
-    with TestSession() as db_session:
-      metadata = read_block(attachment_id, db_session)
-      assert metadata is not None
-      assert metadata.resolver == V1
-      assert metadata.storage == -4
-      restored = json.loads(metadata.content)
-      assert restored["blob_id"] == str(blob_id)
-      assert db_session.get(StorageBlobModel, blob_id).data == b"migration bytes"  # type: ignore[union-attr]
-      assert read_block(semantic_id, db_session) is None
-      assert (
-        read_relations(
-          attachment_id,
-          include_in=False,
-          include_out=True,
-          content="content",
-          db_session=db_session,
-        )
-        == ()
-      )
-      owner = read_relations(
-        memo_id,
-        include_in=False,
-        include_out=True,
-        content="attachment:0",
-        db_session=db_session,
-      )
-      assert [(item.from_, item.to_) for item in owner] == [(memo_id, attachment_id)]
-  finally:
-    _cleanup(block_ids, blob_ids)
+      == ()
+    )
+    owner = read_relations(
+      memo_id,
+      include_in=False,
+      include_out=True,
+      content="attachment:0",
+      db_session=db_session,
+    )
+    assert [(item.from_, item.to_) for item in owner] == [(memo_id, attachment_id)]
 
 
 def test_failed_downgrade_preserves_shared_semantic_content(attachment_database):
   config = attachment_database
-  block_ids: set[int] = set()
-  blob_ids: set[uuid.UUID] = set()
 
-  try:
-    with TestSession() as db_session:
-      blob = StorageBlobModel(data=b"shared")
-      db_session.add(blob)
-      db_session.flush()
-      blob_ids.add(blob.id)
-      semantic = BlockModel(
-        resolver="core.file.v1",
-        storage=-4,
-        content=PostgreSQLBlobPointer(blob_id=blob.id).model_dump_json(),
-      )
-      db_session.add(semantic)
-      db_session.flush()
-      canonical = CanonicalAttachment(
-        filename="shared.bin",
-        media_type="application/octet-stream",
-        size=6,
-        created_at=datetime.datetime(2026, 8, 1, 8, tzinfo=datetime.UTC),
-      )
-      metadata = [
-        BlockModel(resolver=V2, content=canonical.to_block_content()),
-        BlockModel(resolver=V2, content=canonical.to_block_content()),
-      ]
-      db_session.add_all(metadata)
-      db_session.flush()
-      assert semantic.id is not None and all(item.id is not None for item in metadata)
-      for item in metadata:
-        db_session.add(RelationModel(from_=item.id, to_=semantic.id, content="content"))
-      db_session.commit()
-      metadata_ids = tuple(item.id for item in metadata if item.id is not None)
-      block_ids.update((semantic.id, *metadata_ids))
+  with TestSession() as db_session:
+    blob = StorageBlobModel(data=b"shared")
+    db_session.add(blob)
+    db_session.flush()
+    semantic = BlockModel(
+      resolver="core.file.v1",
+      storage=-4,
+      content=PostgreSQLBlobPointer(blob_id=blob.id).model_dump_json(),
+    )
+    db_session.add(semantic)
+    db_session.flush()
+    canonical = CanonicalAttachment(
+      filename="shared.bin",
+      media_type="application/octet-stream",
+      size=6,
+      created_at=datetime.datetime(2026, 8, 1, 8, tzinfo=datetime.UTC),
+    )
+    metadata = [
+      BlockModel(resolver=V2, content=canonical.to_block_content()),
+      BlockModel(resolver=V2, content=canonical.to_block_content()),
+    ]
+    db_session.add_all(metadata)
+    db_session.flush()
+    assert semantic.id is not None and all(item.id is not None for item in metadata)
+    for item in metadata:
+      db_session.add(RelationModel(from_=item.id, to_=semantic.id, content="content"))
+    db_session.commit()
+    metadata_ids = tuple(item.id for item in metadata if item.id is not None)
 
-    with TestSession() as db_session:
-      original_blocks = []
-      for block_id in (semantic.id, *metadata_ids):
-        block = db_session.get(BlockModel, block_id)
-        assert block is not None
-        original_blocks.append(block.model_dump())
-      original_relations = [
-        relation.model_dump()
-        for relation in db_session.exec(
-          sqlmodel.select(RelationModel)
-          .where(
-            RelationModel.from_.in_(metadata_ids)  # pyrefly: ignore[missing-attribute]
-          )
-          .order_by(sqlmodel.col(RelationModel.id))
-        ).all()
-      ]
+  with TestSession() as db_session:
+    original_blocks = []
+    for block_id in (semantic.id, *metadata_ids):
+      block = db_session.get(BlockModel, block_id)
+      assert block is not None
+      original_blocks.append(block.model_dump())
+    original_relations = [
+      relation.model_dump()
+      for relation in db_session.exec(
+        sqlmodel.select(RelationModel)
+        .where(
+          RelationModel.from_.in_(metadata_ids)  # pyrefly: ignore[missing-attribute]
+        )
+        .order_by(sqlmodel.col(RelationModel.id))
+      ).all()
+    ]
 
-    with pytest.raises(RuntimeError, match="post-upgrade information"):
-      command.downgrade(config, PREVIOUS_REVISION)
+  with pytest.raises(RuntimeError, match="post-upgrade information"):
+    command.downgrade(config, PREVIOUS_REVISION)
 
-    with TestSession() as db_session:
-      for block_id, original in zip(
-        (semantic.id, *metadata_ids), original_blocks, strict=True
-      ):
-        block = db_session.get(BlockModel, block_id)
-        assert block is not None
-        assert block.model_dump() == original
-      assert [
-        relation.model_dump()
-        for relation in db_session.exec(
-          sqlmodel.select(RelationModel)
-          .where(
-            RelationModel.from_.in_(metadata_ids)  # pyrefly: ignore[missing-attribute]
-          )
-          .order_by(sqlmodel.col(RelationModel.id))
-        ).all()
-      ] == original_relations
-      persisted_blob = db_session.get(StorageBlobModel, blob.id)
-      assert persisted_blob is not None
-      assert persisted_blob.data == b"shared"
-  finally:
-    _cleanup(block_ids, blob_ids)
+  with TestSession() as db_session:
+    for block_id, original in zip(
+      (semantic.id, *metadata_ids), original_blocks, strict=True
+    ):
+      block = db_session.get(BlockModel, block_id)
+      assert block is not None
+      assert block.model_dump() == original
+    assert [
+      relation.model_dump()
+      for relation in db_session.exec(
+        sqlmodel.select(RelationModel)
+        .where(
+          RelationModel.from_.in_(metadata_ids)  # pyrefly: ignore[missing-attribute]
+        )
+        .order_by(sqlmodel.col(RelationModel.id))
+      ).all()
+    ] == original_relations
+    persisted_blob = db_session.get(StorageBlobModel, blob.id)
+    assert persisted_blob is not None
+    assert persisted_blob.data == b"shared"
