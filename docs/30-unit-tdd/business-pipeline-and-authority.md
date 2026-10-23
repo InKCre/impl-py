@@ -167,7 +167,7 @@ runtime 路径禁止同步 session、scoped session 和直接驱动连接；`scr
 - organization 是为后续 use 改善既有 info-base 的能力，不是 collection lifecycle 或信息状态。Block CRUD、source
   collection 和 extension protocol ingestion 都不会隐式触发 organization。
 - organization 没有统一 manager、dispatcher、behavior table 或专用持久实体。rumination、supersession、refinement、
-  evidence stance、synthesis、existing-referent anchoring 与 duplicate assertion 是七个独立的精确
+  evidence stance、synthesis、existing-referent anchoring、duplicate assertion 与 extraction 是八个独立的精确
   `BehaviorResolver`；行为 descriptor 是对应 Resolver 的惰性普通 Block，候选以 `information --candidate for-->
   descriptor` 表达。
 - 每个行为拥有一个独立 automatic Job 和 `core.organization.<behavior>` deployment config。Job 只承担调度与运行管理；
@@ -177,6 +177,9 @@ runtime 路径禁止同步 session、scoped session 和直接驱动连接；`scr
   由 info-base 拥有；`get_entity_neighborhood`、`find_path`、`get_connected_components` 由 Graph Navigation
   拥有；`resolver` 的 controller 位于 Resolver 领域，`ResolverManager` 发现与分派，exact Resolver instance
   执行。MCP Sink 只投影同一 owner contract，不成为 Organization 的依赖，也不继承内部 Agent Tool 的请求包装。
+- Extraction 的专用取材工具消费已有 Resolver，并在本次运行内保留逐次观察；提交时校验原文片段，结果内嵌必要依据。
+  来源 Relation 只提供当前内部入口，删除来源不删除结果及引文。该行为不要求 collection freeze、通用版本服务，
+  也不改变其他 Organization 行为的读取或写入规则。具体机制见 [Organization](organization.md)。
 - 工具定义表达关系含义，字段名称保留所指实体身份；行为识别过程属于所选 Agent definition。
   Resolver 的方法参数由实际 owner 逐调用验证，错误不丢弃同批其它结果。schema 由同一方法合同投影，
   顶层分支同时显示字段形状，以兼容只从顶层 properties 推断参数类型的 provider。
