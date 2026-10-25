@@ -30,7 +30,7 @@ jobs:
         run: bash scripts/automation/cli_publication.sh check-build
 
   repository:
-    name: Hermetic repository contract
+    name: impl-py checks
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -101,11 +101,11 @@ jobs:
         if: github.event_name == 'pull_request'
         run: pdm run check:migration-history "origin/${{ github.base_ref }}"
 
-      - name: Run pre-commit contract
-        run: pdm run pre-commit run --all-files
+      - name: Validate GitHub Actions definitions
+        run: pdm run pre-commit run actionlint --all-files
 
   artifact:
-    name: Portable peer database runtime
+    name: impl-py e2e tests
     runs-on: ubuntu-latest
     services:
       postgres:
