@@ -18,14 +18,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  scope:
+    name: impl-py preview checks
     if: >-
       github.event.action != 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
+    steps:
+      - name: Checkout trusted preview scope controller
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      - name: Check the complete exact-head pull request diff
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bash scripts/automation/preview_workflow.sh application-required
+
+  deploy:
+    name: impl-py preview
+    needs: scope
+    if: needs.scope.outputs.required == 'true'
+    runs-on: ubuntu-latest
     environment: preview
     steps:
       - name: Checkout trusted delivery implementation
+        id: controller
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.workflow_sha }}
@@ -80,6 +105,7 @@ jobs:
           pr_number: ${{ github.event.pull_request.number }}
 
       - name: Deploy exact-head sibling Registry to isolated Pages branch
+        id: registry
         uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -102,6 +128,7 @@ jobs:
           pr_number: ${{ github.event.pull_request.number }}
 
       - name: Deliver preview
+        id: delivery
         uses: ./.delivery/.github/actions/preview-delivery
         with:
           core_database_password: ${{ secrets.CORE_DATABASE_PASSWORD }}
@@ -115,8 +142,17 @@ jobs:
           jwt_secret: ${{ secrets.JWT_SECRET }}
           pr_number: ${{ github.event.pull_request.number }}
 
+      - name: Report complete or partial candidate delivery
+        if: ${{ always() && steps.controller.outcome == 'success' }}
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REGISTRY_RESULT: ${{ steps.registry.outcome }}
+          REGISTRY_SNAPSHOT: ${{ steps.registry.outputs.deployment-url }}
+          DELIVERY_RESULT: ${{ steps.delivery.outcome }}
+        run: bash .delivery/scripts/automation/preview_workflow.sh summarize
+
   cleanup:
-    name: Retire preview resources
+    name: impl-py preview cleanup
     if: >-
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository

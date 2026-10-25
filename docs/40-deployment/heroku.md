@@ -40,6 +40,15 @@ Trusted same-repository pull requests currently use:
 - matching seven-day Neon branch `preview/core-py/pr-<number>`;
 - no Heroku addon.
 
+应用 Preview 在读取完整 PR 文件清单后，仅对全部变更都位于根目录 `tests/` 的候选跳过 wheel、
+镜像、Registry 和 Heroku 交付。重命名同时检查新旧路径；文件清单不完整、读取失败或查询前后
+head／base 变化时，继续原交付流程。不将此规则扩展到 `scripts/tests/`，因为镜像包含整个
+`scripts/`。判定来自受信 controller，不执行候选代码。
+
+Neon 分支仍由原必需检查创建或复用；它的成功状态继续代表实际供给，不表示一次无资源的跳过。
+打开的 PR 已有现场不会因后续只剩测试改动而删除；关闭时的 Registry、Heroku 和 Neon 清理
+独立于路径判定，始终按原身份边界执行。此策略减少应用交付，不承诺纯测试 PR 零资源成本。
+
 The branch workflow owns only exact isolated branch creation/deletion. After the repository,
 portable-runtime, and branch checks pass for the exact PR SHA, preview delivery:
 
@@ -76,6 +85,18 @@ reads and consumer acceptance are deliberately independent and do not block Core
 
 Repository-qualified app and branch identities keep an impl-py PR and an impl-ts PR with
 the same number from addressing the same review resources.
+
+交付摘要在失败时也报告目标 SHA、Registry snapshot、数据库初始化、进程 release、Peer 广告和探测的
+各自结果。数据库输出保留初始化前后的实际 migration head 与候选期望 head／contract；没有取得的观察
+明确留空，不推断旧服务已经停止。Core 镜像写入目标 SHA label。Heroku 当前 release 身份另外只读查询，
+该身份本身不证明本轮源码已生效。进程 Registry fallback 也不能覆盖 Peer／deployment 的优先配置，
+跨仓业务验收仍需核对实际 Distribution 和 Registry 来源。
+
+同一 PR 的 Neon 分支保留状态。若候选移除了该分支已经执行的未发布迁移，重复交付不会自动 reset、
+downgrade 或补回迁移。先保留原分支作诊断：需要验证保留状态升级时，修复候选，使它能从当前 head
+前进；需要验证全新候选时，将同一明确源码放到新的 PR，使现有分支 owner 从 `preview-base` 创建新的
+隔离分支。原 PR 的关闭清理只在不再需要其数据与证据时执行。这里不增加隐式“自愈”或复用其他 PR
+数据库的行为；失败时 Registry 可能已经更新，不表示整个组合已经就绪。
 
 ## Canonical Production
 
