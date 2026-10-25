@@ -1,6 +1,7 @@
 line-length = 92
 indent-width = 2
-extend-exclude = ["migrations/versions", "*.md", "cli", ".agents"]
+# Task probes are disposable evidence; maintained checks belong in scripts/ or tests/.
+extend-exclude = ["migrations/versions", "*.md", "cli", ".agents", "tasks"]
 
 [format]
 indent-style = "space"

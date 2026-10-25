@@ -110,11 +110,27 @@ case "${1:-}" in
   converge-database)
     for name in CORE_DATABASE_PASSWORD HEAD_SHA MIGRATION_DATABASE_URL \
       POSTGREST_DATABASE_PASSWORD SOURCE_DATABASE_URL; do require_env "$name"; done
+    readiness_file="$(mktemp)"
+    trap 'rm -f "$readiness_file"' EXIT
+    before_status=0
+    docker run --rm --env MIGRATION_DATABASE_URL "inkcre-preview-web:$HEAD_SHA" \
+      python scripts/container.py db ready --profile runtime --json > "$readiness_file" || before_status=$?
+    emit_output database_before "$(jq -c --argjson probe_exit "$before_status" \
+      '{probe_exit:$probe_exit,status,contract,migration,database}' "$readiness_file")"
+    initialization_status=0
     docker run --rm --env CORE_DATABASE_PASSWORD --env MIGRATION_DATABASE_URL \
       --env POSTGREST_DATABASE_PASSWORD "inkcre-preview-web:$HEAD_SHA" \
-      python scripts/container.py db init --profile runtime --environment preview
+      python scripts/container.py db init --profile runtime --environment preview || initialization_status=$?
+    readiness_status=0
     docker run --rm --env MIGRATION_DATABASE_URL "inkcre-preview-web:$HEAD_SHA" \
-      python scripts/container.py db ready --profile runtime --json
+      python scripts/container.py db ready --profile runtime --json > "$readiness_file" || readiness_status=$?
+    emit_output database_after "$(jq -c --argjson probe_exit "$readiness_status" \
+      '{probe_exit:$probe_exit,status,contract,migration,database}' "$readiness_file")"
+    if [ "$initialization_status" != 0 ]; then
+      echo "Preview database initialization failed; preserve this branch for inspection. Choose a forward-compatible candidate or a new PR/isolated branch from preview-base; do not reset automatically." >&2
+      exit "$initialization_status"
+    fi
+    test "$readiness_status" = 0
     runtime_database_url="$(docker run --rm --env SOURCE_DATABASE_URL \
       --env TARGET_DATABASE_PASSWORD="$CORE_DATABASE_PASSWORD" \
       --env TARGET_DATABASE_ROLE=inkcre_core --entrypoint python \
@@ -157,12 +173,9 @@ case "${1:-}" in
         test "$stage" = review
       fi
     done
-    deployed_release="$(heroku releases --app "$app_name" --json | jq -r \
-      '[.[] | select(.status == "succeeded" and (.description | startswith("Deployed web")))] | first | .version // empty')"
     postgrest_release="$(heroku releases --app "$postgrest_app_name" --json | jq -r \
       '[.[] | select(.status == "succeeded" and (.description | startswith("Deployed web")))] | first | .version // empty')"
     emit_output app_name "$app_name"
-    emit_output has_deployed_release "$([ -n "$deployed_release" ] && echo true || echo false)"
     emit_output has_postgrest_release "$([ -n "$postgrest_release" ] && echo true || echo false)"
     emit_output postgrest_app_name "$postgrest_app_name"
     emit_output postgrest_url "$(jq -r '.app.web_url' <<<"$postgrest_json")"
@@ -233,8 +246,43 @@ EOF
     heroku logs --num 200 --app "$POSTGREST_APP_NAME"
     exit 1
     ;;
+  summarize)
+    require_env HEAD_SHA
+    require_env PR_NUMBER
+    [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+    append_summary <<EOF
+### Preview 运行时分阶段结果
+
+- 目标源码：\`$HEAD_SHA\`
+- Neon 分支：\`${BRANCH_ID:-未取得}\`
+- 配置的进程 Registry fallback：${EXTENSION_REGISTRY_URL:-未取得}；Peer／deployment override 仍可能优先，业务验收需核对实际选择。
+- 数据库初始化：\`${DATABASE_RESULT:-未执行}\`
+- 进程 release：\`${RELEASE_RESULT:-未执行}\`
+- Peer 广告：\`${ADVERTISEMENT_RESULT:-未执行}\`
+- 基础探测：\`${PROBE_RESULT:-未执行}\`
+
+以下 contract.revision 是候选期望合同，migration.current 是实际读取的数据库 head；空值表示没有取得观察。
+
+初始化前：
+\`\`\`json
+${DATABASE_BEFORE:-null}
+\`\`\`
+初始化后：
+\`\`\`json
+${DATABASE_AFTER:-null}
+\`\`\`
+EOF
+    for app_name in "inkcre-core-py-pr-$PR_NUMBER" "inkcre-postgrest-pr-$PR_NUMBER"; do
+      if releases="$(heroku releases --app "$app_name" --json 2>/dev/null)"; then
+        observed="$(jq -c '.[0] | {version,status,description}' <<<"$releases")"
+        printf -- '- 当前 Heroku release `%s`：`%s`（不单独证明源码或探测通过）\n' "$app_name" "$observed" | append_summary
+      else
+        printf -- '- 当前 Heroku release `%s`：未取得观察，不能推断服务不存在。\n' "$app_name" | append_summary
+      fi
+    done
+    ;;
   *)
-    echo "usage: $0 resolve-neon|normalize-roles|converge-database|resolve-apps|release|advertise|probe" >&2
+    echo "usage: $0 resolve-neon|normalize-roles|converge-database|resolve-apps|release|advertise|probe|summarize" >&2
     exit 2
     ;;
 esac

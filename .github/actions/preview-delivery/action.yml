@@ -76,6 +76,7 @@ runs:
       run: bash "$GITHUB_ACTION_PATH/../../../scripts/automation/preview_delivery.sh" resolve-apps
 
     - name: Push and release preview peer transports
+      id: release
       shell: bash
       env:
         APP_NAME: ${{ steps.heroku.outputs.app_name }}
@@ -91,6 +92,7 @@ runs:
       run: bash "$GITHUB_ACTION_PATH/../../../scripts/automation/preview_delivery.sh" release
 
     - name: Converge preview Peer advertisement
+      id: advertisement
       shell: bash
       env:
         DATABASE_URL: ${{ steps.database.outputs.runtime_database_url }}
@@ -100,6 +102,7 @@ runs:
       run: bash "$GITHUB_ACTION_PATH/../../../scripts/automation/preview_delivery.sh" advertise
 
     - name: Probe deployed preview
+      id: probe
       shell: bash
       env:
         APP_NAME: ${{ steps.heroku.outputs.app_name }}
@@ -109,3 +112,20 @@ runs:
         POSTGREST_URL: ${{ steps.heroku.outputs.postgrest_url }}
         WEB_URL: ${{ steps.heroku.outputs.web_url }}
       run: bash "$GITHUB_ACTION_PATH/../../../scripts/automation/preview_delivery.sh" probe
+
+    - name: Report runtime stages even after failure
+      if: ${{ always() }}
+      shell: bash
+      env:
+        HEAD_SHA: ${{ inputs.head_sha }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        HEROKU_API_KEY: ${{ inputs.heroku_api_key }}
+        EXTENSION_REGISTRY_URL: ${{ inputs.extension_registry_url }}
+        BRANCH_ID: ${{ steps.neon.outputs.branch_id }}
+        DATABASE_RESULT: ${{ steps.database.outcome }}
+        DATABASE_BEFORE: ${{ steps.database.outputs.database_before }}
+        DATABASE_AFTER: ${{ steps.database.outputs.database_after }}
+        RELEASE_RESULT: ${{ steps.release.outcome }}
+        ADVERTISEMENT_RESULT: ${{ steps.advertisement.outcome }}
+        PROBE_RESULT: ${{ steps.probe.outcome }}
+      run: bash "$GITHUB_ACTION_PATH/../../../scripts/automation/preview_delivery.sh" summarize

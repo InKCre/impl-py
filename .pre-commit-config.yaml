@@ -11,10 +11,17 @@ repos:
     hooks:
       - id: check-format
         name: Check Ruff formatting
-        entry: ruff format --check .
+        entry: pdm run format:check
         language: system
         files: ^(.*\.py|pyproject\.toml|ruff\.toml)$
-        exclude: ^(cli/|\.agents/)
+        exclude: ^(cli/|\.agents/|tasks/)
+        pass_filenames: false
+      - id: check-lint
+        name: Check Ruff lint
+        entry: pdm run lint
+        language: system
+        files: ^(.*\.py|pyproject\.toml|ruff\.toml|\.pre-commit-config\.yaml)$
+        exclude: ^(cli/|\.agents/|tasks/)
         pass_filenames: false
       - id: typecheck
         name: Check Pyrefly types

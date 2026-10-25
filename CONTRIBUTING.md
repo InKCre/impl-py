@@ -16,12 +16,17 @@ bugs that do not cross a security boundary.
 ```bash
 git submodule update --init --recursive
 pdm install -G dev --frozen-lockfile
+pdm run pre-commit install
 pdm run doctor
 pdm run check
 ```
 
 `.python-version` is the shared Python runtime anchor. CI installs PDM 2.28.0, and
 `doctor` reports a mismatch when the local toolchain does not match that contract.
+
+Git hook 需要在每个本地 checkout 安装；提交前会执行与 CI 相同的格式和 lint 入口。
+移动仓库目录后，需要重建含旧绝对路径的虚拟环境入口并重新安装 hook；CI 的完整
+`check` 仍是交付检查依据。
 
 `check` is the same hermetic repository gate used by CI. It verifies the lock and
 requirements export, migration configuration and append-only baseline, Ruff formatting,

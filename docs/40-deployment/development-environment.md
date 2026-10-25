@@ -103,6 +103,8 @@ pdm run dev
 repository contract checks tool versions, lock/export consistency, migration integrity,
 formatting, lint, settings isolation, and the complete unit-test suite.
 
+格式与 lint 的范围由 `ruff.toml` 拥有，覆盖正式源码、测试与脚本。`tasks/` 是临时实验材料，`.agents/` 是独立维护的技能；二者不参与产品门禁。成为正式验证步骤的实验应迁入 `scripts/` 或 `tests/`。已发布迁移保持不可变；独立 CLI 使用 `pdm run --project cli check` 及自己的 CI。pre-commit 的格式与 lint 钩子复用 `pdm run format:check` 和 `pdm run lint`，CI 的完整入口仍为 `pdm run check`。
+
 Use narrower read-only checks while iterating:
 
 ```bash
@@ -152,6 +154,14 @@ Credentialed semantic-quality acceptance is explicit and separate from the ordin
 `INKCRE_ACCEPTANCE_AI_API_KEY`, optional `INKCRE_ACCEPTANCE_AI_BASE_URL`, exact embedding/chat model IDs and an explicitly
 selected migrated `INKCRE_TEST_DATABASE_URL`; see the local Semantic Retrieval Unit TDD for the command and pass/fail
 authority.
+
+`pdm run test:database` 是无需真实 AI／IMAP 服务的 PostgreSQL 业务回归入口，具体场景清单由
+`scripts/automation/repository_check.sh` 拥有。它要求显式 `INKCRE_TEST_DATABASE_URL`；未设置时直接失败，
+不会将整组 skip 当作通过。数据库必须已经迁移且可丢弃：场景包含清空数据、事务回滚和迁移往返验证，
+不能连接共享开发库、Preview 或生产。Memos 迁移场景还要求该独占 PostgreSQL 的 `MIGRATION_DATABASE_URL`
+具有创建数据库权限；它建立随机命名的历史数据库，只往返附件所属 revision，并在结束后删除该数据库。
+这保留实际 migration 编排和应用下载读回，不会回退当前业务测试库或声称验证了整条历史 downgrade 链。
+CI 在自身临时 PostgreSQL service 上先初始化再执行这一组；外部服务和真实凭据验收继续由各自专项入口负责。
 
 ## Database Branch Workflow In CI
 
