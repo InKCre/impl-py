@@ -27,8 +27,8 @@ case "${1:-}" in
     test "$(jq -r '.head.sha' <<<"$pr_json")" = "$HEAD_SHA"
     test "$(jq -r '.state' <<<"$pr_json")" = "open"
     required_checks=(
-      "Hermetic repository contract"
-      "Portable peer database runtime"
+      "impl-py checks"
+      "impl-py e2e tests"
       "Provision isolated branch"
     )
     ;;

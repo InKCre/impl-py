@@ -101,8 +101,8 @@ jobs:
         if: github.event_name == 'pull_request'
         run: pdm run check:migration-history "origin/${{ github.base_ref }}"
 
-      - name: Run pre-commit contract
-        run: pdm run pre-commit run --all-files
+      - name: Validate GitHub Actions definitions
+        run: pdm run pre-commit run actionlint --all-files
 
   artifact:
     name: impl-py e2e tests

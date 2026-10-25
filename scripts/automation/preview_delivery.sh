@@ -173,12 +173,9 @@ case "${1:-}" in
         test "$stage" = review
       fi
     done
-    deployed_release="$(heroku releases --app "$app_name" --json | jq -r \
-      '[.[] | select(.status == "succeeded" and (.description | startswith("Deployed web")))] | first | .version // empty')"
     postgrest_release="$(heroku releases --app "$postgrest_app_name" --json | jq -r \
       '[.[] | select(.status == "succeeded" and (.description | startswith("Deployed web")))] | first | .version // empty')"
     emit_output app_name "$app_name"
-    emit_output has_deployed_release "$([ -n "$deployed_release" ] && echo true || echo false)"
     emit_output has_postgrest_release "$([ -n "$postgrest_release" ] && echo true || echo false)"
     emit_output postgrest_app_name "$postgrest_app_name"
     emit_output postgrest_url "$(jq -r '.app.web_url' <<<"$postgrest_json")"

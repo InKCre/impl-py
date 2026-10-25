@@ -40,6 +40,15 @@ Trusted same-repository pull requests currently use:
 - matching seven-day Neon branch `preview/core-py/pr-<number>`;
 - no Heroku addon.
 
+应用 Preview 在读取完整 PR 文件清单后，仅对全部变更都位于根目录 `tests/` 的候选跳过 wheel、
+镜像、Registry 和 Heroku 交付。重命名同时检查新旧路径；文件清单不完整、读取失败或查询前后
+head／base 变化时，继续原交付流程。不将此规则扩展到 `scripts/tests/`，因为镜像包含整个
+`scripts/`。判定来自受信 controller，不执行候选代码。
+
+Neon 分支仍由原必需检查创建或复用；它的成功状态继续代表实际供给，不表示一次无资源的跳过。
+打开的 PR 已有现场不会因后续只剩测试改动而删除；关闭时的 Registry、Heroku 和 Neon 清理
+独立于路径判定，始终按原身份边界执行。此策略减少应用交付，不承诺纯测试 PR 零资源成本。
+
 The branch workflow owns only exact isolated branch creation/deletion. After the repository,
 portable-runtime, and branch checks pass for the exact PR SHA, preview delivery:
 
