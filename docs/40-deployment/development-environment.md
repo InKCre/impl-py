@@ -103,6 +103,8 @@ pdm run dev
 repository contract checks tool versions, lock/export consistency, migration integrity,
 formatting, lint, settings isolation, and the complete unit-test suite.
 
+格式与 lint 的范围由 `ruff.toml` 拥有，覆盖正式源码、测试与脚本。`tasks/` 是临时实验材料，`.agents/` 是独立维护的技能；二者不参与产品门禁。成为正式验证步骤的实验应迁入 `scripts/` 或 `tests/`。已发布迁移保持不可变；独立 CLI 使用 `pdm run --project cli check` 及自己的 CI。pre-commit 的格式与 lint 钩子复用 `pdm run format:check` 和 `pdm run lint`，CI 的完整入口仍为 `pdm run check`。
+
 Use narrower read-only checks while iterating:
 
 ```bash
