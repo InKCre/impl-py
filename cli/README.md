@@ -47,13 +47,15 @@ inkcre-cli config schemas --json
 `connection` 只管理本机连接，`config` 管理远端 deployment config；Agent definition 由 `agent` 管理，
 模型目录由 `ai` 发现。Extension 配置和运行目标使用 `extension`，不混入 connection。
 
-Extension management v2 使用 `extension select COORDINATE --distribution python --version VERSION`
-为接入 Peer 选择准确版本，再用 `extension enable COORDINATE` 启用。两者都可用 `--peer PEER_ID`
-指定目标；Web Peer 的 Distribution 是 `module_federation`，不能把它当作 Python 包交给 Core 执行。
-先 `extension disable COORDINATE`，再 `extension unselect COORDINATE` 取消该 Peer 的选择；共享配置
-和已收集信息不会随之删除。`extension status [COORDINATE]` 读取接入 Peer 的选择和实际运行状态，
-`extension get` 只读共享身份与配置。配置 `--schema` 同样来自接入 Peer，而不是共享 Extension 行。
-上述命令替代旧的 `install/uninstall`，要求当前 Core v2 接口，不自动回退。
+Extension management v2 uses `extension select COORDINATE --distribution python --version VERSION`
+to select an exact version for the connected Peer, then `extension enable COORDINATE` to enable it.
+Both commands accept `--peer PEER_ID` to target another Peer. A Web Peer's Distribution is
+`module_federation`; it cannot run as a Python package on Core. Disable the Extension before
+`extension unselect COORDINATE` to remove that Peer's selection. Shared configuration and collected
+information remain. `extension status [COORDINATE]` reads the connected Peer's selection and runtime
+state; `extension get` reads shared identity and configuration. Configuration `--schema` also comes
+from the connected Peer, rather than the shared Extension row. These commands replace
+`install/uninstall` and require the current Core v2 API, with no automatic fallback.
 
 ## Agent Query
 
@@ -90,4 +92,5 @@ inkcre-cli job wait 1 --for 10s --json
 这些是同一次 HTTP 响应的本地文件，不是新下载会话，也不会再次调用 Resolver。
 
 开发使用独立 PDM 项目：`pdm install -p cli`、`pdm run -p cli check`、`pdm build -p cli`。
-版本和 changelog 由仓库 Release PR 准备，功能 PR 只记录 `cli/.changes/` 发布意图。
+The repository Release PR prepares versions and changelogs; feature PRs record release intent in
+`cli/.changes/`.
