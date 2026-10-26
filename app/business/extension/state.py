@@ -33,7 +33,7 @@ class ExtensionParticipation(pydantic.BaseModel):
 
   name: str
   peer_id: uuid.UUID
-  distribution: typing.Literal["python", "module_federation", "swift_bundled"] | None
+  distribution: str | None
   version: str
   enabled: bool
   config_schema: dict[str, typing.Any] | None = None
@@ -85,7 +85,7 @@ class ExtensionStore(typing.Protocol):
     self,
     peer_id: uuid.UUID,
     name: str,
-    distribution: typing.Literal["python", "module_federation", "swift_bundled"],
+    distribution: str,
     version: str,
   ) -> ExtensionParticipation: ...
 
@@ -128,10 +128,7 @@ class ExtensionStateService:
     return ExtensionParticipation(
       name=model.name,
       peer_id=model.peer_id,
-      distribution=typing.cast(
-        typing.Literal["python", "module_federation", "swift_bundled"] | None,
-        model.distribution,
-      ),
+      distribution=model.distribution,
       version=model.version,
       enabled=model.enabled,
       config_schema=(
@@ -254,7 +251,7 @@ class ExtensionStateService:
     self,
     peer_id: uuid.UUID,
     name: str,
-    distribution: typing.Literal["python", "module_federation", "swift_bundled"],
+    distribution: str,
     version: str,
   ) -> ExtensionParticipation:
     async with extension_uow() as repository:

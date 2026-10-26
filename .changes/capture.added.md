@@ -1,1 +1,1 @@
-新增 Capture 共享回执和 swift_bundled 参与格式；原生 Capture 分发在本 Peer 事务内保存图、原始图片和幂等回执，Mac 收入不依赖 Python Peer 或 PostgREST。
+提供可独立读取 Capture 图的 Python 分发；共享参与协议移除分发格式白名单。Mac 收入使用标准图与 Storage，不依赖 Python Peer 或 Capture 专用表。

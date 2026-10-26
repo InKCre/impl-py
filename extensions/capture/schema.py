@@ -2,6 +2,7 @@
 
 from datetime import UTC
 from typing import Literal
+from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
@@ -22,6 +23,8 @@ class CaptureOrigin(ContractModel):
 
 
 class CaptureMetadata(ContractModel):
+  submission_id: UUID
+  payload_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
   captured_at: AwareDatetime
   entry: Literal["selection", "paste", "screenshot", "manual"]
   origin: CaptureOrigin | None = None

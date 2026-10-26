@@ -8,6 +8,7 @@ import sqlmodel
 
 
 ExtensionName: typing.TypeAlias = str
+NativeDistribution = typing.Annotated[str, pydantic.Field(min_length=1)]
 EXTENSION_NAME_PATTERN = (
   r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?/"
   r"[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
@@ -32,7 +33,7 @@ class SelectExtensionCommand(pydantic.BaseModel):
 
   action: typing.Literal["select"]
   extension: ExtensionName
-  distribution: typing.Literal["python", "module_federation", "swift_bundled"]
+  distribution: NativeDistribution
   version: str = pydantic.Field(pattern=EXTENSION_SEMVER_PATTERN)
 
 
@@ -77,13 +78,11 @@ class ExtensionPeerStatusRow(pydantic.BaseModel):
 
   name: ExtensionName
   peer_id: uuid.UUID
-  distribution: typing.Literal["python", "module_federation", "swift_bundled"] | None
+  distribution: NativeDistribution | None
   version: str | None
   enabled: bool
   config_schema: dict[str, typing.Any] | None
-  supported_distributions: tuple[
-    typing.Literal["python", "module_federation", "swift_bundled"], ...
-  ]
+  supported_distributions: tuple[NativeDistribution, ...]
   loaded_version: str | None
   running: bool
   restart_required: bool
@@ -95,16 +94,14 @@ class ExtensionPeerStatus(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
   peer_id: uuid.UUID
-  supported_distributions: tuple[
-    typing.Literal["python", "module_federation", "swift_bundled"], ...
-  ]
+  supported_distributions: tuple[NativeDistribution, ...]
   extensions: tuple[ExtensionPeerStatusRow, ...]
 
 
 class SelectExtensionInput(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
-  distribution: typing.Literal["python", "module_federation", "swift_bundled"]
+  distribution: NativeDistribution
   version: str = pydantic.Field(pattern=EXTENSION_SEMVER_PATTERN)
 
 
@@ -171,11 +168,6 @@ class ExtensionPeerParticipationModel(sqlmodel.SQLModel, table=True):
     sqlalchemy.CheckConstraint(
       f"version ~ '{EXTENSION_SEMVER_PATTERN}'",
       name="extension_peer_participations_version_canonical",
-    ),
-    sqlalchemy.CheckConstraint(
-      "distribution IS NULL OR distribution IN "
-      "('python', 'module_federation', 'swift_bundled')",
-      name="extension_peer_participations_distribution_valid",
     ),
     sqlalchemy.CheckConstraint(
       "config_schema IS NULL OR jsonb_typeof(config_schema) = 'object'",
