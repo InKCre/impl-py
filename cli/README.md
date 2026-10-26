@@ -47,6 +47,16 @@ inkcre-cli config schemas --json
 `connection` 只管理本机连接，`config` 管理远端 deployment config；Agent definition 由 `agent` 管理，
 模型目录由 `ai` 发现。Extension 配置和运行目标使用 `extension`，不混入 connection。
 
+Extension management v2 uses `extension select COORDINATE --distribution python --version VERSION`
+to select an exact version for the connected Peer, then `extension enable COORDINATE` to enable it.
+Both commands accept `--peer PEER_ID` to target another Peer. A Web Peer's Distribution is
+`module_federation`; it cannot run as a Python package on Core. Disable the Extension before
+`extension unselect COORDINATE` to remove that Peer's selection. Shared configuration and collected
+information remain. `extension status [COORDINATE]` reads the connected Peer's selection and runtime
+state; `extension get` reads shared identity and configuration. Configuration `--schema` also comes
+from the connected Peer, rather than the shared Extension row. These commands replace
+`install/uninstall` and require the current Core v2 API, with no automatic fallback.
+
 ## Agent Query
 
 Agent Query Sink 用 AI 组合已有 info-base 检索、Resolver 读取和图导航，并通过异步 Job 交付答案。先从
@@ -82,4 +92,5 @@ inkcre-cli job wait 1 --for 10s --json
 这些是同一次 HTTP 响应的本地文件，不是新下载会话，也不会再次调用 Resolver。
 
 开发使用独立 PDM 项目：`pdm install -p cli`、`pdm run -p cli check`、`pdm build -p cli`。
-0.0.0 是未发布的开发版本；首次发行由仓库的 Release PR 准备。
+The repository Release PR prepares versions and changelogs; feature PRs record release intent in
+`cli/.changes/`.

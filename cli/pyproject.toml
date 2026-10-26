@@ -29,11 +29,12 @@ dev = ["ruff>=0.15,<0.16", "pyrefly>=0.56,<0.57"]
 distribution = true
 
 [tool.pdm.scripts]
-lint = "ruff check src"
-format = "ruff format src"
-"format:check" = "ruff format --check src"
+lint = "ruff check src tests"
+format = "ruff format src tests"
+"format:check" = "ruff format --check src tests"
+test = "python -m unittest discover -s tests"
 typecheck = "pyrefly check"
-check = {composite = ["lint", "format:check", "typecheck"]}
+check = {composite = ["lint", "format:check", "typecheck", "test"]}
 
 [tool.ruff]
 line-length = 100

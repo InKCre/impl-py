@@ -16,7 +16,7 @@ def route(coordinate: str) -> str:
 
 @click.group(cls=Group)
 def extension():
-    """安装、配置和启停 Extension；发布仍由 Extension 的交付流程负责。"""
+    """管理 Peer 的 Extension 选择、配置和启停；发布由 Extension 交付流程负责。"""
 
 
 @extension.command("list")
@@ -24,7 +24,7 @@ def extension():
 @common
 @click.pass_obj
 def list_extensions(inv: Invocation, limit, cursor):
-    """列出 Extension 的安装、启用意图与运行状态。"""
+    """列出共享 Extension 身份与配置；Peer 运行状态见 status。"""
     inv.show(inv.send("GET", "/extensions", params={"limit": limit, "cursor": cursor}))
 
 
@@ -33,27 +33,50 @@ def list_extensions(inv: Invocation, limit, cursor):
 @common
 @click.pass_obj
 def get(inv: Invocation, coordinate):
-    """读取一个已安装 Extension。"""
+    """读取共享 Extension 身份与配置；不代表任一 Peer 已启用。"""
     inv.show(inv.send("GET", route(coordinate)))
 
 
 @extension.command()
-@click.argument("coordinate")
-@click.option("--version", required=True, help="准确的已发布版本，不解析 latest")
+@click.argument("coordinate", required=False)
 @common
 @click.pass_obj
-def install(inv: Invocation, coordinate, version):
-    """安装准确版本；不隐式启用。"""
-    inv.show(inv.send("POST", route(coordinate), params={"version": version}))
+def status(inv: Invocation, coordinate):
+    """读取接入 Peer 的选择、运行版本、配置 schema 与重启状态。"""
+    inv.show(
+        inv.send(
+            "POST", "/extension-management/v2", body={"action": "status", "extension": coordinate}
+        )
+    )
 
 
 @extension.command()
 @click.argument("coordinate")
+@click.option("--distribution", required=True, type=click.Choice(["python", "module_federation"]))
+@click.option("--version", required=True, help="准确的已发布版本，不解析 latest")
+@click.option("--peer", help="选择的目标 Peer；省略时为接入 Peer")
 @common
 @click.pass_obj
-def uninstall(inv: Invocation, coordinate):
-    """卸载 Extension。"""
-    inv.show(inv.send("DELETE", route(coordinate)), no_content=True)
+def select(inv: Invocation, coordinate, distribution, version, peer):
+    """为目标 Peer 选择准确 Distribution/版本；不隐式启用。"""
+    inv.show(
+        inv.send(
+            "POST",
+            route(coordinate) + "/selection",
+            params={"route_to_peer": peer},
+            body={"distribution": distribution, "version": version},
+        )
+    )
+
+
+@extension.command()
+@click.argument("coordinate")
+@click.option("--peer", help="取消选择的目标 Peer；省略时为接入 Peer")
+@common
+@click.pass_obj
+def unselect(inv: Invocation, coordinate, peer):
+    """取消已禁用 Peer 的选择；保留共享 Extension 配置和信息。"""
+    inv.show(inv.send("DELETE", route(coordinate) + "/selection", params={"route_to_peer": peer}))
 
 
 @extension.command()
@@ -91,9 +114,13 @@ def get_config(inv: Invocation, coordinate):
 
 
 def config_schema(inv: Invocation, coordinate: str) -> dict:
-    contract = inv.send("GET", route(coordinate))["config_schema"]
+    result = inv.send(
+        "POST", "/extension-management/v2", body={"action": "status", "extension": coordinate}
+    )
+    selected = next((row for row in result["extensions"] if row["name"] == coordinate), None)
+    contract = selected["config_schema"] if selected else None
     if contract is None:
-        raise CommandError("该 Extension 尚未发布配置 schema；可在启用后重新发现")
+        raise CommandError("接入 Peer 尚未发布该 Extension 的配置 schema；请在选择并启用后重新发现")
     return contract
 
 

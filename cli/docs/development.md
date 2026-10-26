@@ -21,7 +21,8 @@ Feature PR 只放 `cli/.changes/` fragment，使用根 Towncrier 类型。单一
 经过正常准备得到 0.1.0；不能因为 base 中尚无 CLI 就直接发布。
 
 `cli-publish.yml` 从精确 main SHA 自行检查、构建 wheel/sdist，并通过 PDM 原生 Trusted Publishing 上传。
-PyPI pending publisher 配置：owner InKCre，repository core-py，workflow cli-publish.yml，environment production。
+Configure the PyPI pending publisher with owner `InKCre`, repository `impl-py`, workflow
+`cli-publish.yml`, and environment `production`.
 安装者只需 pip，不需 PDM。新增 REST 依赖时先交付 Core provider，再发布 CLI consumer；没有永久版本相等 gate。
 
 恢复使用 main 上的 workflow_dispatch。PDM `--no-build --skip-existing` 保留当前 run 已检查的构建并续传缺失
