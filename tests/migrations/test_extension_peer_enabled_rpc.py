@@ -378,6 +378,29 @@ def test_v2_acl_and_state_guards(setup_domain_engine, monkeypatch):
     asyncio.run(engine.dispose())
 
 
+def test_peer_can_persist_its_own_distribution_format(setup_domain_engine, monkeypatch):
+  peer_id = uuid.uuid4()
+  name = f"inkcre/native-{peer_id.hex}"
+  with sqlmodel.Session(setup_domain_engine) as session:
+    session.add(PeerModel(id=peer_id, name="native-peer"))
+    session.add(ExtensionModel(name=name))
+    session.commit()
+  engine = create_async_engine(setup_domain_engine.url)
+  monkeypatch.setattr(extension_uow, "AsyncSessionFactory", async_sessionmaker(engine))
+
+  async def scenario():
+    store = ExtensionStateService()
+    await store.select_participation(peer_id, name, "kotlin_apk", "0.1.0")
+    await store.set_participation_enabled(peer_id, name, True)
+    row = await store.get_participation(peer_id, name)
+    assert row is not None and row.distribution == "kotlin_apk" and row.enabled
+
+  try:
+    asyncio.run(scenario())
+  finally:
+    asyncio.run(engine.dispose())
+
+
 def test_selection_change_clears_schema_and_rejects_late_old_callback(
   setup_domain_engine, monkeypatch
 ):

@@ -5,6 +5,17 @@ import pytest
 
 from app.business.extension.main import ExtensionHost
 from app.business.extension.state import ExtensionStore, InstalledExtension
+from app.schemas.extension.main import ExtensionPeerStatus, SelectExtensionCommand
+
+
+def test_shared_protocol_preserves_a_distribution_unknown_to_python():
+  command = SelectExtensionCommand(
+    action="select", extension="inkcre/capture", distribution="kotlin_apk", version="0.1.0"
+  )
+  status = ExtensionPeerStatus(
+    peer_id=uuid.uuid4(), supported_distributions=(command.distribution,), extensions=()
+  )
+  assert status.supported_distributions == ("kotlin_apk",)
 
 
 class EmptyParticipationStore:
