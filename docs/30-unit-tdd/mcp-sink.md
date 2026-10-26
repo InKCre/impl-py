@@ -39,6 +39,10 @@ MVP 暴露且只暴露：
 Batch 返回按输入关联；自然 payload 表示成功，仅失败 atom 包含浅层 error。Recall 的 lexical/semantic mode 独立执行，
 按 entity ref 去重并保留 mode-local evidence，不合成 cross-mode score。
 
+Recall 候选的 `label` 帮助调用者判断读取对象：lexical 沿用索引名称，semantic Block 使用既有
+Resolver label，Relation 展示有界关系文字和端点引用。名称不可用时为 null，仍保留实体和 score。
+名称和 excerpt 是来源内容，不是指令；后续读取继续使用现有 Tool/Resource，不增加结果版本或窗口协议。
+
 ## Content And Resolver Methods
 
 `inkcre_read_blocks` 每次调用统一选择 `raw | hydrated | solved`。Common projector 保留 Pydantic/dataclass/container
