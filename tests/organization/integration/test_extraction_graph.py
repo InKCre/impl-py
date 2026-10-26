@@ -11,14 +11,14 @@ import sqlalchemy
 from app.business.ai import AIManager
 from app.business.deployment_config import DeploymentConfigService
 from app.business.info_base.resolver import (
-  ExtractionResultResolver,
-  ResolverContentError,
+  ResolverManager,
   register_core_resolvers,
 )
 from app.business.organization import CREATE_EXTRACTION_TOOL, READ_EXTRACTION_MATERIAL_TOOL
 from app.business.organization.extraction import (
   EXTRACTION_CONFIG_KEY,
   EXTRACTION_CONFIG_SCHEMA,
+  EXTRACTION_RELATION,
   ExtractionBehaviorResolver,
 )
 from app.persistence.info_base.repository import RelationRepository
@@ -35,10 +35,7 @@ from app.schemas.ai import (
 from app.schemas.deployment_config import DeploymentConfigModel
 from app.schemas.info_base.block import BlockForm
 from app.schemas.organization_extraction import (
-  EXTRACTION_RESULT_RESOLVER,
-  ExtractionContent,
   ExtractionProposal,
-  ExtractionSourceRelation,
   ExtractionWriteResult,
 )
 from tests.database import (
@@ -46,7 +43,6 @@ from tests.database import (
   read_block,
   read_relations,
   seed_block,
-  seed_relation,
 )
 
 
@@ -266,25 +262,19 @@ def test_parallel_replay_retains_old_evidence_after_source_changes_and_deletion(
   result_id = completed[0].extraction_block_id
   stored = read_block(result_id)
   assert stored is not None
-  content = ExtractionContent.model_validate_json(stored.content)
-  assert [group.excerpts for group in content.basis] == [
-    (question.content,),
-    (answer.content,),
-  ]
-  assert len(read_relations(result_id, include_out=False)) == 2
-
-  conflict = seed_relation(
-    answer.id, result_id, ExtractionSourceRelation(basis_key="b1").model_dump_json()
-  )
-  resolver = ExtractionResultResolver(stored)
-  with pytest.raises(ResolverContentError, match="ambiguous"):
-    async_runner.run(resolver.get_source("b1"))
-  assert answer.content in async_runner.run(resolver.get_text())
+  assert stored.resolver == "core.text.v1"
+  assert f"> {question.content}" in stored.content
+  assert f"> {answer.content}" in stored.content
+  relations = read_relations(result_id, include_out=False)
+  assert {(relation.from_, relation.content) for relation in relations} == {
+    (question.id, EXTRACTION_RELATION),
+    (answer.id, EXTRACTION_RELATION),
+  }
+  resolver = ResolverManager.get(stored)
+  assert async_runner.run(resolver.get_text()) == stored.content
 
   async def remove_sources():
     async with graph_uow() as uow:
-      assert conflict.id is not None
-      await uow.relations.delete(conflict.id)
       await uow.blocks.delete(question.id)
       for relation in await uow.relations.get(result_id, include_out=False):
         assert relation.id is not None
@@ -293,11 +283,10 @@ def test_parallel_replay_retains_old_evidence_after_source_changes_and_deletion(
   async_runner.run(remove_sources())
   reloaded = read_block(result_id)
   assert reloaded is not None
-  fresh = ExtractionResultResolver(reloaded)
-  assert async_runner.run(fresh.get_source("b1")) is None
-  assert async_runner.run(fresh.get_source("b2")) is None
+  fresh = ResolverManager.get(reloaded)
+  assert not read_relations(result_id)
   assert async_runner.run(fresh.get_text()) == async_runner.run(resolver.get_text())
-  assert "extraction" in async_runner.run(fresh.get_label())
+  assert "Bob suggests" in async_runner.run(fresh.get_label())
   assert read_block(answer.id) is not None
 
 
@@ -353,11 +342,11 @@ def test_invalid_excerpts_and_write_failure_leave_no_partial_result(
           "SELECT count(*) FROM inkcre.blocks "
           "WHERE resolver=:resolver AND content LIKE :marker"
         ),
-        {"resolver": EXTRACTION_RESULT_RESOLVER, "marker": f"%{marker}%"},
+        {"resolver": "core.text.v1", "marker": f"%{marker}%"},
       )
       .scalar_one()
     )
-  assert count == 0
+  assert count == 2  # Only the two input Blocks remain after both rejected writes.
   assert not read_relations(question.id)
 
 
@@ -421,9 +410,8 @@ def test_cancelled_run_observations_cannot_be_reused(
     )
 
 
-@pytest.mark.parametrize("invalid_selection", ["mixed_reads", "ambiguous_excerpt"])
 def test_later_read_does_not_replace_the_selected_observation(
-  extraction_world, monkeypatch, async_runner, invalid_selection
+  extraction_world, monkeypatch, async_runner
 ):
   marker, question, _ = extraction_world
   completed: list[ExtractionWriteResult] = []
@@ -453,19 +441,13 @@ def test_later_read_does_not_replace_the_selected_observation(
       selections = [
         {
           "observation_id": later["observation_id"],
-          "excerpts": [
-            later["text"] if invalid_selection == "mixed_reads" else "Repeated sentence."
-          ],
-        }
+          "excerpts": [later["text"]],
+        },
+        {"observation_id": initial["observation_id"], "excerpts": [initial["text"]]},
       ]
-      if invalid_selection == "mixed_reads":
-        selections.append(
-          {"observation_id": initial["observation_id"], "excerpts": [initial["text"]]}
-        )
     elif len(results) == 2:
       assert results[-1].results[0].is_error
-      reason = "one observation" if invalid_selection == "mixed_reads" else "ambiguous"
-      assert reason in json.dumps(results[-1].results[0].content)
+      assert "one observation" in json.dumps(results[-1].results[0].content)
       selections = [
         {"observation_id": initial["observation_id"], "excerpts": [initial["text"]]}
       ]
@@ -490,6 +472,50 @@ def test_later_read_does_not_replace_the_selected_observation(
   async_runner.run(ExtractionBehaviorResolver.extract_local(question.id))
   stored = read_block(completed[0].extraction_block_id)
   assert stored is not None
-  content = ExtractionContent.model_validate_json(stored.content)
-  assert content.basis[0].excerpts == (question.content,)
-  assert "Repeated sentence" not in content.basis[0].observed_origin.label
+  assert f"> {question.content}" in stored.content
+  assert "Repeated sentence" not in stored.content
+
+
+def test_repeated_and_overlapping_true_excerpts_are_accepted(
+  extraction_world, monkeypatch, async_runner
+):
+  marker, question, _ = extraction_world
+  text = f"{marker}: Bob recommends packaging. Bob recommends packaging."
+  completed = []
+
+  async def chat(_cls, _model, messages, _tools, _choice):
+    if isinstance(messages[-1], ToolResultMessage):
+      result = messages[-1].results[0]
+      assert not result.is_error
+      completed.append(ExtractionWriteResult.model_validate(result.content))
+      return AssistantMessage(content="complete")
+    material = _material(messages)
+    return AssistantMessage(
+      tool_calls=(
+        ToolCall(
+          id="submit",
+          tool=CREATE_EXTRACTION_TOOL,
+          arguments={
+            "text": f"{marker}: Packaging is Bob's suggestion.",
+            "sources": [
+              {
+                "observation_id": material["observation_id"],
+                "excerpts": ["Bob recommends packaging.", "recommends packaging."],
+              }
+            ],
+          },
+        ),
+      )
+    )
+
+  async def run():
+    async with graph_uow() as uow:
+      await uow.blocks.edit_block(question.id, content=text)
+    await ExtractionBehaviorResolver.extract_local(question.id)
+
+  monkeypatch.setattr(AIManager, "chat", classmethod(chat))
+  async_runner.run(run())
+  stored = read_block(completed[0].extraction_block_id)
+  assert stored is not None
+  assert "> Bob recommends packaging." in stored.content
+  assert "> recommends packaging." in stored.content

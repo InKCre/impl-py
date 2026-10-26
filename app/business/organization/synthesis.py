@@ -113,7 +113,10 @@ class SynthesisBehaviorResolver(
       text_candidates = await uow.blocks.matching_content("core.text.v1", proposal.text)
       synthesis = None
       for candidate in text_candidates:
-        if await cls._source_basis(candidate, uow) == source_set:
+        if (
+          candidate.storage is None
+          and await cls._source_basis(candidate, uow) == source_set
+        ):
           synthesis = candidate
           break
       synthesis_created = synthesis is None

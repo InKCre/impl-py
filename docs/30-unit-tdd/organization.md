@@ -47,12 +47,17 @@ Relation content is owned next to its writer and reader, not in a global registr
 - `successor --supersedes--> predecessor` rejects a currently visible directed cycle;
 - `detail --refines--> predecessor` rejects a currently visible directed cycle;
 - `evidence --supports/challenges--> assertion` rejects the opposite stance for the exact pair;
-- every material source `--synthesis--> derived text Block`; changed reapplication also writes
+- every extraction source `--extraction--> derived text Block` with retained quotations;
+- every synthesis source `--synthesis--> derived text Block`; changed reapplication also writes
   `previous synthesis --edited--> new synthesis`;
 - `source --has mention--> occurrence-local selected-text Block --refers to--> existing referent`;
 - lower Block ID `--duplicates assertion-->` higher Block ID.
 
-These commands validate graph mechanics, not open-world meaning. They do not delete, merge, overwrite, assign confidence, infer
+Anchoring checks that selected text occurs in the source Resolver text before writing; this does not prove the referent judgment.
+Text-content replay shortcuts in anchoring and synthesis apply only to inline text Blocks. Storage-backed `content` is an opaque
+pointer and must not be compared with proposed text as if it were the body.
+
+These commands validate graph mechanics and literal source membership, not open-world meaning. They do not delete, merge, overwrite, assign confidence, infer
 transitive closure, or reserve generic Relation writes. Sequential exact replay converges through fetchsert. Synthesis replay is
 keyed by exact text plus exact source basis; the ordinary Block identity rule is not changed.
 
@@ -112,18 +117,15 @@ budget exhaustion to its caller. These diagnostics use the existing application 
 短需求及已有结果可以零产出。参考 Agent 定义位于 `tests/organization/acceptance/agent_definitions.json`。
 它不是默认启用的部署配置；部署方选择能执行工具的模型，建立 Agent 后再写入上述配置并提交 Job。
 
-`create_extraction` 接收正文及每个贡献来源的一次观察和原文片段。它校验观察属于当前运行、每个来源只选一次、
-片段在实际观察中精确且唯一出现且互不重叠，再按来源 ID 与原文顺序生成局部依据 key。模型不能提供历史出处或
-组 key。历史出处只保存实际取得的 Resolver 标签，发言者归属由正文和必要引文表达。
-机械校验不能证明正文忠实，因此仍需模型语义验收，也不为其他 Peer 写入相同类型提供真实性认证。
+`create_extraction` 接收正文及每个贡献来源的一次观察和原文片段。它校验观察属于当前运行、每个来源只选一次，
+且引文逐字存在于该观察。重复出现或互相重叠不使真实引文失效；这里不保存字符位置，也不声称完成原文定位。
+来源标签由执行端读取，发言者归属、条件和语境仍由正文与必要引文表达，字符串匹配不能替代语义判断。
 
-结果使用 `core.organization.extraction-result.v1`，在 content 内保存正文、历史出处和必要引文。普通来源 Relation
-只表达当前内部入口，按共享合同以 `kind` 和 `basis_key` 对应依据组。来源变化、删除或解除关系都不改写结果；
-关系缺失表示入口不可用，不能据此断言来源已删除。删除结果同时删除其内嵌依据，不删除来源。
-结果 Resolver 由 info-base bootstrap 独立注册，不要求配置或运行提取 Agent。default/lexical 文本投影均区分正文与引文；
-`get_source(basis_key)` 的映射错误不会妨碍读取合法正文。
+结果是普通 `core.text.v1` Block。正文、出处说明与引用段落一起写入可读文本，来源通过内容为 `extraction` 的
+Relation 指向结果。来源变化、删除或解除关系不改写结果；结果沿用 TextResolver 和通用阅读界面，无需专用
+内容 schema、依据组编号、来源映射方法或前端组件。来源入口通过普通图导航读取，缺边不能证明删除原因。
 
-每个产物在一个短 GraphUnitOfWork 中完成。提交先按 ID 顺序锁定仍存在的来源，再检查完整内容和全部来源映射，
+每个产物在一个短 GraphUnitOfWork 中完成。提交先按 ID 顺序锁定仍存在的来源，再检查完整文本和来源集合，
 只有精确一致才复用结果；否则同时写入结果及来源关系。READ COMMITTED 下，同一组来源的并发重放在锁后重查，
 不会各自创建一份。模型等待和 Resolver 读取不占有这些锁。此保证只约束本行为的写入，不修复手工改动的图，
 不增加语义去重、已处理标记或来源版本服务。

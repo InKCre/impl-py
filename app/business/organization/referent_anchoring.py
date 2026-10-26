@@ -6,7 +6,7 @@ import typing
 
 
 from app.business.deployment_config import DeploymentConfigManager
-from app.business.info_base.resolver import Resolver
+from app.business.info_base.resolver import Resolver, ResolverManager
 from app.persistence.info_base.uow import GraphUnitOfWork, graph_uow
 from libs.obsrv.main import get_logger
 from app.schemas.info_base.block import BlockForm, BlockID
@@ -101,6 +101,14 @@ class ExistingReferentAnchoringBehaviorResolver(
       referent_block_id=referent_block_id,
     )
     async with graph_uow() as uow:
+      source = await uow.blocks.get(proposal.source_block_id)
+      if source is None:
+        raise ValueError("Source Block does not exist")
+    # Resolve outside the write transaction; content may be an opaque Storage pointer.
+    source_text = await ResolverManager.get(source).get_text(materialize_missing=False)
+    if source_text is None or proposal.selected_text not in source_text:
+      raise ValueError("Selected text does not occur in the source text")
+    async with graph_uow() as uow:
       await require_distinct_blocks(
         proposal.source_block_id, proposal.referent_block_id, uow
       )
@@ -126,7 +134,9 @@ class ExistingReferentAnchoringBehaviorResolver(
         )
 
       source_is_fragment = (
-        source.resolver == "core.text.v1" and source.content == proposal.selected_text
+        source.resolver == "core.text.v1"
+        and source.storage is None
+        and source.content == proposal.selected_text
       )
       if source_is_fragment:
         fragment_id = proposal.source_block_id
@@ -172,6 +182,7 @@ class ExistingReferentAnchoringBehaviorResolver(
     if (
       source is not None
       and source.resolver == "core.text.v1"
+      and source.storage is None
       and source.content == selected_text
     ):
       refers_to = next(
@@ -196,6 +207,7 @@ class ExistingReferentAnchoringBehaviorResolver(
       if (
         fragment is None
         or fragment.resolver != "core.text.v1"
+        or fragment.storage is not None
         or fragment.content != selected_text
       ):
         continue

@@ -1,16 +1,11 @@
-"""Retained extraction content and inputs to its owning behavior."""
+"""Run-local extraction inputs; results are ordinary text Blocks and relations."""
 
-import json
 import typing
 
 import pydantic
 
 from app.schemas.info_base.block import BlockID
 from app.schemas.info_base.relation import RelationModel
-
-
-EXTRACTION_RESULT_RESOLVER = "core.organization.extraction-result.v1"
-EXTRACTION_SOURCE_RELATION = "core.organization.extraction.source.v1"
 
 
 def _non_blank(value: str) -> str:
@@ -20,53 +15,6 @@ def _non_blank(value: str) -> str:
 
 
 NonBlankText = typing.Annotated[str, pydantic.AfterValidator(_non_blank)]
-
-
-class ExtractionOrigin(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  label: NonBlankText
-
-
-class ExtractionBasis(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  key: NonBlankText
-  observed_origin: ExtractionOrigin
-  excerpts: tuple[NonBlankText, ...] = pydantic.Field(min_length=1)
-
-
-class ExtractionContent(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  text: NonBlankText
-  basis: tuple[ExtractionBasis, ...] = pydantic.Field(min_length=1)
-
-  @pydantic.field_validator("basis")
-  @classmethod
-  def unique_keys(cls, value: tuple[ExtractionBasis, ...]) -> tuple[ExtractionBasis, ...]:
-    if len({group.key for group in value}) != len(value):
-      raise ValueError("basis keys must be unique within the result")
-    return value
-
-
-class ExtractionSourceRelation(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  kind: typing.Literal["core.organization.extraction.source.v1"] = (
-    EXTRACTION_SOURCE_RELATION
-  )
-  basis_key: NonBlankText
-
-  @classmethod
-  def from_content(cls, content: str) -> typing.Self | None:
-    try:
-      value = json.loads(content)
-    except json.JSONDecodeError:
-      return None
-    if not isinstance(value, dict) or value.get("kind") != EXTRACTION_SOURCE_RELATION:
-      return None
-    return cls.model_validate(value)
 
 
 class ExtractionRequest(pydantic.BaseModel):
@@ -81,7 +29,7 @@ class ExtractionReadResult(pydantic.BaseModel):
   observation_id: str
   source_block_id: BlockID
   text: str
-  observed_origin: ExtractionOrigin
+  label: NonBlankText
   relations: tuple[RelationModel, ...]
 
 

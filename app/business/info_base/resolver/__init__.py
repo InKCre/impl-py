@@ -38,7 +38,6 @@ __all__ = [
   "UnknownResolverMethodError",
   "AudioResolver",
   "EPUBResolver",
-  "ExtractionResultResolver",
   "FileResolver",
   "ImageResolver",
   "PDFResolver",
@@ -50,7 +49,6 @@ __all__ = [
 
 from .audio import AudioResolver
 from .epub import EPUBResolver
-from .extraction import ExtractionResultResolver
 from .file import FileResolver
 from .image import ImageResolver
 from .pdf import PDFResolver

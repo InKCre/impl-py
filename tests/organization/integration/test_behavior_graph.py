@@ -53,7 +53,7 @@ def test_exact_behaviors_compose_into_replayable_graph_use(async_runner) -> None
         (
           BlockForm(resolver="core.text.v1", content=f"{marker}: old limit"),
           BlockForm(resolver="core.text.v1", content=f"{marker}: new limit"),
-          BlockForm(resolver="core.text.v1", content=f"{marker}: detail"),
+          BlockForm(resolver="core.text.v1", content=f"{marker}: detail about the service"),
           BlockForm(resolver="core.text.v1", content=f"{marker}: measurement"),
           BlockForm(resolver="core.text.v1", content=f"{marker}: service record"),
           BlockForm(resolver="core.text.v1", content=f"{marker}: copied report"),
@@ -263,3 +263,79 @@ def test_synthesis_rolls_back_block_and_basis_on_write_failure(async_runner, mon
     async_runner.run(verify_rollback())
   finally:
     _cleanup(ids)
+
+
+def test_organization_compares_text_not_storage_pointers(async_runner):
+  from app.business.info_base.resolver import ResolverManager
+  from app.persistence.info_base.uow import graph_uow
+
+  register_core_resolvers()
+  marker = uuid.uuid4().hex
+  persisted = []
+  blob_id = None
+
+  async def run():
+    nonlocal blob_id
+    async with graph_uow() as uow:
+      blob_id = await uow.storage.create_blob(f"{marker}: the actual service".encode())
+      pointer = f'{{"blob_id":"{blob_id}"}}'
+      stored = await uow.blocks.create(
+        BlockForm(resolver="core.text.v1", storage=-4, content=pointer)
+      )
+      source = await uow.blocks.create(
+        BlockForm(resolver="core.text.v1", content=f"{marker}: pointer example {pointer}")
+      )
+      referent = await uow.blocks.create(
+        BlockForm(resolver="core.text.v1", content=f"{marker}: service identity")
+      )
+      assert stored.id is not None and source.id is not None and referent.id is not None
+      persisted.extend((stored.id, source.id, referent.id))
+      await uow.relations.create(source.id, stored.id, "has mention")
+      await uow.relations.create(stored.id, referent.id, "refers to")
+      await uow.relations.create(source.id, stored.id, "synthesis")
+      await uow.relations.create(referent.id, stored.id, "synthesis")
+
+    with pytest.raises(ValueError, match="does not occur"):
+      await ExistingReferentAnchoringBehaviorResolver.anchor_existing_referent(
+        stored.id, pointer, referent.id
+      )
+    with pytest.raises(ValueError, match="does not occur"):
+      await ExistingReferentAnchoringBehaviorResolver.anchor_existing_referent(
+        source.id, "an invented mention", referent.id
+      )
+
+    real_mention = await ExistingReferentAnchoringBehaviorResolver.anchor_existing_referent(
+      stored.id, "the actual service", referent.id
+    )
+    persisted.append(real_mention.fragment_block_id)
+    pointer_mention = (
+      await ExistingReferentAnchoringBehaviorResolver.anchor_existing_referent(
+        source.id, pointer, referent.id
+      )
+    )
+    persisted.append(pointer_mention.fragment_block_id)
+    assert pointer_mention.fragment_block_id != stored.id
+    synthesis = await SynthesisBehaviorResolver.create_synthesis(
+      pointer, (source.id, referent.id)
+    )
+    persisted.append(synthesis.synthesis_block_id)
+    assert synthesis.synthesis_block_id != stored.id
+    replay = await SynthesisBehaviorResolver.create_synthesis(
+      pointer, (referent.id, source.id)
+    )
+    assert replay.synthesis_block_id == synthesis.synthesis_block_id
+    async with graph_uow() as uow:
+      result = await uow.blocks.get(synthesis.synthesis_block_id)
+      assert result is not None and result.storage is None
+    assert await ResolverManager.get(result).get_text() == pointer
+
+  async def cleanup_blob():
+    if blob_id is not None:
+      async with graph_uow() as uow:
+        await uow.storage.delete_blob(blob_id)
+
+  try:
+    async_runner.run(run())
+  finally:
+    _cleanup(persisted)
+    async_runner.run(cleanup_blob())
