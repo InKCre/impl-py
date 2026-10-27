@@ -4,6 +4,13 @@ Core release notes start from the current `0.1.1` baseline. Earlier repository h
 
 <!-- towncrier release notes start -->
 
+## 0.10.0 - 2026-10-27
+
+### Added
+
+- 增加普通 Markdown 源文解释与文字能力，并保持 HTML、纯文等既有内容合同。 (#hister-content)
+
+
 ## 0.9.0 - 2026-10-27
 
 ### Added
