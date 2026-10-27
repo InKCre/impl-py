@@ -2,8 +2,8 @@
   "format": 1,
   "environment": "production",
   "database_contract": {
-    "revision": "peer-extension-setup-v1",
-    "migration_head": "d4e6f8a0b2c3",
+    "revision": "extension-distribution-open-v1",
+    "migration_head": "dcf44bc9af73",
     "protocol_schema": "inkcre"
   },
   "peer": {
