@@ -2,7 +2,7 @@
 
 ### Added
 
-- 读取本地文件资料的正文、原件位置及失效状态，不接管目录执行能力。 (#local-files)
+- Read the body, original location, and invalidation state of local file material without taking ownership of directory execution. (#local-files)
 
 
 # Changelog

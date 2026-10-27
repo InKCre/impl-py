@@ -8,8 +8,8 @@ Core release notes start from the current `0.1.1` baseline. Earlier repository h
 
 ### Added
 
-- 提供可独立读取 Capture 图的 Python 分发；共享参与协议移除分发格式白名单。Mac 收入使用标准图与 Storage，不依赖 Python Peer 或 Capture 专用表。 (#capture)
-- MCP recall 候选补充可读名称，保留既有实体引用和各模式证据。无法生成名称时仍返回候选，不改变读取工具与 Resource 协议。 (#mcp-recall-labels)
+- Add a Python distribution that independently reads Capture graphs and remove the distribution-format allowlist from the shared participation protocol. Mac capture writes use standard graphs and Storage without requiring a Python Peer or Capture-specific tables. (#capture)
+- Add readable names to MCP recall candidates while preserving entity references and mode-specific evidence. Candidates remain available when a name cannot be generated; read tools and the Resource protocol are unchanged. (#mcp-recall-labels)
 
 ### Fixed
 

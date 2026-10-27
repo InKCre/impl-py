@@ -8,4 +8,4 @@
 
 ### Added
 
-- 提供可选的 Capture 图读取与内容解释，区分原材料、出处与附注；不执行采集提交，也不是 Mac 写入的前置条件。 (#capture)
+- Add optional Capture graph reading and content interpretation that distinguishes source material, provenance, and annotations. This distribution does not submit captures and is not required for Mac writes. (#capture)
