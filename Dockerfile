@@ -11,7 +11,8 @@ ENV PDM_CHECK_UPDATE=false \
     PDM_VENV_IN_PROJECT=1
 WORKDIR /app
 
-RUN pip install --no-cache-dir "pdm==${PDM_VERSION}"
+# PDM 2.28 requires the httpx client replaced in unearth 0.19.
+RUN pip install --no-cache-dir "pdm==${PDM_VERSION}" "unearth==0.18.3"
 
 COPY pyproject.toml pdm.lock README.md ./
 RUN pdm install --prod --no-editable --frozen-lockfile
