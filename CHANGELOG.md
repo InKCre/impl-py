@@ -4,6 +4,18 @@ Core release notes start from the current `0.1.1` baseline. Earlier repository h
 
 <!-- towncrier release notes start -->
 
+## 0.9.0 - 2026-10-27
+
+### Added
+
+- Add a Python distribution that independently reads Capture graphs and remove the distribution-format allowlist from the shared participation protocol. Mac capture writes use standard graphs and Storage without requiring a Python Peer or Capture-specific tables. (#capture)
+- Add readable names to MCP recall candidates while preserving entity references and mode-specific evidence. Candidates remain available when a name cannot be generated; read tools and the Resource protocol are unchanged. (#mcp-recall-labels)
+
+### Fixed
+
+- Keep runtime image builds compatible with PDM 2.28 by pinning its unearth installer dependency to 0.18.3. (#pdm-build)
+
+
 ## 0.8.0 - 2026-10-21
 
 ### Added
