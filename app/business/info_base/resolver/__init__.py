@@ -43,6 +43,7 @@ __all__ = [
   "PDFResolver",
   "VideoResolver",
   "TextResolver",
+  "MarkdownResolver",
   "HTMLResolver",
   "ZIPResolver",
 ]
@@ -54,5 +55,6 @@ from .image import ImageResolver
 from .pdf import PDFResolver
 from .video import VideoResolver
 from .text import TextResolver
+from .markdown import MarkdownResolver
 from .html import HTMLResolver
 from .zip import ZIPResolver

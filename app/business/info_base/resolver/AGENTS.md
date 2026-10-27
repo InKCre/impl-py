@@ -14,11 +14,11 @@
 ## 关键文件
 
 - `main.py`：exact registry、resolver instance、relation/solved caches；
-- `contracts.py`：九个 core IDs 与 typed failures；
+- `contracts.py`：十个 core IDs 与 typed failures；
 - `bootstrap.py`：core decoder registration；
 - `inspection.py`：bounded byte inspection helpers；
 - `label.py`：shared whitespace normalization and 96-code-point identifier bound；
-- `{text,html,image,audio,video,pdf,epub,zip,file}.py`：exact core contract versions。
+- `{text,html,markdown,image,audio,video,pdf,epub,zip,file}.py`：exact core contract versions。
 
 ## Construction And Registration
 
@@ -30,7 +30,7 @@
   使 persisted Block decoder 在 active Extension route/resource 关闭后仍可用；exact version replacement 仍以进程
   restart 为边界。
 - `register_core_resolvers()` 独立于 extension sync/start；extension disabled 不能让 core decoder 消失。
-- Resolver ID 必须 namespaced + versioned。共享 semantic IDs 固定为九个 `core.<kind>.v1`；不保留 bare alias。
+- Resolver ID 必须 namespaced + versioned。共享 semantic IDs 固定为十个 `core.<kind>.v1`；不保留 bare alias。
 - Agent graph drafting 是 opt-in capability：subclass 同时声明 `draft_description`、`draft_input_model` 并实现
   `create_graph(input) -> StarsGraphForm`。普通 decode-capable Resolver 不会因此自动成为 draft-capable。
 
@@ -53,7 +53,7 @@ Concrete resolver 必须实现：
 `UnsupportedResolverCapability` 表示 exact contract 没有该能力；`None` 表示能力存在但当前 block 没有有意义的
 result；empty string 只能来自真实 authored/derived empty。`UnknownResolverError` 是另一类 registry failure。
 
-九个 core semantic resolvers 中，text/HTML 提供 text；image/audio/video/PDF/EPUB/ZIP/file 在没有真实
+十个 core semantic resolvers 中，text/HTML/Markdown 提供 text；image/audio/video/PDF/EPUB/ZIP/file 在没有真实
 OCR/STT/extraction 能力前显式 unsupported，不用 metadata 伪装正文。Embedding/retrieval owner 只消费这个
 通用 projection，不要求 resolver 理解 AI model/profile。
 

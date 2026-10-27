@@ -10,6 +10,7 @@ TextProjectionContext: TypeAlias = Literal["default", "lexical"]
 
 CoreResolverID: TypeAlias = Literal[
   "core.text.v1",
+  "core.markdown.v1",
   "core.html.v1",
   "core.image.v1",
   "core.audio.v1",
@@ -22,6 +23,7 @@ CoreResolverID: TypeAlias = Literal[
 
 CORE_RESOLVER_IDS: tuple[CoreResolverID, ...] = (
   "core.text.v1",
+  "core.markdown.v1",
   "core.html.v1",
   "core.image.v1",
   "core.audio.v1",

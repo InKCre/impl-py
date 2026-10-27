@@ -44,6 +44,15 @@ class HTMLResolver(Resolver[str, str | bytes], rso_type="core.html.v1"):
       refresh=refresh,
       materialize_missing=materialize_missing,
     )
+    if any(f"<{tag}" in source.lower() for tag in ("video", "audio", "track")):
+      document = lxml_html.document_fromstring(source)
+      for resource in document.xpath("//video | //audio | //source | //track"):
+        for attribute in ("src", "poster"):
+          if address := resource.get(attribute):
+            link = lxml_html.Element("a", href=address)
+            link.text = resource.get("label") or address
+            resource.addnext(link)
+      source = lxml_html.tostring(document, encoding="unicode")
     return await asyncio.to_thread(html2text.HTML2Text().handle, source)
 
   async def get_label(self, *, refresh: bool = False) -> str:

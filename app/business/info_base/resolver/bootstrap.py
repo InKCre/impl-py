@@ -12,11 +12,13 @@ def register_core_resolvers() -> None:
   from .image import ImageResolver
   from .pdf import PDFResolver
   from .text import TextResolver
+  from .markdown import MarkdownResolver
   from .video import VideoResolver
   from .zip import ZIPResolver
 
   for resolver_class in (
     TextResolver,
+    MarkdownResolver,
     HTMLResolver,
     ImageResolver,
     AudioResolver,

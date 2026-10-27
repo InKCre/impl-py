@@ -64,3 +64,49 @@ def test_failed_current_file_keeps_successful_body_readable(monkeypatch, async_r
   monkeypatch.setattr(reader, "get_relations", AsyncMock(return_value=()))
   with pytest.raises(ValueError, match="正文关系"):
     async_runner.run(reader.get_text())
+
+
+@pytest.mark.parametrize(
+  "resolver,content,expected",
+  [
+    ("core.markdown.v1", "# 标题\n\n`<node>`", "`<node>`"),
+    (
+      "core.html.v1",
+      '<h1>标题</h1><video src="https://example.org/video">'
+      '<track src="https://example.org/captions.vtt"></video>',
+      "https://example.org/captions.vtt",
+    ),
+  ],
+)
+def test_v2_uses_the_body_format(monkeypatch, async_runner, resolver, content, expected):
+  from extensions.local_files.resolver import LocalFileV2Resolver
+  from app.business.info_base.resolver import register_core_resolvers
+  from app.schemas.info_base.block import BlockModel
+
+  register_core_resolvers()
+  now = datetime.datetime.now(datetime.UTC)
+  metadata = FileMetadata(
+    location="inkcre-peer-file://a143b185-f43d-47d1-8ef7-1d3857284b01/Users/a/note.md",
+    format="markdown",
+    available=True,
+    observed_at=now,
+  )
+  reader = object.__new__(LocalFileV2Resolver)
+  monkeypatch.setattr(
+    reader, "get_raw_content", AsyncMock(return_value=metadata.model_dump_json())
+  )
+  monkeypatch.setattr(
+    reader,
+    "get_relations",
+    AsyncMock(return_value=(SimpleNamespace(content="body", to_=20),)),
+  )
+  block = BlockModel(
+    id=20, resolver=resolver, content=content, storage=None, created_at=now, updated_at=now
+  )
+  monkeypatch.setattr(BlockService, "get", AsyncMock(return_value=block))
+  assert expected in async_runner.run(reader.get_text(materialize_missing=False))
+  legacy = object.__new__(LocalFileResolver)
+  monkeypatch.setattr(legacy, "get_raw_content", reader.get_raw_content)
+  monkeypatch.setattr(legacy, "get_relations", reader.get_relations)
+  with pytest.raises(ValueError, match="类型不符"):
+    async_runner.run(legacy.get_text())

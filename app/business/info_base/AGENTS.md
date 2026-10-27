@@ -55,7 +55,7 @@
 ## Resolver Boundary
 
 - `ResolverManager` 只按 exact ID select/register；unknown ID 明确失败，不存在 default decoder fallback。
-- Core bootstrap 独立于 extension loading，注册九个 `core.<kind>.v1` semantic resolver。
+- Core bootstrap 独立于 extension loading，注册十个 `core.<kind>.v1` semantic resolver。
 - Duplicate registration：同 class 重复注册 idempotent，不同 class 抢同 ID 抛错。
 - `get_text()` 的 unsupported、supported-null 与 authored-empty 必须保持可区分；不要添加 use-specific
   `get_*_for_embedding()` projection。

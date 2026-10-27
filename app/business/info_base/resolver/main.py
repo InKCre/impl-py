@@ -221,6 +221,7 @@ class ResolverManager:
 
     exact = {
       "text/plain": "core.text.v1",
+      "text/markdown": "core.markdown.v1",
       "text/html": "core.html.v1",
       "application/xhtml+xml": "core.html.v1",
       "application/pdf": "core.pdf.v1",
