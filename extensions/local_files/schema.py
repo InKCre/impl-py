@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 FILE_RESOLVER = "extensions.local_files.file.v1"
+FILE_RESOLVER_V2 = "extensions.local_files.file.v2"
 
 
 def file_location(value: str) -> tuple[UUID, str]:

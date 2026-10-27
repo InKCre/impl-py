@@ -20,7 +20,7 @@ local_files = "extensions.local_files:Extension"
 name = "inkcre/local-files"
 nickname = "本地文件"
 host-sdk = "core-py"
-host-sdk-version = ">=0.3.3 <0.4.0"
+host-sdk-version = ">=0.3.4 <0.4.0"
 
 [tool.setuptools]
 packages = ["extensions.local_files"]

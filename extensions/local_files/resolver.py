@@ -1,15 +1,18 @@
 """Read persisted text without accessing the original Peer or executing a Source."""
 
 from pathlib import PurePosixPath
+from typing import ClassVar
 
-from app.business.info_base.resolver import Resolver, TextProjectionContext
+from app.business.info_base.resolver import Resolver, ResolverManager, TextProjectionContext
 from app.business.info_base.resolver.label import format_label
 from app.business.info_base.services import BlockService
 
-from .schema import FILE_RESOLVER, FileMetadata, SolvedFile, file_location
+from .schema import FILE_RESOLVER, FILE_RESOLVER_V2, FileMetadata, SolvedFile, file_location
 
 
 class LocalFileResolver(Resolver[SolvedFile, str], rso_type=FILE_RESOLVER):
+  body_resolvers: ClassVar[tuple[str, ...]] = ("core.text.v1",)
+
   async def _get_solved_content(
     self, *, refresh: bool = False, materialize_missing: bool = True
   ) -> SolvedFile:
@@ -23,9 +26,23 @@ class LocalFileResolver(Resolver[SolvedFile, str], rso_type=FILE_RESOLVER):
     if not bodies:
       return SolvedFile(metadata=metadata, body_id=None, text=None)
     block = await BlockService.get(bodies[0].to_)
-    if block is None or block.resolver != "core.text.v1" or block.storage is not None:
+    if (
+      block is None
+      or block.resolver not in self.body_resolvers
+      or block.storage is not None
+    ):
       raise ValueError("文件正文不存在或类型不符")
-    return SolvedFile(metadata=metadata, body_id=block.id, text=block.content)
+    return SolvedFile(
+      metadata=metadata,
+      body_id=block.id,
+      text=(
+        block.content
+        if block.resolver == "core.text.v1"
+        else await ResolverManager.get(block).get_text(
+          refresh=refresh, materialize_missing=materialize_missing
+        )
+      ),
+    )
 
   async def get_text(
     self,
@@ -51,3 +68,11 @@ class LocalFileResolver(Resolver[SolvedFile, str], rso_type=FILE_RESOLVER):
     metadata = FileMetadata.model_validate_json(await self.get_raw_content(refresh=refresh))
     _, path = file_location(metadata.location)
     return format_label("本地文件", PurePosixPath(path).name)
+
+
+class LocalFileV2Resolver(LocalFileResolver, rso_type=FILE_RESOLVER_V2):
+  body_resolvers: ClassVar[tuple[str, ...]] = (
+    "core.text.v1",
+    "core.html.v1",
+    "core.markdown.v1",
+  )
