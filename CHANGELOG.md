@@ -4,6 +4,18 @@ Core release notes start from the current `0.1.1` baseline. Earlier repository h
 
 <!-- towncrier release notes start -->
 
+## 0.9.0 - 2026-10-27
+
+### Added
+
+- 提供可独立读取 Capture 图的 Python 分发；共享参与协议移除分发格式白名单。Mac 收入使用标准图与 Storage，不依赖 Python Peer 或 Capture 专用表。 (#capture)
+- MCP recall 候选补充可读名称，保留既有实体引用和各模式证据。无法生成名称时仍返回候选，不改变读取工具与 Resource 协议。 (#mcp-recall-labels)
+
+### Fixed
+
+- Keep runtime image builds compatible with PDM 2.28 by pinning its unearth installer dependency to 0.18.3. (#pdm-build)
+
+
 ## 0.8.0 - 2026-10-21
 
 ### Added

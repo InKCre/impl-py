@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inkcre-ext-local-files"
-version = "0.1.0"
+version = "0.2.0"
 description = "Read shared local file bodies and locations in Python peers"
 requires-python = ">=3.12,<3.13"
 license = "MIT"
