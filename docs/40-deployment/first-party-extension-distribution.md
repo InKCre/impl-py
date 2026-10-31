@@ -26,6 +26,16 @@ used by other Extensions. After apply, Core replaces the process with a fresh on
 cannot continue using modules loaded before the environment change. An apply failure is reported and
 leaves the Peer paused; Core does not claim package rollback. Exact installed-record reuse avoids
 this lifecycle only when the installed project, entry point, and Host SDK match the Registry record.
+
+Host 在查询 Registry 前拒绝替换当前 Peer 仍启用的不同版本，并在排空 Peer 后、调用 pip 前再次核对。
+其他已准入 Peer 仍可直接修改参与记录，因此这两次检查不代替保存 selection 时的事务校验，也不跨网络或
+pip 持有数据库事务。安装后保存失败仍会报告错误并请求重启，以重新核对实际环境和持久意图。
+
+取消下载会等待已经启动的下载线程结束，再清理临时目录，不会继续安装。开始暂停 Peer 后，Host 则完成
+暂停、安装、selection 保存和重启请求，或者进入明确失败状态，随后才向调用者传播取消。整个过程保留
+运行锁和临时目录，避免后台 pip 在资源被释放后继续修改解释器。冷启动恢复被取消时只等待当前下载或安装
+结束，不继续安装后续 wheel。Runtime SDK 的 pip 调用目前没有总时限，因此此规则保证收尾顺序，不承诺快速取消。
+
 The standard `inkcre.core.extensions` entry point is discovered globally and every loaded Extension
 module is verified against the installed wheel file record. There is no per-Extension target
 directory, custom ZIP loader or module search-path rewrite. Registry failure or a blocked Release
@@ -38,6 +48,9 @@ block it. A changed pin clears its config schema until the selected release star
 new schema. A process that already imported another version must restart; Core does not hot-load the
 new class. `running` and `loaded_version` report observed runtime facts and are never inferred from
 the durable enabled intent.
+
+模块加载或 Extension startup 失败也不能撤销已经执行的 Python import。Host 会保留该版本的加载记录，
+后续选择另一版本仍需重启；失败的 runtime 不会因此被报告为 running。
 
 V2 management commands select or remove a Peer’s exact pin, enable or disable that Peer’s intent,
 and report actual runtime status. A disabled pin may be removed; an enabled participation must first

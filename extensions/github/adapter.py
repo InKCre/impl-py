@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 import typing
 
 import httpx
@@ -114,7 +115,7 @@ def _page_info(connection: dict[str, typing.Any]) -> tuple[bool, str | None]:
   cursor = page.get("endCursor")
   if not isinstance(has_next, bool):
     raise GitHubGraphQLError("GitHub GraphQL returned invalid pageInfo")
-  if has_next and not isinstance(cursor, str):
+  if has_next and (not isinstance(cursor, str) or not cursor):
     raise GitHubGraphQLError("GitHub GraphQL pagination omitted endCursor")
   return has_next, cursor if isinstance(cursor, str) else None
 
@@ -217,16 +218,14 @@ class GitHubGraphQLAdapter:
     repositories: dict[str, GitHubRepositoryFact] = {}
     starred_ids: list[str] = []
     account: GitHubAccount | None = None
-    cursor: str | None = None
-
-    while True:
-      data = await self._execute(_ACCOUNT_AND_STARS_QUERY, {"cursor": cursor})
+    async for data, connection in self._connection_pages(
+      _ACCOUNT_AND_STARS_QUERY, ("viewer", "starredRepositories")
+    ):
       viewer = _object(data.get("viewer"), "viewer")
       observed_account = _account(viewer, viewer=True)
       if account is not None and observed_account.node_id != account.node_id:
         raise GitHubGraphQLError("GitHub viewer changed during pagination")
       account = observed_account
-      connection = _object(viewer.get("starredRepositories"), "starredRepositories")
       nodes = connection.get("nodes")
       if not isinstance(nodes, list):
         raise GitHubGraphQLError("GitHub GraphQL returned invalid starredRepositories")
@@ -234,33 +233,22 @@ class GitHubGraphQLAdapter:
         fact = _repository(_object(node, "starred Repository"))
         repositories[fact.repository.node_id] = fact
         starred_ids.append(fact.repository.node_id)
-      has_next, cursor = _page_info(connection)
-      if not has_next:
-        break
 
     lists: list[GitHubListFact] = []
-    cursor = None
-    while True:
-      data = await self._execute(_LISTS_QUERY, {"cursor": cursor})
-      viewer = _object(data.get("viewer"), "viewer")
-      connection = _object(viewer.get("lists"), "viewer.lists")
+    async for _, connection in self._connection_pages(_LISTS_QUERY, ("viewer", "lists")):
       nodes = connection.get("nodes")
       if not isinstance(nodes, list):
         raise GitHubGraphQLError("GitHub GraphQL returned invalid Lists")
       for node_value in nodes:
         node = _object(node_value, "List")
-        item_connection = _object(node.get("items"), "List.items")
-        item_ids = self._collect_repository_ids(item_connection)
-        has_more_items, item_cursor = _page_info(item_connection)
-        while has_more_items:
-          item_data = await self._execute(
-            _LIST_ITEMS_QUERY,
-            {"id": node.get("id"), "cursor": item_cursor},
-          )
-          list_node = _object(item_data.get("node"), "UserList node")
-          item_connection = _object(list_node.get("items"), "List.items")
+        item_ids: list[str] = []
+        async for _, item_connection in self._connection_pages(
+          _LIST_ITEMS_QUERY,
+          ("node", "items"),
+          variables={"id": node.get("id")},
+          initial_response={"node": node},
+        ):
           item_ids.extend(self._collect_repository_ids(item_connection))
-          has_more_items, item_cursor = _page_info(item_connection)
         lists.append(
           GitHubListFact(
             list=GitHubList.model_validate(
@@ -275,9 +263,6 @@ class GitHubGraphQLAdapter:
             repository_node_ids=tuple(dict.fromkeys(item_ids)),
           )
         )
-      has_next, cursor = _page_info(connection)
-      if not has_next:
-        break
 
     if account is None:  # pragma: no cover - at least one Stars page is required
       raise GitHubGraphQLError("GitHub GraphQL omitted the authenticated account")
@@ -306,6 +291,36 @@ class GitHubGraphQLAdapter:
       starred_repository_node_ids=tuple(dict.fromkeys(starred_ids)),
       lists=tuple(lists),
     )
+
+  async def _connection_pages(
+    self,
+    query: str,
+    path: tuple[str, ...],
+    *,
+    variables: dict[str, typing.Any] | None = None,
+    initial_response: dict[str, typing.Any] | None = None,
+  ) -> AsyncIterator[tuple[dict[str, typing.Any], dict[str, typing.Any]]]:
+    """Traverse one connection, including a page embedded in an outer query."""
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    data = initial_response
+    while True:
+      if data is None:
+        data = await self._execute(query, {**(variables or {}), "cursor": cursor})
+      connection = data
+      for key in path:
+        connection = _object(connection.get(key), ".".join(path))
+      has_next, next_cursor = _page_info(connection)
+      if has_next:
+        # A repeated cursor cannot produce a complete observation. Abort before
+        # reconciliation rather than looping until a rate limit or Job timeout.
+        if next_cursor in seen_cursors:
+          raise GitHubGraphQLError("GitHub GraphQL pagination repeated endCursor")
+        seen_cursors.add(typing.cast(str, next_cursor))
+      yield data, connection
+      if not has_next:
+        return
+      cursor, data = next_cursor, None
 
   @staticmethod
   def _collect_repository_ids(connection: dict[str, typing.Any]) -> list[str]:

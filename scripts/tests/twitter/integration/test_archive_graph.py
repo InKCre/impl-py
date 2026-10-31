@@ -683,3 +683,92 @@ def test_twikit_bookmark_first_then_native_enrichment_keeps_one_root(
   enriched = async_runner.run(_write(ArchiveBatch.model_validate(native), tracked))
   assert enriched.block_ids["posts"][post["id"]] == root.id
   assert json.loads(_record(post["id"]).content)["text"] == post["text"]
+
+
+@pytest.mark.parametrize("ending", ["complete", "provider_failure", "cursor_cycle"])
+def test_full_bookmarks_commit_each_page_and_finish_or_fail_explicitly(
+  async_runner, native, tracked, ending
+):
+  source_type = f"{Source.__module__}.{Source.__qualname__}"
+  async_runner.run(SourceManager.sync_source_types_async({source_type: Source}))
+  source = async_runner.run(SourceManager.create(source_type, nickname="paged bookmarks"))
+  posts = [
+    {**_minimal(native["posts"][0]), "id": str(int(native["posts"][0]["id"]) + index)}
+    for index in range(3)
+  ]
+  calls = []
+  job = JobModel(type="core.source.collect.v1", parameters={})
+
+  async def get_bookmarks(*, page, max_results):
+    assert max_results == 5
+    calls.append(page)
+    index = len(calls) - 1
+    assert index < 3, "pagination must terminate"
+    if index:
+      # Read from a different connection while the next network call is active.
+      # This proves the previous page committed without holding a transaction.
+      assert _record(posts[index - 1]["id"]).id is not None
+      assert job.state["page"] == page
+    if index == 1 and ending == "provider_failure":
+      raise RuntimeError("provider temporarily unavailable")
+    return TwitterAPIResult(
+      batch=TwitterBatch.model_validate({"posts": [posts[index]]}),
+      primary_post_ids=(posts[index]["id"],),
+      next_page=(
+        "a"
+        if index == 0 or (index == 2 and ending == "cursor_cycle")
+        else "b"
+        if index == 1
+        else None
+      ),
+    )
+
+  provider = SimpleNamespace(get_bookmarks=get_bookmarks)
+  try:
+    with mock.patch.object(
+      TwitterAPI, "new", new_callable=mock.AsyncMock, return_value=provider
+    ):
+      command = Source(source.id).collect(job, CollectConfig(full=True, result_limit=5))
+      if ending == "complete":
+        async_runner.run(command)
+      else:
+        error = RuntimeError if ending == "provider_failure" else ValueError
+        message = (
+          "provider temporarily unavailable"
+          if ending == "provider_failure"
+          else "repeated a cursor"
+        )
+        with pytest.raises(error, match=message):
+          async_runner.run(command)
+    accepted = {"complete": 3, "provider_failure": 1, "cursor_cycle": 2}[ending]
+    assert calls == [None, "a", "b"][: 2 if ending == "provider_failure" else 3]
+    assert (
+      job.state["page"]
+      == {"complete": None, "provider_failure": "a", "cursor_cycle": "b"}[ending]
+    )
+
+    async def observed():
+      async with graph_uow() as uow:
+        return await uow.blocks.find_json_field_many(
+          (POST_RESOLVER,), "id", tuple(post["id"] for post in posts)
+        )
+
+    roots = async_runner.run(observed())
+    assert {json.loads(root.content)["id"] for root in roots} == {
+      post["id"] for post in posts[:accepted]
+    }
+  finally:
+
+    async def remember():
+      async with graph_uow() as uow:
+        rows = await uow.blocks.find_json_field_many(
+          (POST_RESOLVER, USER_RESOLVER),
+          "id",
+          (*[post["id"] for post in posts], posts[0]["authorId"]),
+        )
+        tracked.update(row.id for row in rows)
+
+    async_runner.run(remember())
+    with TestSession() as db:
+      db.delete(db.get(SourceModel, source.id))
+      db.commit()

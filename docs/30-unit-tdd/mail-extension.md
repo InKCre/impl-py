@@ -76,6 +76,10 @@ synchronize_deletions: boolean
 Source state 只保存 non-secret access binding 与 per-Mailbox ordinary checkpoints。Binding 改变不能静默接续旧
 state/graph effects。Checkpoint 由 adapter 解释，Source 决定 accepted-effect boundary 与持久推进时机。
 
+Adapter 连接完成后，Source 在行锁内重新读取 state 并接受 binding，仅在首次绑定时写入 binding。
+连接可能耗时较长，因此不能把连接前的完整 state 写回，否则会覆盖并发采集已经提交的 checkpoint。
+各 Mailbox 仍通过 compare-and-swap 推进 checkpoint；Backfill 的连接与绑定不会改写 ordinary 进度。
+
 Ordinary collection 默认只接纳 Source creation time 之后的信息；第一次建立 checkpoint 后使用：
 
 1. QRESYNC（可靠 VANISHED + changed flags）；

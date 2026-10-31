@@ -1,4 +1,6 @@
+import asyncio
 from pathlib import Path
+import threading
 import typing
 import uuid
 
@@ -61,6 +63,34 @@ class SelectionStore:
   async def get(self, name: str):
     return InstalledExtension(name=name)
 
+  async def list(self):
+    return tuple(InstalledExtension(name=row.name) for row in self.selections)
+
+  async def set_participation_enabled(self, peer_id, name, enabled):
+    current = await self.get_participation(peer_id, name)
+    assert current is not None
+    selected = current.model_copy(update={"enabled": enabled})
+    self.selections = [selected if row.name == name else row for row in self.selections]
+    return selected
+
+  async def ensure(self, name: str, nickname: str):
+    return InstalledExtension(name=name, nickname=nickname)
+
+  async def select_participation(
+    self, peer_id: uuid.UUID, name: str, distribution: str, version: str
+  ):
+    current = await self.get_participation(peer_id, name)
+    if current is not None and current.enabled:
+      raise extension_main.ExtensionStateConflictError("selection is enabled")
+    selected = participation(name, version, enabled=False)
+    self.selections = [row for row in self.selections if row.name != name]
+    self.selections.append(selected)
+    return selected
+
+  async def remove_participation(self, peer_id: uuid.UUID, name: str):
+    assert peer_id == PEER_ID
+    self.selections = [row for row in self.selections if row.name != name]
+
   async def resolve_legacy_python_participation(
     self, peer_id: uuid.UUID, name: str, version: str
   ):
@@ -97,20 +127,20 @@ class DistributionConsumer:
     self.on_download = None
     self.on_apply = None
 
-  def download(self, descriptor, _association, _host_version, wheel_dir: Path) -> Path:
-    self.downloads.append((descriptor.name, descriptor.version))
+  def download(self, release, association, host_version, wheel_dir: Path) -> Path:
+    self.downloads.append((release.name, release.version))
     self.download_dirs.append(wheel_dir)
     if self.on_download is not None:
-      self.on_download(descriptor)
-    return wheel_dir / f"{descriptor.name.rsplit('/', 1)[-1]}-{descriptor.version}.whl"
+      self.on_download(release)
+    return wheel_dir / f"{release.name.rsplit('/', 1)[-1]}-{release.version}.whl"
 
-  def apply(self, _wheel, descriptor, _association, _host_version):
-    key = (descriptor.name, descriptor.version)
+  def apply(self, extension_wheel, release, association, host_version):
+    key = (release.name, release.version)
     self.applications.append(key)
-    acquired = acquired_distribution(descriptor)
+    acquired = acquired_distribution(release)
     self.installed[key] = acquired
     if self.on_apply is not None:
-      self.on_apply(descriptor)
+      self.on_apply(release)
     return acquired
 
 
@@ -386,3 +416,280 @@ def test_environment_application_rejects_core_runtime_or_base_downgrade(
     ExtensionHost._assert_environment_packages_preserved(
       ExtensionHost._environment_package_versions(), "inkcre-ext-mail"
     )
+
+
+def test_select_rejects_enabled_replacement_before_registry_or_environment_work(
+  async_runner, monkeypatch
+):
+  store = SelectionStore(participation("inkcre/mail", "0.3.2", enabled=True))
+  reader = ReleaseReader({("inkcre/mail", "0.3.3"): release("inkcre/mail", "0.3.3")})
+  consumer = DistributionConsumer()
+  host = ExtensionHost(
+    store=typing.cast(ExtensionStore, store),
+    release_client=reader,
+    distribution_consumer=consumer,
+  )
+  monkeypatch.setattr(extension_main.AcquiredDistribution, "discover", lambda *_: None)
+
+  with pytest.raises(extension_main.ExtensionStateConflictError, match="enabled"):
+    async_runner.run(host.select("inkcre/mail", "python", "0.3.3", peer_id=PEER_ID))
+
+  assert reader.lookups == []
+  assert consumer.applications == []
+  assert store.selections[0].version == "0.3.2"
+
+
+def test_select_rechecks_enabled_intent_after_peer_drain(async_runner, monkeypatch):
+  store = SelectionStore(participation("inkcre/mail", "0.3.2", enabled=False))
+  reader = ReleaseReader({("inkcre/mail", "0.3.3"): release("inkcre/mail", "0.3.3")})
+  consumer = DistributionConsumer()
+  host = ExtensionHost(
+    store=typing.cast(ExtensionStore, store),
+    release_client=reader,
+    distribution_consumer=consumer,
+  )
+  monkeypatch.setattr(extension_main.AcquiredDistribution, "discover", lambda *_: None)
+
+  async def pause():
+    store.selections[0] = store.selections[0].model_copy(update={"enabled": True})
+
+  host.pause_peer_execution = pause
+  with pytest.raises(extension_main.ExtensionEnvironmentApplicationRequiredError):
+    async_runner.run(host.select("inkcre/mail", "python", "0.3.3", peer_id=PEER_ID))
+
+  assert consumer.applications == []
+  status = async_runner.run(host.status(PEER_ID))
+  assert status.extensions[0].operation == "failed"
+  assert "enabled" in (status.extensions[0].error or "")
+
+
+def test_cancelled_download_keeps_directory_and_serializes_until_worker_finishes(
+  async_runner, monkeypatch
+):
+  async def scenario():
+    entered = asyncio.Event()
+    release_worker = threading.Event()
+    loop = asyncio.get_running_loop()
+    store = SelectionStore(participation("inkcre/mail", "0.3.2", enabled=False))
+    reader = ReleaseReader({("inkcre/mail", "0.3.3"): release("inkcre/mail", "0.3.3")})
+
+    class Consumer(DistributionConsumer):
+      def download(self, release, association, host_version, wheel_dir):
+        wheel = super().download(release, association, host_version, wheel_dir)
+        loop.call_soon_threadsafe(entered.set)
+        if not release_worker.wait(10):
+          raise TimeoutError("test did not release download")
+        # Writing after cancellation detects premature TemporaryDirectory cleanup.
+        wheel.write_bytes(b"download completed")
+        return wheel
+
+    consumer = Consumer()
+    host = ExtensionHost(
+      store=typing.cast(ExtensionStore, store),
+      release_client=reader,
+      distribution_consumer=consumer,
+    )
+
+    async def pause():
+      raise AssertionError("a cancelled download must not pause the Peer")
+
+    host.pause_peer_execution = pause
+    monkeypatch.setattr(extension_main.AcquiredDistribution, "discover", lambda *_: None)
+    task = asyncio.create_task(
+      host.select("inkcre/mail", "python", "0.3.3", peer_id=PEER_ID)
+    )
+    await entered.wait()
+    removal = asyncio.create_task(host.unselect("inkcre/mail", peer_id=PEER_ID))
+    try:
+      task.cancel()
+      await asyncio.sleep(0)
+      task.cancel()
+      await asyncio.sleep(0)
+      assert not task.done()
+      assert not removal.done()
+    finally:
+      release_worker.set()
+      with pytest.raises(asyncio.CancelledError):
+        await task
+      await removal
+    assert not consumer.download_dirs[0].exists()
+    assert consumer.applications == []
+
+  async_runner.run(scenario())
+
+
+@pytest.mark.parametrize(
+  ("phase", "fails"),
+  [("pause", False), ("apply", False), ("save", False), ("apply", True), ("save", True)],
+)
+def test_cancelled_application_reaches_an_observable_terminal_state(
+  async_runner, monkeypatch, phase, fails
+):
+  async def scenario():
+    entered, resume = asyncio.Event(), asyncio.Event()
+    release_worker = threading.Event()
+    loop = asyncio.get_running_loop()
+    restarted: list[bool] = []
+
+    class Store(SelectionStore):
+      async def select_participation(self, peer_id, name, distribution, version):
+        if phase == "save":
+          entered.set()
+          await resume.wait()
+          if fails:
+            raise RuntimeError("selection write unavailable")
+        return await super().select_participation(peer_id, name, distribution, version)
+
+    class Consumer(DistributionConsumer):
+      def download(self, release, association, host_version, wheel_dir):
+        wheel = super().download(release, association, host_version, wheel_dir)
+        wheel.write_bytes(b"wheel")
+        return wheel
+
+      def apply(self, extension_wheel, release, association, host_version):
+        if phase == "apply":
+          loop.call_soon_threadsafe(entered.set)
+          if not release_worker.wait(10):
+            raise TimeoutError("test did not release apply")
+        assert extension_wheel.read_bytes() == b"wheel"
+        if fails and phase == "apply":
+          raise RuntimeError("package application failed")
+        return super().apply(extension_wheel, release, association, host_version)
+
+    store = Store(participation("inkcre/mail", "0.3.2", enabled=False))
+    reader = ReleaseReader({("inkcre/mail", "0.3.3"): release("inkcre/mail", "0.3.3")})
+    consumer = Consumer()
+    host = ExtensionHost(
+      store=typing.cast(ExtensionStore, store),
+      release_client=reader,
+      distribution_consumer=consumer,
+    )
+
+    async def pause():
+      if phase == "pause":
+        entered.set()
+        await resume.wait()
+
+    host.pause_peer_execution = pause
+    monkeypatch.setattr(
+      extension_main, "request_process_restart", lambda: restarted.append(True)
+    )
+    monkeypatch.setattr(extension_main.AcquiredDistribution, "discover", lambda *_: None)
+    task = asyncio.create_task(
+      host.select("inkcre/mail", "python", "0.3.3", peer_id=PEER_ID)
+    )
+    await entered.wait()
+    try:
+      task.cancel()
+      await asyncio.sleep(0)
+      task.cancel()
+      await asyncio.sleep(0)
+      assert not task.done()
+    finally:
+      resume.set()
+      release_worker.set()
+      with pytest.raises(asyncio.CancelledError):
+        await task
+    status = await host.status(PEER_ID)
+    if fails:
+      assert store.selections[0].version == "0.3.2"
+      assert status.extensions[0].operation == "failed"
+      assert status.extensions[0].error
+      assert restarted == ([True] if phase == "save" else [])
+    else:
+      assert store.selections[0].version == "0.3.3"
+      assert status.extensions[0].operation == "restarting"
+      assert restarted == [True]
+    assert not consumer.download_dirs[0].exists()
+
+  async_runner.run(scenario())
+
+
+def test_cancelled_cold_restore_finishes_current_apply_without_starting_next(
+  async_runner, monkeypatch
+):
+  async def scenario():
+    entered = asyncio.Event()
+    resume = threading.Event()
+    loop = asyncio.get_running_loop()
+    selected = (
+      participation("inkcre/mail", "0.3.3", enabled=True),
+      participation("inkcre/rss", "0.2.2", enabled=True),
+    )
+    reader = ReleaseReader(
+      {(row.name, row.version): release(row.name, row.version) for row in selected}
+    )
+    consumer = DistributionConsumer()
+
+    def on_apply(_descriptor):
+      loop.call_soon_threadsafe(entered.set)
+      if not resume.wait(10):
+        raise TimeoutError("test did not release apply")
+      assert all(directory.exists() for directory in consumer.download_dirs)
+
+    consumer.on_apply = on_apply
+    host = ExtensionHost(
+      store=typing.cast(ExtensionStore, SelectionStore(*selected)),
+      release_client=reader,
+      distribution_consumer=consumer,
+    )
+    monkeypatch.setattr(extension_main.AcquiredDistribution, "discover", lambda *_: None)
+    task = asyncio.create_task(host.provision_enabled_distributions())
+    await entered.wait()
+    try:
+      task.cancel()
+      await asyncio.sleep(0)
+      assert not task.done()
+    finally:
+      resume.set()
+      with pytest.raises(asyncio.CancelledError):
+        await task
+    assert consumer.applications == [("inkcre/mail", "0.3.3")]
+    assert all(not directory.exists() for directory in consumer.download_dirs)
+
+  async_runner.run(scenario())
+
+
+def test_failed_import_still_requires_restart_to_select_a_different_version(
+  async_runner, monkeypatch
+):
+  name = "inkcre/failed-import"
+  store = SelectionStore(participation(name, "1.0.0", enabled=False))
+  releases = {(name, version): release(name, version) for version in ("1.0.0", "1.1.0")}
+  reader = ReleaseReader(releases)
+  restarted: list[bool] = []
+
+  class BrokenModule:
+    def __init__(self, _acquired):
+      pass
+
+    def load(self, _base):
+      raise RuntimeError("partial import failed")
+
+  host = ExtensionHost(
+    store=typing.cast(ExtensionStore, store),
+    release_client=reader,
+    distribution_consumer=DistributionConsumer(),
+  )
+  monkeypatch.setattr(extension_main, "DistributionModules", BrokenModule)
+  monkeypatch.setattr(
+    extension_main.AcquiredDistribution,
+    "discover",
+    lambda name, version, _host: acquired_distribution(releases[(name, version)]),
+  )
+  monkeypatch.setattr(
+    extension_main, "request_process_restart", lambda: restarted.append(True)
+  )
+
+  async def scenario():
+    with pytest.raises(RuntimeError, match="partial import"):
+      await host.enable(name, peer_id=PEER_ID, app=extension_main.fastapi.FastAPI())
+    await host.disable(name, peer_id=PEER_ID)
+    await host.select(name, "python", "1.1.0", peer_id=PEER_ID)
+    status = await host.status(PEER_ID)
+    assert status.extensions[0].loaded_version == "1.0.0"
+    assert status.extensions[0].restart_required
+    assert not status.extensions[0].running
+
+  async_runner.run(scenario())
+  assert restarted == [True]
