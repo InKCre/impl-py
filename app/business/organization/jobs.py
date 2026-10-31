@@ -1,5 +1,16 @@
 """Independent automatic Organization routes and explicit rumination Jobs."""
 
+from app.contracts.jobs import (
+  RUMINATION_JOB_TYPE as RUMINATION_JOB_TYPE,
+  EXPLICIT_RUMINATION_JOB_TYPE as EXPLICIT_RUMINATION_JOB_TYPE,
+  SUPERSESSION_JOB_TYPE as SUPERSESSION_JOB_TYPE,
+  REFINEMENT_JOB_TYPE as REFINEMENT_JOB_TYPE,
+  EVIDENCE_STANCE_JOB_TYPE as EVIDENCE_STANCE_JOB_TYPE,
+  SYNTHESIS_JOB_TYPE as SYNTHESIS_JOB_TYPE,
+  REFERENT_ANCHORING_JOB_TYPE as REFERENT_ANCHORING_JOB_TYPE,
+  DUPLICATE_ASSERTION_JOB_TYPE as DUPLICATE_ASSERTION_JOB_TYPE,
+)
+
 from app.business.job import JobHandler
 from app.schemas.job import JobModel
 from app.schemas.organization import RuminationRequest
@@ -14,22 +25,9 @@ from .supersession import SupersessionBehaviorResolver
 from .synthesis import SynthesisBehaviorResolver
 
 
-RUMINATION_JOB_TYPE = "core.organization.rumination.automatic.v1"
-EXPLICIT_RUMINATION_JOB_TYPE = "core.organization.rumination.explicit.v1"
-SUPERSESSION_JOB_TYPE = "core.organization.supersession.automatic.v1"
-REFINEMENT_JOB_TYPE = "core.organization.refinement.automatic.v1"
-EVIDENCE_STANCE_JOB_TYPE = "core.organization.evidence-stance.automatic.v1"
-SYNTHESIS_JOB_TYPE = "core.organization.synthesis.automatic.v1"
-REFERENT_ANCHORING_JOB_TYPE = "core.organization.existing-referent-anchoring.automatic.v1"
-DUPLICATE_ASSERTION_JOB_TYPE = "core.organization.duplicate-assertion.automatic.v1"
-
-
 class ExplicitRuminationJobHandler(
   JobHandler[RuminationRequest],
   job_type=EXPLICIT_RUMINATION_JOB_TYPE,
-  description="Reconsider one explicitly selected Block through rumination.",
-  parameters_model=RuminationRequest,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: RuminationRequest) -> bool:
@@ -46,9 +44,6 @@ class ExplicitRuminationJobHandler(
 class RuminationJobHandler(
   JobHandler[AutomaticOrganizationJobParameters],
   job_type=RUMINATION_JOB_TYPE,
-  description="Automatically reconsider bounded information seeds through rumination.",
-  parameters_model=AutomaticOrganizationJobParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: AutomaticOrganizationJobParameters) -> bool:
@@ -68,9 +63,6 @@ class RuminationJobHandler(
 class SupersessionJobHandler(
   JobHandler[AutomaticOrganizationJobParameters],
   job_type=SUPERSESSION_JOB_TYPE,
-  description="Automatically judge bounded scoped-supersession candidates.",
-  parameters_model=AutomaticOrganizationJobParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: AutomaticOrganizationJobParameters) -> bool:
@@ -90,9 +82,6 @@ class SupersessionJobHandler(
 class RefinementJobHandler(
   JobHandler[AutomaticOrganizationJobParameters],
   job_type=REFINEMENT_JOB_TYPE,
-  description="Automatically judge bounded non-dominating refinement candidates.",
-  parameters_model=AutomaticOrganizationJobParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: AutomaticOrganizationJobParameters) -> bool:
@@ -112,9 +101,6 @@ class RefinementJobHandler(
 class EvidenceStanceJobHandler(
   JobHandler[AutomaticOrganizationJobParameters],
   job_type=EVIDENCE_STANCE_JOB_TYPE,
-  description="Automatically judge bounded attributable evidence stances.",
-  parameters_model=AutomaticOrganizationJobParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: AutomaticOrganizationJobParameters) -> bool:
@@ -134,9 +120,6 @@ class EvidenceStanceJobHandler(
 class SynthesisJobHandler(
   JobHandler[AutomaticOrganizationJobParameters],
   job_type=SYNTHESIS_JOB_TYPE,
-  description="Automatically create bounded provenance-preserving syntheses.",
-  parameters_model=AutomaticOrganizationJobParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: AutomaticOrganizationJobParameters) -> bool:
@@ -156,9 +139,6 @@ class SynthesisJobHandler(
 class ExistingReferentAnchoringJobHandler(
   JobHandler[AutomaticOrganizationJobParameters],
   job_type=REFERENT_ANCHORING_JOB_TYPE,
-  description="Automatically anchor bounded mentions to existing referents.",
-  parameters_model=AutomaticOrganizationJobParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: AutomaticOrganizationJobParameters) -> bool:
@@ -178,9 +158,6 @@ class ExistingReferentAnchoringJobHandler(
 class DuplicateAssertionJobHandler(
   JobHandler[AutomaticOrganizationJobParameters],
   job_type=DUPLICATE_ASSERTION_JOB_TYPE,
-  description="Automatically judge bounded provenance-aware duplicate assertions.",
-  parameters_model=AutomaticOrganizationJobParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: AutomaticOrganizationJobParameters) -> bool:

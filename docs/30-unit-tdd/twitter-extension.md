@@ -8,6 +8,8 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 
 一次 submit 使用一个 `graph_uow()`。Bookmark 先完成 provider 请求，再进入 `source_uow()`，锁定 Source，使用其 `graph` 合并新主帖及实际捕获的上下文，并在同一事务内推进 cursor。主帖顺序与展开上下文分开，因此引用帖不会成为下一次书签采集的 watermark；旧的数值 cursor 在比较边界转换为十进制字符串，不重置历史状态。
 
+普通 Bookmark 采集读取一个近期页面，并在遇到已保存的主帖 ID 时截断。显式 `full=true` 则在同一个 Job 内遍历全部页面；每页先独立提交 graph，再更新 Job 的 `page` 诊断字段。Job 只执行一次，保存 continuation 本身不会调度后续页面。全量采集不改变普通采集的 watermark；后页请求失败或游标成环时，任务明确失败，前面已提交的页面保留，后续显式全量采集可以幂等重扫。
+
 两条写入路径都先取得 `extensions.twitter.reconcile` 全局事务 advisory 锁，再批量重读原生身份。根内容和受管关系一起提交；异常让整批回滚，调用方可安全重放。该锁仅约束正常 Twitter 写入入口，不能替代所有 info-base 原始写入的约束。provider 和媒体网络访问都不能放进此事务。
 
 原生身份、Blocks 和引用边使用批量查询与创建。不要在每个媒体项内单独查询、创建和 flush：Core 与数据库跨网络部署时，这会把一次正常批次放大为数百次串行往返，并在持锁期间耗尽客户端的同步请求期限。

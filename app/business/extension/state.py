@@ -176,24 +176,18 @@ class ExtensionStateService:
         )
       await repository.delete(row)
 
-  async def _update_json(
+  async def update_config(
     self,
     name: str,
-    field: typing.Literal["config"],
-    value: dict[str, typing.Any],
+    config: dict[str, typing.Any],
   ) -> InstalledExtension:
     async with extension_uow() as repository:
       row = await repository.get(name, lock=True)
       if row is None:
         raise ExtensionNotInstalledError(f"{name} is not installed")
-      setattr(row, field, value)
+      row.config = config
       await repository.save(row)
       return self._extension(row)
-
-  async def update_config(
-    self, name: str, config: dict[str, typing.Any]
-  ) -> InstalledExtension:
-    return await self._update_json(name, "config", config)
 
   async def read_config(self, name: str) -> dict[str, typing.Any]:
     state = await self.get(name)

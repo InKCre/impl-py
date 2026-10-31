@@ -46,6 +46,8 @@ implementation direction; it must not redefine Peer wire behavior or shared capa
   例子，它不是 `SourceBase` instance，也不因此获得单独的 memo object store。
 - source 或 protocol adapter 负责 native shape 与 extension-owned canonical command 之间的映射，
   但不是 persistence owner。
+- Source class 显式 `source_type` 声明持久身份，第一方继续使用已发布的 path 字符串；模块位置和类名
+  变化不再改变身份。未声明的旧 wheel 保持原 path 注册。相同 class 重注册幂等，冲突 class 明确失败。
 
 ### 3. Info-Base Owns Graph Persistence And Cross-Retrieval Reads
 
@@ -96,6 +98,12 @@ Source 配置／状态、Sink catalog／intent、Job admission／claim／close�
 persistence。Job handler 和外部 Sink lifecycle 在提交后的作用域外运行。Cron 创建 Job 与推进 occurrence
 共享 CronUnitOfWork，任一步失败回滚完整用例；不同 Cron 独立处理。Job 的取消／超时收尾另开短事务，
 只更新仍为 RUNNING 的记录，并限制清理等待时间。执行资格检查的 Source、Agent、AI 与配置读取也可 await。
+
+内置 Job 的输入模型、exact ID、描述和默认 timeout 统一由 `app/contracts/jobs.py` 声明；该模块只依赖
+Pydantic，不加载 ORM、settings、FastAPI 或 scheduler。数据库 catalog profile 和已注册 builtin handler
+消费同一合同，旧 schema import 入口保留 re-export。Handler 不得覆盖 builtin 元数据；Source/Sink 等
+需要读取领域记录的 admission normalization、`can_handle` 与执行效果仍属于原 owning unit。自定义
+Job 继续在 handler 声明自己的输入模型和元数据，不要求加入 builtin catalog。
 
 GitHub、RSS、Mail、Telegram、Twitter 和 Memos 的采集与物化已异步化。扩展的协调代码通过必需的
 Graph/Source UoW 组合 Core persistence，不创建 session。Twitter page graph 与 Source cursor 同事务；

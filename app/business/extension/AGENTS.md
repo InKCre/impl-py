@@ -11,6 +11,9 @@
 - `ExtensionBase` 保持配置校验、`on_start_async`、`on_close` 与 active-effect publication。Route、Peer inbound
   和 public claim 可逆；已 import 的 Source/Resolver/Sink class registration 在当前进程内单调保留。
 - Extension wheel 直接 import Core 模块；Host 只接受标准 `inkcre.core.extensions` entry point。
+- `ActiveExtensionEffects` 拥有已取得的 claim/class 效果及释放顺序；新增 active effect 只修改该所有者。
+  普通停止遇错立即退出；intent 冲突清理聚合 close/unpublish/unbind 错误；启动失败保留原错误并尽力
+  收尾。claim 释放错误不被吞掉。环境应用由 Host 在已持锁处关闭 Extension，bootstrap callback 只排空生产者。
 - Registry Simple URL 必须与配置的 Registry 同源且路径精确匹配 Project。
 - runtime 只能把普通 wheel 安装到当前 Core interpreter/site-packages；禁止 `pip --target`、
   per-Extension overlay、`sys.path` 或 `extensions.__path__` 改写。

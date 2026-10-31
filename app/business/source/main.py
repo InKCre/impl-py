@@ -40,6 +40,7 @@ class SourceBase(abc.ABC, typing.Generic[ConfigTV]):
   __configcls__: type[ConfigTV]
   __collectconfigcls__: type[pydantic.BaseModel]
   __backfillconfigcls__: type[pydantic.BaseModel] | None
+  source_type: typing.ClassVar[str]
 
   def __init_subclass__(
     cls,
@@ -53,6 +54,13 @@ class SourceBase(abc.ABC, typing.Generic[ConfigTV]):
     cls.__configschema__ = config_cls.model_json_schema()
     cls.__collectconfigcls__ = collect_config_cls  # pyrefly: ignore[no-access]
     cls.__backfillconfigcls__ = backfill_config_cls  # pyrefly: ignore[no-access]
+    # Older third-party wheels keep their historical path-based identity. New
+    # declarations can retain that exact value independently of code location.
+    cls.source_type = cls.__dict__.get(
+      "source_type", cls.__module__ + "." + cls.__qualname__
+    )
+    if not isinstance(cls.source_type, str) or not cls.source_type:
+      raise ValueError("Source type must be a non-empty string")
     SourceManager.add_source_type(cls)
     return super().__init_subclass__(**kwargs)
 
@@ -130,7 +138,10 @@ class SourceManager:
   @classmethod
   def add_source_type(cls, source_cls: type[SourceBase]) -> None:
     """Register a source type in memory without external side effects."""
-    source_type = source_cls.__module__ + "." + source_cls.__qualname__
+    source_type = source_cls.source_type
+    existing = cls._SOURCE_CLASSES.get(source_type)
+    if existing is not None and existing is not source_cls:
+      raise ValueError(f"Source type {source_type!r} is already registered")
     cls._SOURCE_CLASSES[source_type] = source_cls
 
   @classmethod

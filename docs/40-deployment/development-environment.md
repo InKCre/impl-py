@@ -103,7 +103,7 @@ pdm run dev
 repository contract checks tool versions, lock/export consistency, migration integrity,
 formatting, lint, settings isolation, and the complete unit-test suite.
 
-格式与 lint 的范围由 `ruff.toml` 拥有，覆盖正式源码、测试与脚本。`tasks/` 是临时实验材料，`.agents/` 是独立维护的技能；二者不参与产品门禁。成为正式验证步骤的实验应迁入 `scripts/` 或 `tests/`。已发布迁移保持不可变；独立 CLI 使用 `pdm run --project cli check` 及自己的 CI。pre-commit 的格式与 lint 钩子复用 `pdm run format:check` 和 `pdm run lint`，CI 的完整入口仍为 `pdm run check`。
+格式与 lint 的范围由 `ruff.toml` 拥有，覆盖正式源码、测试与脚本。`tasks/` 是临时实验材料，`.agents/` 是独立维护的技能；二者不参与产品门禁。成为正式验证步骤的实验应迁入 `scripts/` 或 `tests/`。已发布迁移保持不可变；独立 CLI 使用 `pdm run --project cli check` 及自己的 CI。pre-commit 的格式、lint、类型、锁文件和迁移钩子均复用 `pdm run` 中的对应检查，锁定依赖已安装后，普通 `git commit` 不要求先激活虚拟环境。检查参数由 `pyproject.toml` 中的命令拥有；CI 的完整入口仍为 `pdm run check`。
 
 Use narrower read-only checks while iterating:
 
@@ -162,6 +162,10 @@ authority.
 具有创建数据库权限；它建立随机命名的历史数据库，只往返附件所属 revision，并在结束后删除该数据库。
 这保留实际 migration 编排和应用下载读回，不会回退当前业务测试库或声称验证了整条历史 downgrade 链。
 CI 在自身临时 PostgreSQL service 上先初始化再执行这一组；外部服务和真实凭据验收继续由各自专项入口负责。
+
+扩展持久化的定向入口是 `pdm run test:extensions:database`，由上述完整数据库入口调用同一份场景清单：Memos 附件图、RSS 条件采集、Mail 并发 checkpoint、Twitter archive HTTP/图与 full traversal，以及 CalDAV 原生图/事务/同步恢复。它们使用真实 PostgreSQL 和受控提供方输入，不需要 IMAP、Twitter 或 CalDAV 外部账号。可附加 pytest 参数，例如 `pdm run test:extensions:database -k full_bookmarks`。改变这些合同后应使用这个入口；只运行默认 `pdm run check`，其数据库 skip 不代表这些行为已验证。
+
+该清单不自动接纳所有历史测试。需要真实账号、指定语料库或独立服务的 Mail vertical/newsletter、live RSS/Atom 和语义质量验收仍使用所属领域的专项入口。增加或移除持续回归时修改 `scripts/automation/repository_check.sh` 的唯一选择入口，说明其公开行为与所需资源；本地和 CI 不再各维护一份扩展路径清单。
 
 ## Database Branch Workflow In CI
 

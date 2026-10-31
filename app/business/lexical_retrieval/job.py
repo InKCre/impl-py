@@ -1,5 +1,10 @@
 """Exact lexical projection maintenance commands hosted by Jobs."""
 
+from app.contracts.jobs import (
+  LEXICAL_MAINTAIN_JOB_TYPE as LEXICAL_MAINTAIN_JOB_TYPE,
+  LEXICAL_REBUILD_JOB_TYPE as LEXICAL_REBUILD_JOB_TYPE,
+)
+
 from app.business.info_base.resolver import ResolverManager
 from app.business.job import JobHandler
 from app.schemas.job import JobModel
@@ -8,16 +13,9 @@ from app.schemas.lexical_retrieval import LexicalMaintenanceJobParameters
 from .main import LexicalRetrievalManager
 
 
-LEXICAL_MAINTAIN_JOB_TYPE = "core.feature_retrieval.lexical.maintain.v1"
-LEXICAL_REBUILD_JOB_TYPE = "core.feature_retrieval.lexical.rebuild.v1"
-
-
 class LexicalMaintainJobHandler(
   JobHandler[LexicalMaintenanceJobParameters],
   job_type=LEXICAL_MAINTAIN_JOB_TYPE,
-  description="Maintain missing or stale Block lexical projection records.",
-  parameters_model=LexicalMaintenanceJobParameters,
-  default_timeout_seconds=900,
 ):
   @classmethod
   async def can_handle(cls, parameters: LexicalMaintenanceJobParameters) -> bool:
@@ -37,9 +35,6 @@ class LexicalMaintainJobHandler(
 class LexicalRebuildJobHandler(
   JobHandler[LexicalMaintenanceJobParameters],
   job_type=LEXICAL_REBUILD_JOB_TYPE,
-  description="Rebuild Block lexical records present before invocation.",
-  parameters_model=LexicalMaintenanceJobParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: LexicalMaintenanceJobParameters) -> bool:

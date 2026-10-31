@@ -13,9 +13,6 @@ from app.schemas.organization import MediaInterpretationJobParameters
 class MediaInterpretationJobHandler(
   JobHandler[MediaInterpretationJobParameters],
   job_type=MEDIA_INTERPRETATION_JOB_TYPE,
-  description="Interpret missing image, audio, and video Blocks through configured Agents.",
-  parameters_model=MediaInterpretationJobParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def can_handle(cls, parameters: MediaInterpretationJobParameters) -> bool:

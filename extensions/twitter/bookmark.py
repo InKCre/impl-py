@@ -61,54 +61,54 @@ class Source(
 ):
   """Twitter Bookmark as Source"""
 
+  source_type = "extensions.twitter.bookmark.Source"
+
   API_BASE_URL = "https://api.x.com/2"
 
   async def collect(self, job: JobModel, config: pydantic.BaseModel) -> None:
-    """Collect all new bookmarks and its notes.
-
-    What is new bookmarks?
-    The tweets before the last collected tweet. The last collected tweet
-    is the latest created_at tweet block.
-    (Potential issue if bookmarks order changes)
-
-    What is bookmark note?
-    User can add a note to a bookmark by replying the bookmark tweet.
-
-    Docs https://docs.x.com/x-api/bookmarks/get-bookmarks
-    """
+    """Collect one recent page or traverse all pages for an explicit full Job."""
     collect_config = typing.cast(CollectConfig, config)
     full = collect_config.full
     result_limit = collect_config.result_limit
 
     page = job.state.get("page") if job.state else None
-
+    seen_pages = {page} if page else set()
     api_client = await TwitterAPI.new()
-    bookmarks_res = await api_client.get_bookmarks(page=page, max_results=result_limit)
+    while True:
+      bookmarks_res = await api_client.get_bookmarks(page=page, max_results=result_limit)
+      next_page = bookmarks_res.next_page
+      if full and next_page and next_page in seen_pages:
+        raise ValueError("Twitter bookmark pagination repeated a cursor")
 
-    async with source_uow() as uow:
-      source = await uow.sources.get(self._id, lock=True)
-      if source is None:
-        raise ValueError("Twitter Source no longer exists")
-      primary_ids = bookmarks_res.primary_post_ids
-      selected = primary_ids
+      async with source_uow() as uow:
+        source = await uow.sources.get(self._id, lock=True)
+        if source is None:
+          raise ValueError("Twitter Source no longer exists")
+        primary_ids = bookmarks_res.primary_post_ids
+        selected = primary_ids
+        if not full:
+          latest_id = str((source.state or {}).get("latest_tweet_id", ""))
+          if latest_id in primary_ids:
+            selected = primary_ids[: primary_ids.index(latest_id)]
+        if selected:
+          await persist_twitter(
+            _selected_batch(bookmarks_res.batch, selected),
+            uow.graph,
+            text_policy="supplement",
+          )
+        if not full and primary_ids:
+          source.state = {
+            **(source.state or {}),
+            "latest_tweet_id": primary_ids[0],
+          }
+          await uow.sources.save(source)
+
       if not full:
-        latest_id = str((source.state or {}).get("latest_tweet_id", ""))
-        if latest_id in primary_ids:
-          selected = primary_ids[: primary_ids.index(latest_id)]
-      if selected:
-        await persist_twitter(
-          _selected_batch(bookmarks_res.batch, selected),
-          uow.graph,
-          text_policy="supplement",
-        )
-      if not full and primary_ids:
-        source.state = {
-          **(source.state or {}),
-          "latest_tweet_id": primary_ids[0],
-        }
-        await uow.sources.save(source)
-
-    # Update job state for next page if full and has next_page
-    if full and bookmarks_res.next_page and bookmarks_res.next_page != page:
-      job.state = job.state or {}
-      job.state["page"] = bookmarks_res.next_page
+        return
+      # Jobs execute once. Persist each page before advancing diagnostics, and
+      # finish traversal here rather than leaving continuation to a future Job.
+      job.state = {**(job.state or {}), "page": next_page}
+      if not next_page:
+        return
+      seen_pages.add(next_page)
+      page = next_page

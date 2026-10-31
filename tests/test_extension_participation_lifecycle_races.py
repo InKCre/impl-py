@@ -7,7 +7,7 @@ import fastapi
 import pytest
 
 from app.business.extension.errors import ExtensionStateConflictError
-from app.business.extension.main import ExtensionHost
+from app.business.extension.main import ActiveExtensionEffects, ExtensionHost
 from app.business.extension.state import (
   ExtensionParticipation,
   ExtensionStore,
@@ -96,6 +96,9 @@ def test_late_startup_candidate_is_discarded_after_intent_is_disabled(
       "version": "1.2.3",
       "extension_class": candidate,
       "claim": claim,
+      "effects": ActiveExtensionEffects(
+        typing.cast(typing.Any, claim), typing.cast(typing.Any, candidate)
+      ),
     },
   )()
   start_observed_enabled = False

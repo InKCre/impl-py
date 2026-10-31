@@ -74,6 +74,9 @@ same database-owned config semantics through its runtime owner.
 
 ### 4. Shutdown must close long-lived runtime resources
 
+`run.py` 的 `drain_runtime_producers()` 是退出和环境应用共用的生产者排空顺序所有者；
+Extension 的 active effects 由 Host 自己关闭，不把 Host 锁持有规则暴露给 bootstrap。
+
 - scheduler admission is paused first; JobManager stops admitting work, cancels active handlers and awaits their terminal database writes without cancelling a close already in progress
 - remaining tracked callbacks are cancelled and awaited before Sink/Extension resources close
 - running Sink instances close before Extension teardown, so an external endpoint cannot observe disappearing
@@ -89,6 +92,10 @@ same database-owned config semantics through its runtime owner.
 validates the wheel while the Peer can still serve work. It then closes admission to new work, drains active requests,
 pauses the scheduler, drains Jobs, and closes Sinks and running Extensions before applying the wheel to the shared Core
 interpreter. Python dependencies may change, so Core does not resume in the same process or hot-load the new module.
+
+The pause callback drains requests and Core producers only. The Host closes its running Extensions after that callback
+returns, while still owning its runtime lock, and only then applies the wheel. Startup failure, ordinary stop, and
+intent-conflict cleanup share the active-effect release order while retaining their different error policies.
 
 The production entrypoint `scripts/container.py web` first waits for the read-only database contract check, then reads
 this Peer’s enabled exact selections and restores any missing Python distributions through the same Registry resolver,

@@ -21,6 +21,9 @@
 ## Registration
 
 - `SourceBase.__init_subclass__()` 只登记内存 class；import 不连接数据库。
+- Source class 的 `source_type` 是稳定持久身份，移动/重命名实现时保持其值。第一方类型显式声明既有
+  path 字符串；旧第三方 wheel 未声明时仍以该 class 自己的 module/qualname 注册，不继承父类身份。
+- 同一 class 重复注册幂等，不同 class 不得抢占同一 type ID；身份变更是数据合同变化，不是普通重命名。
 - `await SourceManager.sync_source_types_async()` 在显式 bootstrap reconcile catalog。
 - Extension source 必须在 extension startup import；否则 source type 不存在于当前 runtime registry。
 - Extension runtime disable 不撤销已 import 的 Source class registration。Registration 在进程内单调保留；

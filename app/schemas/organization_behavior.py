@@ -1,5 +1,9 @@
 """Contracts for exact Organization behaviors and their Agent adapters."""
 
+from app.contracts.jobs import (
+  AutomaticOrganizationJobParameters as AutomaticOrganizationJobParameters,
+)
+
 import typing
 
 import pydantic
@@ -17,12 +21,6 @@ class BehaviorAgentConfig(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
   agent: int
-
-
-class AutomaticOrganizationJobParameters(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  max_seeds: int = pydantic.Field(default=10, ge=3, le=100)
 
 
 class RelationWriteResult(pydantic.BaseModel):

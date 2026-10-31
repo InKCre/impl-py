@@ -13,8 +13,13 @@ from .reconcile import GitHubGraphReconciler
 from .schema import GitHubSourceConfig
 
 
-class Source(SourceBase[GitHubSourceConfig], config_cls=GitHubSourceConfig):
+class Source(
+  SourceBase[GitHubSourceConfig],
+  config_cls=GitHubSourceConfig,
+):
   """Synchronize the authenticated GitHub Account's Stars and Lists."""
+
+  source_type = "extensions.github.stars.Source"
 
   async def collect(self, job: JobModel, config: pydantic.BaseModel) -> None:
     del config

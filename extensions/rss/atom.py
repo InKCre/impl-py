@@ -17,6 +17,8 @@ class Source(
 ):
   """Collect one configured Atom feed through the shared feed service."""
 
+  source_type = "extensions.rss.atom.Source"
+
   expected_family = "atom"
 
 

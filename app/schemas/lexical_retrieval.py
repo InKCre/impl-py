@@ -1,5 +1,10 @@
 """Block-local lexical projection, maintenance, and ranked result contracts."""
 
+from app.contracts.jobs import (
+  LexicalMaintenanceOptions as LexicalMaintenanceOptions,
+  LexicalMaintenanceJobParameters as LexicalMaintenanceJobParameters,
+)
+
 import datetime
 import math
 import typing
@@ -117,14 +122,6 @@ class LexicalRetrievalResult(pydantic.BaseModel):
   matches: tuple[LexicalRetrievalMatch, ...]
 
 
-class LexicalMaintenanceOptions(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  max_records: int = pydantic.Field(default=100, ge=1)
-  scan_page_size: int = pydantic.Field(default=100, ge=1)
-  diagnostic_limit: int = pydantic.Field(default=20, ge=0)
-
-
 class LexicalMaintenanceDiagnostic(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
@@ -140,11 +137,3 @@ class LexicalMaintenanceReport(pydantic.BaseModel):
   unavailable: int = 0
   failed: int = 0
   diagnostics: tuple[LexicalMaintenanceDiagnostic, ...] = ()
-
-
-class LexicalMaintenanceJobParameters(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  options: LexicalMaintenanceOptions = pydantic.Field(
-    default_factory=LexicalMaintenanceOptions
-  )

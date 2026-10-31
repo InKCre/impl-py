@@ -16,6 +16,7 @@ from .adapter import create_mail_adapter
 from .reconcile import MailGraphReconciler
 from .schema import (
   IMAPCheckpoint,
+  MailAccessBinding,
   MailBackfillConfig,
   MailCollectConfig,
   MailboxExclusionPolicy,
@@ -53,17 +54,17 @@ class Source(
 ):
   """Collect Mail through one configured public protocol access context."""
 
+  source_type = "extensions.mail.source.Source"
+
   async def collect(self, job: JobModel, config: pydantic.BaseModel) -> None:
     source, setup = await self._load_effective_source()
-    state = MailSourceState.model_validate(source.state or {})
     diagnostics: list[dict[str, typing.Any]] = []
     counts = {"messages": 0, "flag_changes": 0, "removals": 0, "mailboxes": 0}
     job.state = {"diagnostics": diagnostics, "counts": counts}
 
     adapter = create_mail_adapter(setup.protocol, setup.parameters)
     async with adapter:
-      state = self._accept_binding(state, adapter.binding)
-      await self._persist_state(state)
+      state = await self._accept_binding(adapter.binding)
       exclusions = setup.excluded_mailboxes
       if exclusions is None:  # pragma: no cover - materialization postcondition
         raise RuntimeError("Mail Source exclusions were not materialized")
@@ -126,15 +127,13 @@ class Source(
   async def backfill(self, job: JobModel, config: pydantic.BaseModel) -> None:
     interval = typing.cast(MailBackfillConfig, config)
     _source, setup = await self._load_effective_source()
-    state = MailSourceState.model_validate(await self.get_state())
     diagnostics: list[dict[str, typing.Any]] = []
     count = 0
     job.state = {"diagnostics": diagnostics, "messages": count}
 
     adapter = create_mail_adapter(setup.protocol, setup.parameters)
     async with adapter:
-      state = self._accept_binding(state, adapter.binding)
-      await self._persist_state(state)
+      state = await self._accept_binding(adapter.binding)
       exclusions = setup.excluded_mailboxes
       if exclusions is None:  # pragma: no cover - materialization postcondition
         raise RuntimeError("Mail Source exclusions were not materialized")
@@ -196,16 +195,24 @@ class Source(
         await uow.sources.save(source)
       return source, config
 
-  @staticmethod
-  def _accept_binding(state: MailSourceState, binding) -> MailSourceState:
-    if state.binding is not None and state.binding != binding:
-      raise MailSourceBindingError(
-        "Mail Source access binding changed; create a new Source for a different context"
-      )
-    return state.model_copy(update={"binding": binding})
-
-  async def _persist_state(self, state: MailSourceState) -> None:
-    await self.set_state(state.model_dump(mode="json"))
+  async def _accept_binding(self, binding: MailAccessBinding) -> MailSourceState:
+    """Accept the remote context without replacing another Job's progress."""
+    async with source_uow() as uow:
+      source = await uow.sources.get(self._id, lock=True)
+      if source is None:
+        raise MailSourceBindingError("Mail Source no longer exists")
+      # Connecting can outlive another collect/backfill Job. Read checkpoints
+      # under the same row lock that protects their compare-and-swap updates.
+      state = MailSourceState.model_validate(source.state or {})
+      if state.binding is not None and state.binding != binding:
+        raise MailSourceBindingError(
+          "Mail Source access binding changed; create a new Source for a different context"
+        )
+      if state.binding is None:
+        state.binding = binding
+        source.state = state.model_dump(mode="json")
+        await uow.sources.save(source)
+      return state
 
   async def _ensure_mailbox(self, fact, state: MailSourceState) -> int:
     async with source_uow() as uow:
