@@ -8,7 +8,7 @@ import typing
 import jsonschema  # pyrefly: ignore[untyped-import]
 import pydantic
 
-from app.database_contract.profile import BUILTIN_JOB_TYPES_BY_ID
+from app.contracts.jobs import BUILTIN_JOB_TYPES_BY_ID
 from app.persistence.job.uow import JobUnitOfWork, job_uow
 from app.scheduler import scheduler, with_trace_id
 from app.schemas.job import JobID, JobModel, JobStatus, JobTypeID, JobTypeModel
@@ -52,11 +52,27 @@ class JobHandler(abc.ABC, typing.Generic[ParametersTV]):
     cls,
     *,
     job_type: JobTypeID,
-    description: str,
-    parameters_model: type[ParametersTV],
-    default_timeout_seconds: int,
+    description: str | None = None,
+    parameters_model: type[ParametersTV] | None = None,
+    default_timeout_seconds: int | None = None,
     **kwargs,
   ) -> None:
+    builtin = BUILTIN_JOB_TYPES_BY_ID.get(job_type)
+    if builtin is not None:
+      if any(
+        supplied is not None and supplied != expected
+        for supplied, expected in (
+          (description, builtin.description),
+          (parameters_model, builtin.parameters_model),
+          (default_timeout_seconds, builtin.default_timeout_seconds),
+        )
+      ):
+        raise ValueError(f"Built-in Job {job_type!r} must use its shared contract")
+      description = builtin.description
+      parameters_model = typing.cast(type[ParametersTV], builtin.parameters_model)
+      default_timeout_seconds = builtin.default_timeout_seconds
+    if description is None or parameters_model is None or default_timeout_seconds is None:
+      raise TypeError("Custom Jobs require description, parameters_model and timeout")
     if default_timeout_seconds <= 0:
       raise ValueError("default_timeout_seconds must be positive")
     cls.type = job_type
@@ -118,21 +134,12 @@ class JobManager:
   async def sync_job_types(cls) -> None:
     rows = []
     for handler in cls._handlers.values():
-      builtin = BUILTIN_JOB_TYPES_BY_ID.get(handler.type)
       rows.append(
         dict(
           id=handler.type,
-          description=builtin.description if builtin is not None else handler.description,
-          parameters_schema=(
-            builtin.parameters_schema
-            if builtin is not None
-            else handler.parameters_model.model_json_schema()
-          ),
-          default_timeout_seconds=(
-            builtin.default_timeout_seconds
-            if builtin is not None
-            else handler.default_timeout_seconds
-          ),
+          description=handler.description,
+          parameters_schema=handler.parameters_model.model_json_schema(),
+          default_timeout_seconds=handler.default_timeout_seconds,
         )
       )
     async with job_uow() as uow:

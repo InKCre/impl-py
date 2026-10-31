@@ -25,25 +25,25 @@ repos:
         pass_filenames: false
       - id: typecheck
         name: Check Pyrefly types
-        entry: pyrefly check --min-severity=warn --output-format=min-text --progress-bar=no
+        entry: pdm run typecheck
         language: system
         files: ^(app/|extensions/|libs/|migrations/|scripts/|tests/|utils/|run\.py$|pyproject\.toml$|pdm\.lock$)
         pass_filenames: false
       - id: check-lock
         name: Check PDM lock
-        entry: python scripts/check_lock.py
+        entry: pdm run check:lock
         language: system
         files: ^(pyproject\.toml|pdm\.lock)$
         pass_filenames: false
       - id: lint-migrations
         name: Lint migration contract
-        entry: ruff check --no-cache migrations/env.py migrations/metadata.py migrations/settings.py scripts/_tooling.py scripts/doctor.py scripts/check_lock.py scripts/check_migration_history.py scripts/database_manifest.py scripts/sanitize_preview_base.py tests/migrations
+        entry: pdm run lint:migrations
         language: system
         files: ^(alembic\.ini|migrations/|scripts/|tests/migrations/)
         pass_filenames: false
       - id: test-migrations
         name: Test migration contract
-        entry: python -m pytest -q tests/migrations
+        entry: pdm run test:migrations
         language: system
         files: ^(alembic\.ini|migrations/|tests/migrations/)
         pass_filenames: false

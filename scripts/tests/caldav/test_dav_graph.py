@@ -7,15 +7,20 @@ from uuid import uuid4
 import xml.etree.ElementTree as ET
 
 import pytest
+import sqlalchemy
+import sqlmodel
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.engine import ASYNC_DB_ENGINE
+from app.schemas.info_base.block import BlockModel
+from app.schemas.info_base.storage import StorageBlobModel
 from app.persistence.info_base.uow import graph_uow
 from app.business.info_base.resolver import ResolverManager
 from extensions.caldav import Extension
 from extensions.caldav.schema import CALENDAR, GraphContent
 from tests.extensions.runtime_support import publish_extension
+from tests.database import TestSession
 
 pytestmark = pytest.mark.skipif(
   not os.getenv("INKCRE_TEST_DATABASE_URL"),
@@ -27,17 +32,45 @@ PASSWORD = "caldav-integration-test-" + uuid4().hex
 
 @pytest.fixture
 def dav():
-  published = publish_extension(
-    Extension, {"password": PASSWORD}, persist_config=True, raise_server_exceptions=False
-  )
-  with published.client as client:
-    client.auth = ("inkcre", PASSWORD)
-    try:
-      yield client
-    finally:
-      assert client.portal is not None
-      client.portal.call(ASYNC_DB_ENGINE.dispose)
-      published.unpublish()
+  # DAV deletion deliberately retains shared graph content. The test fixture
+  # owns its newly created graph/blob assets even after their DAV publication
+  # disappears; remove those assets without touching the pre-existing graph.
+  with TestSession() as session:
+    existing_blocks = set(session.exec(sqlmodel.select(BlockModel.id)).all())
+    existing_blobs = set(session.exec(sqlmodel.select(StorageBlobModel.id)).all())
+  try:
+    published = publish_extension(
+      Extension, {"password": PASSWORD}, persist_config=True, raise_server_exceptions=False
+    )
+    with published.client as client:
+      client.auth = ("inkcre", PASSWORD)
+      try:
+        yield client
+      finally:
+        assert client.portal is not None
+        client.portal.call(ASYNC_DB_ENGINE.dispose)
+        published.unpublish()
+  finally:
+    with TestSession() as session:
+      created_blocks = (
+        set(session.exec(sqlmodel.select(BlockModel.id)).all()) - existing_blocks
+      )
+      created_blobs = (
+        set(session.exec(sqlmodel.select(StorageBlobModel.id)).all()) - existing_blobs
+      )
+      if created_blocks:
+        session.connection().execute(
+          sqlalchemy.delete(BlockModel).where(
+            sqlmodel.col(BlockModel.id).in_(created_blocks)
+          )
+        )
+      if created_blobs:
+        session.connection().execute(
+          sqlalchemy.delete(StorageBlobModel).where(
+            sqlmodel.col(StorageBlobModel.id).in_(created_blobs)
+          )
+        )
+      session.commit()
 
 
 def calendar(summary="InKCre 测试"):

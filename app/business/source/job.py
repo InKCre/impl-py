@@ -1,5 +1,10 @@
 """Exact Source command handlers hosted by the global Job runtime."""
 
+from app.contracts.jobs import (
+  SOURCE_COLLECT_JOB_TYPE as SOURCE_COLLECT_JOB_TYPE,
+  SOURCE_BACKFILL_JOB_TYPE as SOURCE_BACKFILL_JOB_TYPE,
+)
+
 from app.business.job import JobHandler
 from app.persistence.job.uow import JobUnitOfWork
 from app.schemas.job import JobModel
@@ -13,10 +18,6 @@ from app.validation import input_path
 from .main import SourceManager, SourceNotFoundError
 
 
-SOURCE_COLLECT_JOB_TYPE = "core.source.collect.v1"
-SOURCE_BACKFILL_JOB_TYPE = "core.source.backfill.v1"
-
-
 async def _source_type(parameters: SourceCollectParameters) -> str | None:
   source = await SourceManager.get(parameters.source)
   return None if source is None else source.type
@@ -25,9 +26,6 @@ async def _source_type(parameters: SourceCollectParameters) -> str | None:
 class SourceCollectJobHandler(
   JobHandler[SourceCollectParameters],
   job_type=SOURCE_COLLECT_JOB_TYPE,
-  description="Run one ordinary collection command for a configured Source.",
-  parameters_model=SourceCollectParameters,
-  default_timeout_seconds=300,
 ):
   @classmethod
   async def normalize_parameters(cls, parameters: dict, uow: JobUnitOfWork) -> dict:
@@ -59,9 +57,6 @@ class SourceCollectJobHandler(
 class SourceBackfillJobHandler(
   JobHandler[SourceBackfillParameters],
   job_type=SOURCE_BACKFILL_JOB_TYPE,
-  description="Run one exact historical collection command for a configured Source.",
-  parameters_model=SourceBackfillParameters,
-  default_timeout_seconds=1800,
 ):
   @classmethod
   async def normalize_parameters(cls, parameters: dict, uow: JobUnitOfWork) -> dict:

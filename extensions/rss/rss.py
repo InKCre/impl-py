@@ -17,6 +17,8 @@ class Source(
 ):
   """Collect one configured RSS 2.0 feed through the shared feed service."""
 
+  source_type = "extensions.rss.rss.Source"
+
   expected_family = "rss"
 
 

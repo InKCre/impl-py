@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from dataclasses import dataclass
 import importlib.metadata
+import inspect
 from pathlib import Path
 import tempfile
 import typing
@@ -194,13 +194,57 @@ class _ActiveExtensionModel:
 
 
 @dataclass
+class ActiveExtensionEffects:
+  """Own the acquired runtime effects and their one release order.
+
+  Startup preserves its original error, conflict cleanup collects recoverable
+  hook failures, and ordinary stop fails immediately. Releasing the Host claim
+  is always required to succeed; it must never be silently discarded.
+  """
+
+  claim: ExtensionRuntimeClaim
+  extension_class: type[ExtensionBase] | None = None
+
+  async def close(
+    self,
+    *,
+    policy: typing.Literal["stop", "conflict", "startup_failure"] = "stop",
+  ) -> list[Exception]:
+    failures: list[Exception] = []
+    if self.extension_class is not None:
+      extension = self.extension_class
+      recover_hook_errors = policy != "stop"
+      for release, recover_error in (
+        (extension.on_close, recover_hook_errors),
+        (extension.unpublish, recover_hook_errors),
+        (extension.unbind, recover_hook_errors),
+        (extension.release_runtime, policy == "startup_failure"),
+      ):
+        try:
+          result = release()
+          if inspect.isawaitable(result):
+            await result
+        except Exception as error:
+          if not recover_error:
+            raise
+          failures.append(error)
+    self.claim.release()
+    return failures
+
+
+@dataclass
 class RunningExtension:
   name: str
   version: str
   association: PythonReleaseDescriptor
   acquired: AcquiredDistribution
-  extension_class: type[ExtensionBase]
-  claim: ExtensionRuntimeClaim
+  effects: ActiveExtensionEffects
+
+  @property
+  def extension_class(self) -> type[ExtensionBase]:
+    extension = self.effects.extension_class
+    assert extension is not None
+    return extension
 
 
 class ExtensionHost:
@@ -476,6 +520,9 @@ class ExtensionHost:
     self._operations[name] = ("applying", None)
     try:
       await self.pause_peer_execution()
+      # The callback drains Core producers; Host lock ownership never escapes
+      # into bootstrap code. This operation already owns the runtime lock.
+      await self._close_running_locked()
       # Other admitted Peers can change intent during the drain. This check
       # avoids known conflicts; the store still arbitrates the final write.
       await self._require_selectable(name, version, peer_id=peer_id)
@@ -851,17 +898,14 @@ class ExtensionHost:
       claim = ExtensionRuntimeClaim.acquire(association.entry_point.name)
     except ExtensionRuntimeClaimConflictError as error:
       raise ExtensionStateConflictError(str(error)) from error
+    effects = ActiveExtensionEffects(claim)
     try:
       modules = DistributionModules(acquired)
-    except Exception:
-      claim.release()
-      raise
-    extension_class: type[ExtensionBase] | None = None
-    try:
       # Import is irreversible even when the module or its startup later fails.
       # A different selected version therefore still needs a fresh process.
       self._loaded_versions[state.name] = selection.version
       extension_class = typing.cast(type[ExtensionBase], modules.load(ExtensionBase))
+      effects.extension_class = extension_class
       if extension_class.__extid__ != association.entry_point.name:
         raise ExtensionCompatibilityError(
           "ExtensionBase identity differs from the declared entry point"
@@ -879,24 +923,14 @@ class ExtensionHost:
       await extension_class.on_start_async(app)
       modules.assert_origins()
     except BaseException:
-      if extension_class is not None:
-        with contextlib.suppress(Exception):
-          await extension_class.on_close()
-        with contextlib.suppress(Exception):
-          extension_class.unpublish()
-        with contextlib.suppress(Exception):
-          extension_class.unbind()
-        with contextlib.suppress(Exception):
-          extension_class.release_runtime()
-      claim.release()
+      await effects.close(policy="startup_failure")
       raise
     running = RunningExtension(
       name=state.name,
       version=selection.version,
       association=association,
       acquired=acquired,
-      extension_class=extension_class,
-      claim=claim,
+      effects=effects,
     )
     self.running[state.name] = running
     return running
@@ -916,29 +950,11 @@ class ExtensionHost:
     return current
 
   async def _stop(self, running: RunningExtension) -> None:
-    await running.extension_class.on_close()
-    running.extension_class.unpublish()
-    running.extension_class.unbind()
-    running.extension_class.release_runtime()
-    running.claim.release()
+    await running.effects.close()
     self.running.pop(running.name, None)
 
   async def _force_stop(self, running: RunningExtension) -> typing.List[Exception]:
-    failures: list[Exception] = []
-    try:
-      await running.extension_class.on_close()
-    except Exception as error:
-      failures.append(error)
-    try:
-      running.extension_class.unpublish()
-    except Exception as error:
-      failures.append(error)
-    try:
-      running.extension_class.unbind()
-    except Exception as error:
-      failures.append(error)
-    running.extension_class.release_runtime()
-    running.claim.release()
+    failures = await running.effects.close(policy="conflict")
     self.running.pop(running.name, None)
     return failures
 
@@ -1079,10 +1095,6 @@ class ExtensionHost:
   async def close_running(self) -> None:
     async with self._runtime_lock:
       await self._close_running_locked()
-
-  async def close_running_for_environment_application(self) -> None:
-    """Close extensions while select owns the lock and fences other mutations."""
-    await self._close_running_locked()
 
   async def _close_running_locked(self) -> None:
     failures: list[Exception] = []

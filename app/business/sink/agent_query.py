@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from app.contracts.jobs import AGENT_QUERY_JOB_TYPE as AGENT_QUERY_JOB_TYPE
+
+from app.contracts.jobs import AgentQueryJobParameters as AgentQueryJobParameters
+
 import typing
 
 import fastapi
@@ -29,7 +33,6 @@ from .main import SinkManager
 
 
 AGENT_QUERY_SINK_TYPE = "core.agent-query.v1"
-AGENT_QUERY_JOB_TYPE = "core.sink.agent-query.v1"
 SUBMIT_QUERY_RESULT_TOOL = "submit_query_result"
 
 
@@ -58,13 +61,6 @@ class AgentQueryRequest(pydantic.BaseModel):
 
   query: str = pydantic.Field(min_length=1)
   timeout_seconds: int | None = pydantic.Field(default=None, gt=0)
-
-
-class AgentQueryJobParameters(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  sink: int
-  query: str = pydantic.Field(min_length=1)
 
 
 class AgentQueryResultMissingError(RuntimeError):
@@ -186,9 +182,6 @@ class AgentQuerySink(
 class AgentQueryJobHandler(
   JobHandler[AgentQueryJobParameters],
   job_type=AGENT_QUERY_JOB_TYPE,
-  description="Answer one information need through an enabled Agent Query Sink.",
-  parameters_model=AgentQueryJobParameters,
-  default_timeout_seconds=300,
 ):
   @classmethod
   async def normalize_parameters(

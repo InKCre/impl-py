@@ -104,17 +104,21 @@ configure_process_restart(_request_uvicorn_exit)
 
 
 async def pause_peer_execution() -> None:
-  """Drain Core work before a shared Python environment can be changed."""
+  """Drain Core producers; the Host then closes its own Extension resources."""
   global _PEER_EXECUTION_OPEN
   async with _REQUEST_CONDITION:
     _PEER_EXECUTION_OPEN = False
     await _REQUEST_CONDITION.wait_for(lambda: _ACTIVE_PEER_REQUESTS == 0)
+  await drain_runtime_producers()
+
+
+async def drain_runtime_producers() -> None:
+  """Stop work in dependency order before either environment application or exit."""
   if scheduler.running:
     scheduler.pause()
   await JobManager.shutdown()
   await drain_scheduler()
   await SinkManager.shutdown()
-  await EXTENSION_HOST.close_running_for_environment_application()
 
 
 EXTENSION_HOST.pause_peer_execution = pause_peer_execution
@@ -268,11 +272,7 @@ async def lifespan(app: fastapi.FastAPI):
       bootstrap_task.cancel()
       with contextlib.suppress(asyncio.CancelledError):
         await bootstrap_task
-      if scheduler.running:
-        scheduler.pause()
-      await JobManager.shutdown()
-      await drain_scheduler()
-      await SinkManager.shutdown()
+      await drain_runtime_producers()
       await EXTENSION_HOST.close_running()
       if scheduler.running:
         scheduler.shutdown(wait=True)

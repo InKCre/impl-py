@@ -1,3 +1,8 @@
+from app.contracts.jobs import (
+  SourceCollectParameters as SourceCollectParameters,
+  SourceBackfillParameters as SourceBackfillParameters,
+)
+
 __all__ = [
   "SourceID",
   "SourceModel",
@@ -63,26 +68,13 @@ class CollectAtType(sqlmodel.TypeDecorator):
     return CollectAt.model_validate(value) if value else None
 
 
-class SourceCollectParameters(pydantic.BaseModel):
-  """Parameters of the exact ordinary Source Job type."""
-
-  model_config = pydantic.ConfigDict(extra="forbid")
-
-  source: SourceID
-  config: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-
-
-class SourceBackfillParameters(SourceCollectParameters):
-  """Parameters of the exact historical Source Job type."""
-
-
 class SourceTypesModel(sqlmodel.SQLModel, table=True):
   __tablename__: str = "sources_types"  # type: ignore
 
   id: str = sqlmodel.Field(sa_column=sqlalchemy.Column(sqlalchemy.Text, primary_key=True))
   """Type of source.
     
-    An absolute import path to the module where souce class at.
+    Stable execution identity. Historical values retain their original Python path.
     """
   description: str = sqlmodel.Field(sa_column=sqlalchemy.Column(sqlalchemy.Text))
   """Description of this source type."""
@@ -126,7 +118,7 @@ class SourceModel(sqlmodel.SQLModel, table=True):
   )
   """Type of source.
     
-    An absolute import path to the module where souce class at.
+    Stable execution identity, independent of the implementing class location.
     When delete a source type, all sources of this type will be deleted too.
     """
   nickname: Opt[str] = sqlmodel.Field(

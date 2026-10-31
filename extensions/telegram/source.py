@@ -94,8 +94,13 @@ def _semantic_text(message: telegram.Message, *, caption: bool = False) -> Block
   return BlockForm(resolver="core.text.v1", content=value)
 
 
-class Source(SourceBase[TelegramSourceConfig], config_cls=TelegramSourceConfig):
+class Source(
+  SourceBase[TelegramSourceConfig],
+  config_cls=TelegramSourceConfig,
+):
   """Collect useful content sent privately by one configured Telegram identity."""
+
+  source_type = "extensions.telegram.source.Source"
 
   async def _pin_bot(self, bot_id: int) -> TelegramSourceState:
     async with source_uow() as uow:

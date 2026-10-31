@@ -693,3 +693,103 @@ def test_failed_import_still_requires_restart_to_select_a_different_version(
 
   async_runner.run(scenario())
   assert restarted == [True]
+
+
+@pytest.mark.parametrize("operation", ["startup_failure", "disable", "intent_conflict"])
+def test_runtime_effect_cleanup_preserves_each_operation_error_policy(
+  async_runner, monkeypatch, operation
+):
+  name = "inkcre/cleanup-policy"
+  descriptor = release(name, "1.0.0")
+  store = SelectionStore(participation(name, "1.0.0", enabled=False))
+  resources = {"bound": False, "published": False, "runtime_owned": True}
+  fail_close = True
+
+  class Extension:
+    __extid__ = "cleanup_policy"
+
+    @classmethod
+    def bind(cls, model):
+      resources["bound"] = True
+
+    @classmethod
+    async def on_start_async(cls, app):
+      resources["published"] = True
+      if operation == "startup_failure":
+        raise ValueError("startup error")
+      if operation == "intent_conflict":
+        store.selections[0] = store.selections[0].model_copy(update={"enabled": False})
+
+    @classmethod
+    async def on_close(cls):
+      if fail_close:
+        raise RuntimeError("close error")
+
+    @classmethod
+    def unpublish(cls):
+      resources["published"] = False
+
+    @classmethod
+    def unbind(cls):
+      resources["bound"] = False
+
+    @classmethod
+    def release_runtime(cls):
+      resources["runtime_owned"] = False
+
+    @classmethod
+    def peer_inbounds(cls):
+      return ()
+
+  class Modules:
+    def __init__(self, acquired):
+      pass
+
+    def load(self, base):
+      return Extension
+
+    def assert_origins(self):
+      pass
+
+  host = ExtensionHost(
+    store=typing.cast(ExtensionStore, store),
+    release_client=ReleaseReader({(name, "1.0.0"): descriptor}),
+    distribution_consumer=DistributionConsumer(),
+  )
+  monkeypatch.setattr(extension_main, "DistributionModules", Modules)
+  monkeypatch.setattr(
+    extension_main.AcquiredDistribution,
+    "discover",
+    lambda *_: acquired_distribution(descriptor),
+  )
+
+  async def scenario():
+    nonlocal fail_close
+    try:
+      if operation == "startup_failure":
+        with pytest.raises(ValueError, match="startup error"):
+          await host.enable(name, peer_id=PEER_ID, app=extension_main.fastapi.FastAPI())
+      elif operation == "intent_conflict":
+        with pytest.raises(BaseExceptionGroup) as caught:
+          await host.enable(name, peer_id=PEER_ID, app=extension_main.fastapi.FastAPI())
+        assert isinstance(
+          caught.value.exceptions[0], extension_main.ExtensionStateConflictError
+        )
+        assert str(caught.value.exceptions[1]) == "close error"
+      else:
+        await host.enable(name, peer_id=PEER_ID, app=extension_main.fastapi.FastAPI())
+        with pytest.raises(RuntimeError, match="close error"):
+          await host.disable(name, peer_id=PEER_ID)
+        assert name in host.running
+        assert store.selections[0].enabled
+        assert all(resources.values())
+        return
+      assert not any(resources.values())
+      assert not host.running
+      claim = extension_main.ExtensionRuntimeClaim.acquire("cleanup_policy")
+      claim.release()
+    finally:
+      fail_close = False
+      await host.close_running()
+
+  async_runner.run(scenario())

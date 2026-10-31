@@ -1,5 +1,10 @@
 """Semantic retrieval configuration, maintenance and ranked result contracts."""
 
+from app.contracts.jobs import (
+  EmbeddingMaintenanceOptions as EmbeddingMaintenanceOptions,
+  EmbeddingMaintenanceJobParameters as EmbeddingMaintenanceJobParameters,
+)
+
 import math
 import typing
 
@@ -90,17 +95,6 @@ class SemanticRetrievalResult(pydantic.BaseModel):
   matches: tuple[SemanticRetrievalMatch, ...]
 
 
-class EmbeddingMaintenanceOptions(pydantic.BaseModel):
-  """Peer-local bounds for one resumable maintenance invocation."""
-
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  max_embeddings: int = pydantic.Field(default=100, ge=1)
-  batch_size: int = pydantic.Field(default=20, ge=1)
-  scan_page_size: int = pydantic.Field(default=100, ge=1)
-  diagnostic_limit: int = pydantic.Field(default=20, ge=0)
-
-
 class EmbeddingMaintenanceDiagnostic(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
@@ -118,12 +112,3 @@ class EmbeddingMaintenanceReport(pydantic.BaseModel):
   unavailable: int = 0
   failed: int = 0
   diagnostics: tuple[EmbeddingMaintenanceDiagnostic, ...] = ()
-
-
-class EmbeddingMaintenanceJobParameters(pydantic.BaseModel):
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  profile: EmbeddingProfileID | None = None
-  options: EmbeddingMaintenanceOptions = pydantic.Field(
-    default_factory=EmbeddingMaintenanceOptions
-  )

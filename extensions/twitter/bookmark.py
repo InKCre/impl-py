@@ -61,6 +61,8 @@ class Source(
 ):
   """Twitter Bookmark as Source"""
 
+  source_type = "extensions.twitter.bookmark.Source"
+
   API_BASE_URL = "https://api.x.com/2"
 
   async def collect(self, job: JobModel, config: pydantic.BaseModel) -> None:

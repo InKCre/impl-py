@@ -54,6 +54,8 @@ class Source(
 ):
   """Collect Mail through one configured public protocol access context."""
 
+  source_type = "extensions.mail.source.Source"
+
   async def collect(self, job: JobModel, config: pydantic.BaseModel) -> None:
     source, setup = await self._load_effective_source()
     diagnostics: list[dict[str, typing.Any]] = []

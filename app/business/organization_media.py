@@ -1,5 +1,9 @@
 """System-driven media interpretation approach owned by Organization."""
 
+from app.contracts.jobs import (
+  MEDIA_INTERPRETATION_JOB_TYPE as MEDIA_INTERPRETATION_JOB_TYPE,
+)
+
 import json
 import logging
 import typing
@@ -33,7 +37,6 @@ logger = logging.getLogger(__name__)
 
 MEDIA_INTERPRETATION_CONFIG_KEY = "core.organization.media_interpretation"
 MEDIA_INTERPRETATION_CONFIG_SCHEMA = "core.organization.media_interpretation.config.v1"
-MEDIA_INTERPRETATION_JOB_TYPE = "core.organization.media_interpretation.v1"
 _CANDIDATE_LIMIT = 20
 _DIAGNOSTIC_LIMIT = 20
 _RESOLVER_MODALITIES: dict[str, typing.Literal["image", "audio", "video"]] = {

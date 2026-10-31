@@ -2,6 +2,18 @@
 
 source "$(dirname "$0")/_common.sh"
 
+extension_database_tests() {
+  require_env INKCRE_TEST_DATABASE_URL
+  # Real persistence and protocol journeys; provider inputs are local fixtures.
+  pdm run python -m pytest -q -rs \
+    tests/extensions/memos/integration \
+    tests/extensions/rss/integration/test_feed_collection.py \
+    tests/extensions/mail/test_source_state.py \
+    scripts/tests/twitter/integration \
+    scripts/tests/caldav/test_dav_graph.py scripts/tests/caldav/test_semantic_graph.py \
+    "$@"
+}
+
 case "${1:-}" in
   database-tests)
     require_env INKCRE_TEST_DATABASE_URL
@@ -10,8 +22,11 @@ case "${1:-}" in
       tests/agent/integration tests/ai/integration tests/deployment_config/integration \
       tests/info_base/integration tests/lexical_retrieval/integration \
       tests/organization/integration tests/peer/integration tests/semantic_retrieval/integration \
-      tests/extensions/memos/integration tests/extensions/rss/integration/test_feed_collection.py \
       tests/migrations/test_memos_attachment_v2_migration.py
+    extension_database_tests
+    ;;
+  extension-database-tests)
+    extension_database_tests "${@:2}"
     ;;
   release-intent)
     arguments=()
@@ -35,5 +50,5 @@ case "${1:-}" in
         --project "extensions/$extension" --wheel "$wheel"
     done
     ;;
-  *) echo "usage: $0 database-tests|release-intent|extension-wheels" >&2; exit 2 ;;
+  *) echo "usage: $0 database-tests|extension-database-tests|release-intent|extension-wheels" >&2; exit 2 ;;
 esac
