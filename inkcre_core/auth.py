@@ -59,7 +59,7 @@ def create_peer_jwt(
   now: float | None = None,
   lifetime_seconds: int = 60,
 ) -> str:
-  """Sign a Peer JWT; the default is client policy, not an admission limit."""
+  """Sign a Peer JWT; the default is signer policy, not an admission limit."""
   if not secret:
     raise ValueError("Peer JWT secret is required")
   if lifetime_seconds <= 0:

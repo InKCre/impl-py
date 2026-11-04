@@ -15,9 +15,9 @@ OBSRV__LOKI_HEADERS='{"Authorization":"Basic YOUR_ENCODED_VALUE"}'
 OBSRV__EXTERNAL_CONTENT_ENABLED=false
 ```
 
-URL 不带凭据、query 或 fragment；私密 headers 不进入共享 value、浏览器或错误响应。Backend 选择是唯一存储选择源，旧 `OBSRV__LOGGING_BACKEND`/Logtail writer 配置不再选择当前存储；旧 Logtail 配置会给出迁移提示。`OBSRV__LOGGING_BACKEND_LEVEL` 继续控制普通日志级别，最低生命周期事件不依赖该阈值。切换后重启 Peer/重建客户端，历史记录留在旧后端，不自动搬迁、删除或合并查询。
+URL 不带凭据、query 或 fragment；私密 headers 不进入共享 value、浏览器或错误响应。Backend 选择是唯一存储选择源，旧 `OBSRV__LOGGING_BACKEND`/Logtail writer 配置不再选择当前存储；旧 Logtail 配置会给出迁移提示。`OBSRV__LOGGING_BACKEND_LEVEL` 继续控制普通日志级别，最低生命周期事件不依赖该阈值。切换后重启 Peer/重建 SDK 消费实例，历史记录留在旧后端，不自动搬迁、删除或合并查询。
 
-`core.observability.v1` 通过已有 Peer HTTP 协议公告 `POST /observability`，复用 Peer JWT；客户端不能传上游 URL 或认证头。请求 action 为 `status`、`query`、`ingest`。外部委派携带 `expected_backend`，与提供方实例不符返回 409，防止选择改变后误写其它后端。内置消费者可直接通过数据库协议读取，不以 Python Peer 在线为前提。
+`core.observability.v1` 通过已有 Peer HTTP 协议公告 `POST /observability`，复用 Peer JWT；调用方不能传上游 URL 或认证头。请求 action 为 `status`、`query`、`ingest`。外部委派携带 `expected_backend`，与提供方实例不符返回 409，防止选择改变后误写其它后端。内置消费者可直接通过数据库协议读取，不以 Python Peer 在线为前提。
 
 查询时间窗为 `[since, until)`，最长 31 天、每次 1–500 条。所有 severity、kind、Job、Trace、Peer、operation、文本过滤在后端截断之前执行；文本按字面匹配，不是 LogQL。返回 records、truncated、时间窗及当前 backend，按时间倒序。截断时缩小时间或过滤范围；没有会跳过同刻记录的虚假 cursor。旧 PG 日志保留原 body/attributes 和 `job.<id>` 关联，未产生的历史事件不会补写。
 
@@ -51,9 +51,9 @@ Grafana Cloud Free 是当前首个部署目标。`Authorization` 的 Basic 值�
 
 ## 浏览器转发
 
-浏览器不能使用上述私密 Grafana 写入凭据。client-web 的本地连接配置单独控制启用；需要服务端转发时，显式配置 relay 基础 URL，例如 `https://core.example/telemetry`，由客户端复用该连接的现有短效 Peer JWT。没有 relay 时，只能使用已准入、适合公开客户端的出口。relay URL 本身不启用遥测，也不改变业务的数据库直写或 Peer 路由。
+浏览器不能使用上述私密 Grafana 写入凭据。Web App 的本地连接配置单独控制启用；需要 HTTP relay 转发时，显式配置 relay 基础 URL，例如 `https://core.example/telemetry`，由调用 Peer 复用该连接的现有短效 Peer JWT。没有 relay 时，只能使用已准入、适合公开 App 的出口。relay URL 本身不启用遥测，也不改变业务的数据库直写或 Peer 路由。
 
-core-py 的 `POST /telemetry/v1/{traces,logs,metrics}` 复用普通 Peer JWT 认证，仅向自身已成功启用的对应信号出口发送。调用方不能指定目标或转发认证头；服务端使用本地私密认证。它仅接受标准 OTLP/HTTP protobuf，直接使用标准 protobuf 请求与响应；JSON 返回 415。上游的 200 或 204 视为接收成功，204 的空响应映射为空 protobuf 成功响应；仍须独立查询验证持久化。client-web 使用官方 protobuf exporter，避免应用自行实现 OTLP JSON 的十六进制 Trace/Span ID 规则。不增加持久队列、后台重试或任意 URL 代理。
+core-py 的 `POST /telemetry/v1/{traces,logs,metrics}` 复用普通 Peer JWT 认证，仅向自身已成功启用的对应信号出口发送。调用方不能指定目标或转发认证头；接收 Peer 使用本地私密认证。它仅接受标准 OTLP/HTTP protobuf，直接使用标准 protobuf 请求与响应；JSON 返回 415。上游的 200 或 204 视为接收成功，204 的空响应映射为空 protobuf 成功响应；仍须独立查询验证持久化。Web App 使用官方 protobuf exporter，避免应用自行实现 OTLP JSON 的十六进制 Trace/Span ID 规则。不增加持久队列、后台重试或任意 URL 代理。
 
 每个请求最多 256 KiB；每个进程最多四个转发请求同时进行，上游 HTTP 使用对应信号的 timeout；请求读取和发送的总预算为该 timeout 加两秒（最多三十二秒），不跟随重定向。不支持压缩请求。关闭或目的地不可用返回 503，满额返回 429，超大返回 413，格式错误返回 400，转发失败返回固定的 502，不回显上游错误体。转发会唤醒其宿主并消耗按请求资源，因此必须由部署显式选择；它不承诺遥测零额外运行费用。
 
@@ -72,7 +72,7 @@ core-py 的 `POST /telemetry/v1/{traces,logs,metrics}` 复用普通 Peer JWT 认
 
 资源使用 `service.name`、`service.version`、`service.instance.id`、已知的 `inkcre.deployment.id` 与 `inkcre.peer.id`。查询单个任务用 `inkcre.job.id`，从执行 Trace 的 Link 查提交 Trace；同步 Peer 调用使用标准 W3C context。只有配置的 Peer 传输注入上下文，外部模型请求不注入内部 Trace Context。关闭的提交方写 NULL，关闭的执行方不创建 Trace，但领取和关闭保留已有 carrier。缺失、采样和过期导致的空缺不是业务未执行的证据。
 
-生成的 Job carrier 各最多 512 UTF-8 bytes；SDK 注入的可选 tracestate 超限时整体省略并记录固定原因事件。SQL 容量约束拒绝直接超限输入。正式 migration `3d9593b0c855` 增加两列；nullable 不解除 exact-head 准入，部署需协调更新 schema、Python 与客户端，刷新 PostgREST schema cache。关闭遥测无需 downgrade 或删除任何 Job、PG 日志或 carrier。
+生成的 Job carrier 各最多 512 UTF-8 bytes；SDK 注入的可选 tracestate 超限时整体省略并记录固定原因事件。SQL 容量约束拒绝直接超限输入。正式 migration `3d9593b0c855` 增加两列；nullable 不解除 exact-head 准入，部署需协调更新 schema 与所有 Peer，刷新 PostgREST schema cache。关闭遥测无需 downgrade 或删除任何 Job、PG 日志或 carrier。
 
 ## AI 数据边界
 

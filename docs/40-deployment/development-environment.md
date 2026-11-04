@@ -40,12 +40,12 @@ Runtime state is written to `.runtime/database/<core-svc-instance>/`. Its `runti
 - core and PostgREST loopback URLs.
 
 Peers must consume that exact profile/descriptor. Sharing only an SSH alias, daemon, port,
-or contract version does not prove that core-py and client-web use the same database.
+or contract version does not prove that core-py and the Web App use the same database.
 Only core-py owns Compose startup, reset, volume deletion, credentials, and tunnel cleanup.
 
 After core and PostgREST are reachable, the owner projects the dynamic core loopback URL into the core Peer's
 database-owned `config.http_public_base_url`. It then waits for that exact Peer to publish the three built-in HTTP
-capabilities and a live database-time lease before writing a converged descriptor. Attached client-web runtimes only verify
+capabilities and a live database-time lease before writing a converged descriptor. Attached Web App runtimes only verify
 that snapshot; they do not rewrite the owner Peer, reset the database, or stop the owner runtime.
 
 ## Stopping the development runtime
@@ -179,6 +179,10 @@ The repository currently uses Neon branch automation for pull requests.
 - `pdm run db:record` appends reviewed new revisions to the integrity manifest.
 - `pdm run db:migrate` applies checked-in revisions.
 - `pdm run db:init --profile development` creates the complete deterministic baseline.
+- The canonical development Peer is named `web-development`; its UUID is unchanged. Existing
+  development databases can converge this display name with `pdm run db:seed-dev` before the
+  development readiness check. This updates the existing canonical seed row and does not reset
+  the database or replace other Peer identities.
 - `pdm run db:ready --profile development --json` verifies it without mutation.
 - `pdm run db:reset-dev --confirm reset-development-data` restores the same guarded
   baseline and refuses every non-development database.

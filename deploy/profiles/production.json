@@ -8,7 +8,7 @@
   },
   "peer": {
     "id": "1eaaadc6-2c1d-4515-ad06-22905dc890a9",
-    "name": "client-web"
+    "name": "web"
   },
   "core": {
     "peer_id": "063cd1df-c495-5006-a119-67aa633b26be",

@@ -16,7 +16,7 @@ This local projection covers the FastAPI runtime，the executable PostgreSQL con
 Extension loading，Source collection，Resolver/Storage access，background Jobs and the artifacts
 and deployment surfaces delivered by this repository。
 
-Browser rendering，native-client storage and other Peer-local mechanics belong to their owning
+Browser rendering，native App storage and other Peer-local mechanics belong to their owning
 repositories。Concrete Extension protocol credentials and admission belong to the Extension's
 local durable contract。
 
@@ -29,7 +29,7 @@ roles，grants and denial behavior are owned by the [Executable Database
 Contract](../40-deployment/database-contract.md) and its executable checks。
 
 Public health and probe routes grant only their documented observations。CORS，route naming and
-client identifiers do not add authority。
+Peer identifiers do not add authority。
 
 ### Extension Protocols
 

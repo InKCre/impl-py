@@ -220,7 +220,7 @@ def affected_projects(base: str) -> set[str]:
   paths = _changed_paths(base)
   affected: set[str] = set()
   extension_keys = {project.key for project in discover_projects(extensions_only=True)}
-  core_prefixes = ("app/", "libs/", "migrations/", "utils/")
+  core_prefixes = ("inkcre_core/", "app/", "libs/", "migrations/", "utils/")
   core_files = {
     "run.py",
     "Dockerfile",

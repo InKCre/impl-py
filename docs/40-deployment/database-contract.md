@@ -156,7 +156,7 @@ Every production candidate also contains `/app/database-contract/`:
 
 The dump comes from a separate fresh database initialized with the runtime profile; it contains
 no application row. `db schema --json` verifies the embedded files against that manifest.
-Core-py publishes SQL, not client-specific generated types; consumers restore the role and schema
+Core-py publishes SQL, not consumer-specific generated types; consumers restore the role and schema
 files, then use their own mature language tooling.
 
 Published core images are addressed as:

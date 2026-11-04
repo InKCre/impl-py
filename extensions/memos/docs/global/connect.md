@@ -19,7 +19,7 @@ token (PAT). Neither is your PostgREST connection setting, and the PAT is not th
 
 1. Open **Extensions**, locate **Memos**, and open **Setup** from its enabled browser extension.
 2. Select the Core that should provide the service if more than one is available. If the public
-   address is missing, configure that Core's Public HTTP Base URL in **Clients → Config**, then
+   address is missing, configure that Core's Public HTTP Base URL in **Peers → Config**, then
    refresh the setup page. Use an address reachable from your phone or other client device.
 3. Select **Prepare connection**. If no PAT is saved, the page generates and saves one. If a PAT
    already exists, it keeps it. Memos is enabled on the selected Core only if needed.
