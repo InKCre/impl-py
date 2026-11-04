@@ -5,6 +5,13 @@ association. New entries are rendered from project-local fragments by [Towncrier
 
 <!-- towncrier release notes start -->
 
+## 0.6.0 - 2026-11-04
+
+### Added
+
+- Bookmark Source 支持显式限定跳过数量、保存数量和分页大小的历史回填；逐页保存，在 Job 结果中报告已完成页面的计数，不推进普通采集游标，遇到重复帖子或循环游标时停止。
+
+
 ## 0.5.0 - 2026-10-21
 
 ### Added
