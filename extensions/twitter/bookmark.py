@@ -24,6 +24,16 @@ class CollectConfig(pydantic.BaseModel):
   result_limit: int = pydantic.Field(default=40, ge=5, le=100)
 
 
+class BackfillConfig(pydantic.BaseModel):
+  """Bound one explicit traversal of the current bookmark ordering."""
+
+  model_config = pydantic.ConfigDict(extra="forbid")
+
+  skip: int = pydantic.Field(default=0, ge=0, le=10000)
+  limit: int = pydantic.Field(default=200, ge=1, le=1000)
+  page_size: int = pydantic.Field(default=50, ge=1, le=100)
+
+
 def _selected_batch(batch: TwitterBatch, primary_ids: tuple[str, ...]) -> TwitterBatch:
   posts = {post.id: post for post in batch.posts}
   selected = set(primary_ids)
@@ -58,6 +68,7 @@ class Source(
   SourceBase[SourceConfig],
   config_cls=SourceConfig,
   collect_config_cls=CollectConfig,
+  backfill_config_cls=BackfillConfig,
 ):
   """Twitter Bookmark as Source"""
 
@@ -112,3 +123,52 @@ class Source(
     if full and bookmarks_res.next_page and bookmarks_res.next_page != page:
       job.state = job.state or {}
       job.state["page"] = bookmarks_res.next_page
+
+  async def backfill(self, job: JobModel, config: pydantic.BaseModel) -> None:
+    """Fetch a bounded range without advancing the ordinary collection marker."""
+    backfill = typing.cast(BackfillConfig, config)
+    api_client = await TwitterAPI.new()
+    page = None
+    scanned = saved = pages = 0
+    end = backfill.skip + backfill.limit
+    cursors: set[str] = set()
+    seen: set[str] = set()
+    job.state = {"scanned": 0, "saved": 0, "pages": 0, "exhausted": False}
+
+    while scanned < end:
+      response = await api_client.get_bookmarks(
+        page=page, max_results=min(backfill.page_size, end - scanned)
+      )
+      ids = response.primary_post_ids
+      if seen.intersection(ids) or len(set(ids)) != len(ids):
+        raise ValueError("Bookmark ordering changed during backfill; retry explicitly")
+      if response.next_page and response.next_page in cursors:
+        raise ValueError("X returned a repeated bookmark pagination token")
+      if not ids and response.next_page:
+        raise ValueError("X returned an empty bookmark page with a continuation token")
+      selected = ids[max(0, backfill.skip - scanned) : end - scanned]
+      if selected:
+        async with source_uow() as uow:
+          source = await uow.sources.get(self._id, lock=True)
+          if source is None:
+            raise ValueError("Twitter Source no longer exists")
+          await persist_twitter(
+            _selected_batch(response.batch, selected),
+            uow.graph,
+            text_policy="supplement",
+          )
+      seen.update(ids)
+      scanned += len(ids)
+      saved += len(selected)
+      pages += 1
+      page = response.next_page or None
+      job.state = {
+        "scanned": scanned,
+        "saved": saved,
+        "pages": pages,
+        "exhausted": page is None,
+        "next_page": page,
+      }
+      if page is None:
+        break
+      cursors.add(page)
