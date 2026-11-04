@@ -30,6 +30,15 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture
+def job_execution(async_runner):
+  JobManager.start()
+  try:
+    yield
+  finally:
+    async_runner.run(JobManager.shutdown())
+
+
 def _reset() -> None:
   with TestSession() as db:
     db.connection().execute(
@@ -123,6 +132,7 @@ def test_unknown_resolver_is_bounded_unavailable_diagnostic(
 
 def test_direct_and_cron_created_jobs_share_exact_handler_path(
   async_runner,
+  job_execution,
 ):
   _reset()
   register_core_resolvers()

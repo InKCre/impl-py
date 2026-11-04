@@ -74,6 +74,15 @@ CONFIG_KEYS = (
 )
 
 
+@pytest.fixture
+def job_execution(async_runner):
+  JobManager.start()
+  try:
+    yield
+  finally:
+    async_runner.run(JobManager.shutdown())
+
+
 def _reset_runtime_rows() -> None:
   with TestSession() as db:
     db.connection().execute(
@@ -133,6 +142,7 @@ def _related(block: int, role: str) -> tuple[BlockModel, ...]:
 
 def test_media_textualization_interpretation_and_lexical_recall(
   async_runner,
+  job_execution,
   monkeypatch: pytest.MonkeyPatch,
   semantic_content_assets: Path,
 ) -> None:
