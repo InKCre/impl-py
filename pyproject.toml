@@ -136,6 +136,7 @@ test = "python -m pytest -q"
 [tool.pyrefly]
 project-includes = [
     "app",
+    "deploy",
     "extensions",
     "libs",
     "migrations",

@@ -75,6 +75,9 @@ jobs:
       - name: Run repository contract
         run: pdm run check
 
+      - name: Verify ChatGPT deployment lifecycle
+        run: pdm run python -m pytest -q deploy/integrations/chatgpt/tests
+
       - name: Initialize disposable business-test database
         env:
           INKCRE_ENV_FILE: ""
