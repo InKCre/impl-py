@@ -4,16 +4,19 @@ import typing
 
 import fastapi
 
-from app.business.lexical_retrieval import LexicalRetrievalManager
-from app.business.semantic_retrieval import (
+from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.semantic_retrieval import (
   SemanticRetrievalManager,
   SemanticRetrievalNotConfiguredError,
   EmbeddingProfileNotFoundError,
 )
-from app.schemas.ai import EmbeddingProfileModel
-from app.schemas.peer import PeerRef
-from app.schemas.lexical_retrieval import LexicalRetrievalRequest, LexicalRetrievalResult
-from app.schemas.semantic_retrieval import SemanticRetrievalRequest
+from inkcre_core.schemas.ai import EmbeddingProfileModel
+from inkcre_core.schemas.peer import PeerRef
+from inkcre_core.schemas.lexical_retrieval import (
+  LexicalRetrievalRequest,
+  LexicalRetrievalResult,
+)
+from inkcre_core.schemas.semantic_retrieval import SemanticRetrievalRequest
 
 from .entities import relation_record
 

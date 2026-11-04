@@ -1,13 +1,8 @@
-"""The process-owned async engine and session factory; lifespan disposes the pool."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from app.core import CORE
 
-from app.settings import settings
-
-
-ASYNC_DB_ENGINE = create_async_engine(
-  settings.database_url, pool_pre_ping=settings.database_scale_0
-)
-AsyncSessionFactory = async_sessionmaker(ASYNC_DB_ENGINE, expire_on_commit=False)
+ASYNC_DB_ENGINE = CORE.engine
+AsyncSessionFactory = CORE.sessions
 
 __all__ = ["ASYNC_DB_ENGINE", "AsyncSessionFactory"]

@@ -1,10 +1,3 @@
-"""Installed core AI dialect adapters."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from .alibaba_model_studio import AlibabaModelStudioDialect
-from .openai_compatible import OpenAICompatibleConfig, OpenAICompatibleDialect
-
-__all__ = [
-  "AlibabaModelStudioDialect",
-  "OpenAICompatibleConfig",
-  "OpenAICompatibleDialect",
-]
+from inkcre_core.business.ai.dialects import *

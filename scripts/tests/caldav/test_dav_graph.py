@@ -11,8 +11,8 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.engine import ASYNC_DB_ENGINE
-from app.persistence.info_base.uow import graph_uow
-from app.business.info_base.resolver import ResolverManager
+from inkcre_core.persistence.info_base.uow import graph_uow
+from inkcre_core.business.info_base.resolver import ResolverManager
 from extensions.caldav import Extension
 from extensions.caldav.schema import CALENDAR, GraphContent
 from tests.extensions.runtime_support import publish_extension
@@ -201,7 +201,7 @@ def test_commit_failure_rolls_back_and_never_reports_success(dav):
 
 
 def test_tasks_contacts_and_credential_revocation(dav):
-  from app.schemas.extension import ExtensionModel
+  from inkcre_core.schemas.extension import ExtensionModel
   from tests.database import TestSession
 
   task_path = f"/caldav/inkcre/tasks/{uuid4().hex}.ics"
@@ -313,8 +313,8 @@ def test_collection_delete_serializes_direct_peer_membership_writes(
   import sqlmodel
   from sqlalchemy.exc import OperationalError
 
-  from app.schemas.info_base.block import BlockModel
-  from app.schemas.info_base.relation import RelationModel
+  from inkcre_core.schemas.info_base.block import BlockModel
+  from inkcre_core.schemas.info_base.relation import RelationModel
   from extensions.caldav.graph import DAVGraph
   from extensions.caldav.schema import COLLECTION, CollectionContent
   from tests.database import TestSession

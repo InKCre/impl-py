@@ -1,10 +1,11 @@
 __all__ = ["scheduler", "with_trace_id"]
 
 import asyncio
+from app.core import CORE
 
 import apscheduler.schedulers.asyncio
 
-from libs.obsrv.log_record import ENABLE_LOG_BACKEND, TRACE_ID
+from inkcre_core.libs.obsrv.log_record import ENABLE_LOG_BACKEND, TRACE_ID
 
 scheduler = apscheduler.schedulers.asyncio.AsyncIOScheduler()
 
@@ -42,7 +43,8 @@ def with_trace_id(trace_id: str, coro, enable_backend: bool = True):
     token = TRACE_ID.set(trace_id)
     token_backend = ENABLE_LOG_BACKEND.set(enable_backend)
     try:
-      return await coro(*args, **kwargs)
+      with CORE.bind():
+        return await coro(*args, **kwargs)
     finally:
       _running.discard(task)
       TRACE_ID.reset(token)

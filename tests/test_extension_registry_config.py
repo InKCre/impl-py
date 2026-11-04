@@ -2,14 +2,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.business.deployment_config import DeploymentConfigService
+from inkcre_core.business.deployment_config import DeploymentConfigService
 from app.business.extension.config import (
   ExtensionRegistryDeploymentConfig,
   normalize_registry_origin,
   resolve_extension_registry_origin,
 )
-from app.business.peer import PeerManager
-from app.schemas.peer import CorePeerConfig
+from inkcre_core.business.peer import PeerManager
+from inkcre_core.schemas.peer import CorePeerConfig
 from app.settings import settings
 
 

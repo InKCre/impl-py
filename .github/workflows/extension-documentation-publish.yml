@@ -75,7 +75,7 @@ jobs:
           cache: true
 
       - name: Install frozen publisher
-        run: pdm install --no-default --group extension-publisher --frozen-lockfile
+        run: pdm install --no-self --no-default --group extension-publisher --frozen-lockfile
 
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -126,7 +126,7 @@ jobs:
           cache: true
 
       - name: Install frozen publisher
-        run: pdm install --no-default --group extension-publisher --frozen-lockfile
+        run: pdm install --no-self --no-default --group extension-publisher --frozen-lockfile
 
       - name: Restore exact documentation candidates
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0

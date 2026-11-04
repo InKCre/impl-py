@@ -13,11 +13,11 @@ import pytest
 import sqlalchemy
 import sqlmodel
 
-from app.persistence.info_base.uow import graph_uow
-from app.business.peer import PeerManager
-from app.business.source import SourceManager
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
+from inkcre_core.persistence.info_base.uow import graph_uow
+from inkcre_core.business.peer import PeerManager
+from inkcre_core.business.source import SourceManager
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
 from extensions.twitter.archive_session import SESSION_COOKIE_NAME, _issue_session_token
 from extensions.twitter.reconcile import MEDIA_RESOLVER, POST_RESOLVER, USER_RESOLVER
 from tests.database import TestSession

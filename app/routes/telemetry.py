@@ -19,7 +19,7 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
   ExportTraceServiceResponse,
 )
 
-from libs.obsrv.telemetry import get_export_connection
+from inkcre_core.libs.obsrv.telemetry import get_export_connection
 
 
 ROUTER = fastapi.APIRouter(prefix="/telemetry", tags=["telemetry"])

@@ -7,15 +7,15 @@ import logging
 import pydantic
 import pytest
 
-from app.business.agent import (
+from inkcre_core.business.agent import (
   BoundAgentTool,
   InMemoryThreadPersistenceBackend,
   Thread,
   ThreadState,
   TurnTermination,
 )
-from app.business.ai import AIManager
-from app.schemas.ai import (
+from inkcre_core.business.ai import AIManager
+from inkcre_core.schemas.ai import (
   AssistantMessage,
   FunctionTool,
   SystemMessage,
@@ -23,8 +23,9 @@ from app.schemas.ai import (
   UserMessage,
   TextContentPart,
 )
-from app.settings import settings
-from libs.obsrv.log_record import TRACE_ID
+from dataclasses import replace
+from inkcre_core import current_core
+from inkcre_core.libs.obsrv.log_record import TRACE_ID
 
 
 class _Input(pydantic.BaseModel):
@@ -33,7 +34,9 @@ class _Input(pydantic.BaseModel):
 
 @pytest.mark.parametrize("budget", [1, 2])
 def test_trace_retains_tool_errors_and_actual_budget_outcome(monkeypatch, caplog, budget):
-  monkeypatch.setattr(settings.obsrv, "agent_debug", True)
+  monkeypatch.setattr(
+    current_core(), "options", replace(current_core().options, agent_debug=True)
+  )
   caplog.set_level(logging.INFO, logger="inkcre")
   invoked = []
 
@@ -105,7 +108,9 @@ def test_trace_retains_tool_errors_and_actual_budget_outcome(monkeypatch, caplog
 
 
 def test_trace_records_cancellation_without_turn_recovery(monkeypatch, caplog):
-  monkeypatch.setattr(settings.obsrv, "agent_debug", True)
+  monkeypatch.setattr(
+    current_core(), "options", replace(current_core().options, agent_debug=True)
+  )
   caplog.set_level(logging.INFO, logger="inkcre")
 
   async def run():
@@ -138,14 +143,18 @@ def test_trace_records_cancellation_without_turn_recovery(monkeypatch, caplog):
 
 
 def test_debug_disabled_and_broken_destination_do_not_raise(monkeypatch):
-  from app.business.agent.debug import trace
+  from inkcre_core.business.agent.debug import trace
   import uuid
 
-  monkeypatch.setattr(settings.obsrv, "agent_debug", False)
+  monkeypatch.setattr(
+    current_core(), "options", replace(current_core().options, agent_debug=False)
+  )
   asyncio.run(trace("example", uuid.uuid4(), unsupported=object()))
-  monkeypatch.setattr(settings.obsrv, "agent_debug", True)
+  monkeypatch.setattr(
+    current_core(), "options", replace(current_core().options, agent_debug=True)
+  )
   asyncio.run(trace("example", uuid.uuid4(), unsupported=object()))
-  from libs.obsrv.main import get_logger
+  from inkcre_core.libs.obsrv.main import get_logger
 
   def broken_destination(*args, **kwargs):
     raise OSError("destination unavailable")

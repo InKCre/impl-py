@@ -21,11 +21,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.database_contract.connection import normalized_database_url, psycopg_database_url
-from app.business.info_base.storage.postgresql import PostgreSQLBlobPointer
+from inkcre_core.business.info_base.storage.postgresql import PostgreSQLBlobPointer
 from tests.database import TestSession
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.info_base.storage import StorageBlobModel
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.info_base.storage import StorageBlobModel
 from extensions.memos import Extension
 from extensions.memos.family import AttachmentApplicationService, CanonicalAttachment
 
@@ -62,7 +62,7 @@ def attachment_database(monkeypatch):
     monkeypatch.setenv("MIGRATION_DATABASE_URL", database_url)
     monkeypatch.setattr("tests.database.TEST_ENGINE", engine)
     monkeypatch.setattr(
-      "app.persistence.info_base.uow.AsyncSessionFactory",
+      "inkcre_core.persistence.info_base.uow.AsyncSessionFactory",
       async_sessionmaker(async_engine, expire_on_commit=False),
     )
     command.upgrade(config, ATTACHMENT_REVISION)

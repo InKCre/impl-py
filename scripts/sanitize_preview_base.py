@@ -15,7 +15,7 @@ from sqlalchemy.pool import NullPool
 
 from migrations.metadata import get_target_metadata
 from migrations.settings import MigrationSettings
-from app.database_contract import INTERNAL_SCHEMA, PROTOCOL_SCHEMA
+from inkcre_core.database_contract import INTERNAL_SCHEMA, PROTOCOL_SCHEMA
 
 
 SANITIZE_GUARD = "ALLOW_PREVIEW_BASE_SANITIZE"

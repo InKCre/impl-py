@@ -4,12 +4,12 @@ __all__ = ["PEER_INBOUND", "ROUTER"]
 
 import fastapi
 
-from app.business.lexical_retrieval import (
+from inkcre_core.business.lexical_retrieval import (
   LEXICAL_RETRIEVAL_CAPABILITY,
   LexicalRetrievalManager,
 )
-from app.business.peer import PeerHTTPInbound
-from app.schemas.lexical_retrieval import (
+from inkcre_core.business.peer import PeerHTTPInbound
+from inkcre_core.schemas.lexical_retrieval import (
   LexicalRetrievalRequest,
   LexicalRetrievalResult,
 )

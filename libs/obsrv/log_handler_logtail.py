@@ -1,29 +1,10 @@
-"""Logtail logging handler."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-import logging
-from typing import Optional
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from logtail import LogtailHandler as RealLogtailHandler
+sys.modules[__name__] = import_module("inkcre_core.libs.obsrv.log_handler_logtail")
 
-
-class LogtailHandler:
-  """Wrapper for Logtail handler."""
-
-  def __init__(self, source_token: Optional[str] = None, host: Optional[str] = None):
-    self.source_token = source_token
-    self.host = host
-    self.handler = None
-
-  def get_handler(self) -> Optional[logging.Handler]:
-    """Get the logtail handler if available."""
-    if not self.source_token:
-      return None
-    if self.handler is None:
-      try:
-        self.handler = RealLogtailHandler(source_token=self.source_token)
-        if self.host:
-          self.handler.host = self.host
-        self.handler.setLevel(logging.INFO)
-      except Exception:
-        return None
-    return self.handler
+if TYPE_CHECKING:
+  from inkcre_core.libs.obsrv.log_handler_logtail import *

@@ -1,6 +1,7 @@
 """Real RSS/Atom HTTP doubles collected through PostgreSQL source jobs."""
 
 from __future__ import annotations
+from inkcre_core import current_core
 
 from tests.database import read_block, read_relations
 
@@ -17,17 +18,17 @@ import pytest
 import pydantic
 import sqlmodel
 
-from app.business.info_base.resolver import ResolverManager, register_core_resolvers
-from app.business.info_base.storage import StorageManager
-from app.business.info_base.storage.postgresql import PostgreSQLBlobPointer
-from app.business.job import JobManager
-from app.business.source import SOURCE_COLLECT_JOB_TYPE, SourceManager
+from inkcre_core.business.info_base.resolver import ResolverManager, register_core_resolvers
+from inkcre_core.business.info_base.storage import StorageManager
+from inkcre_core.business.info_base.storage.postgresql import PostgreSQLBlobPointer
+from inkcre_core.business.job import JobManager
+from inkcre_core.business.source import SOURCE_COLLECT_JOB_TYPE, SourceManager
 from tests.database import TestSession
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.info_base.storage import StorageBlobModel
-from app.schemas.job import JobModel, JobStatus
-from app.schemas.source import SourceModel
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.info_base.storage import StorageBlobModel
+from inkcre_core.schemas.job import JobModel, JobStatus
+from inkcre_core.schemas.source import SourceModel
 from extensions.rss import Extension
 from extensions.rss.api import register_api
 from extensions.rss.reconcile import (
@@ -324,7 +325,7 @@ def _cleanup(source_ids: set[int]) -> None:
         db_session.delete(blob)
     db_session.commit()
   for source_id in source_ids:
-    SourceManager.SOURCES.pop(source_id, None)
+    current_core().sources.pop(source_id, None)
 
 
 async def _exercise_rss() -> None:

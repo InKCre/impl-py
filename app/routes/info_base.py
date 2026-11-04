@@ -4,8 +4,8 @@ __all__ = ["ROUTER"]
 
 import fastapi
 
-from app.business.info_base.commands import submit_graph as submit_graph_command
-from app.schemas.info_base.main import GraphForm, SubmitGraphResult
+from inkcre_core.business.info_base.commands import submit_graph as submit_graph_command
+from inkcre_core.schemas.info_base.main import GraphForm, SubmitGraphResult
 from .validation import database_write
 
 

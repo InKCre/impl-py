@@ -4,12 +4,12 @@ __all__ = ["ROUTER"]
 
 import fastapi
 
-from app.business.peer import PeerHTTPInbound
-from app.business.semantic_retrieval import (
+from inkcre_core.business.peer import PeerHTTPInbound
+from inkcre_core.business.semantic_retrieval import (
   SEMANTIC_RETRIEVAL_CAPABILITY,
   SemanticRetrievalManager,
 )
-from app.schemas.semantic_retrieval import (
+from inkcre_core.schemas.semantic_retrieval import (
   SemanticRetrievalRequest,
   SemanticRetrievalResult,
 )

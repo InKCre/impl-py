@@ -1,24 +1,10 @@
-"""A Cron occurrence and its admitted Job commit together."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from app.persistence.job.repository import JobRepository
-from app.persistence.job.uow import JobUnitOfWork
-from app.persistence.source.repository import SourceRepository
-from .repository import CronRepository
+sys.modules[__name__] = import_module("inkcre_core.persistence.cron.uow")
 
-
-@dataclass(frozen=True)
-class CronUnitOfWork(JobUnitOfWork):
-  crons: CronRepository
-
-
-@asynccontextmanager
-async def cron_uow() -> AsyncGenerator[CronUnitOfWork, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield CronUnitOfWork(
-      JobRepository(session), SourceRepository(session), CronRepository(session)
-    )
+if TYPE_CHECKING:
+  from inkcre_core.persistence.cron.uow import *

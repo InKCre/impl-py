@@ -1,14 +1,3 @@
-from .main import InfoBaseManager
-from .commands import persist_graph, submit_graph, persist_stars, submit_stars
-from .services import BlockService, RelationService, get_entity_records
+"""Legacy import; use inkcre_core for new consumers."""
 
-__all__ = [
-  "InfoBaseManager",
-  "persist_graph",
-  "submit_graph",
-  "persist_stars",
-  "submit_stars",
-  "get_entity_records",
-  "BlockService",
-  "RelationService",
-]
+from inkcre_core.business.info_base import *

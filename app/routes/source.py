@@ -4,15 +4,15 @@ import typing
 
 import fastapi
 
-from app.business.job import JobManager
-from app.business.source import SOURCE_BACKFILL_JOB_TYPE, SOURCE_COLLECT_JOB_TYPE
-from app.business.source.main import (
+from inkcre_core.business.job import JobManager
+from inkcre_core.business.source import SOURCE_BACKFILL_JOB_TYPE, SOURCE_COLLECT_JOB_TYPE
+from inkcre_core.business.source.main import (
   SourceManager,
   SourceNotFoundError,
   UnsupportedSourceCommandError,
 )
-from app.schemas.job import JobModel
-from app.schemas.source import (
+from inkcre_core.schemas.job import JobModel
+from inkcre_core.schemas.source import (
   SourceCreateForm,
   SourceModel,
   SourceTypesModel,

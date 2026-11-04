@@ -1,5 +1,3 @@
-"""Observability package."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-__all__ = ["get_logger", "setup_obsrv"]
-
-from .main import get_logger, setup_obsrv
+from inkcre_core.libs.obsrv import *

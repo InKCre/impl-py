@@ -31,7 +31,7 @@ jobs:
           cache: true
 
       - name: Install locked release tooling
-        run: pdm install -G dev --frozen-lockfile
+        run: pdm install -G app -G dev --frozen-lockfile
 
       - name: Prepare every pending project
         run: pdm run release:prepare

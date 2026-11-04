@@ -9,7 +9,7 @@ import pytest
 
 from extensions.local_files.schema import FileMetadata, file_location
 from extensions.local_files.resolver import LocalFileResolver
-from app.business.info_base.services import BlockService
+from inkcre_core.business.info_base.services import BlockService
 
 
 def test_location_retains_machine_path_without_remote_file_access():
@@ -80,8 +80,8 @@ def test_failed_current_file_keeps_successful_body_readable(monkeypatch, async_r
 )
 def test_v2_uses_the_body_format(monkeypatch, async_runner, resolver, content, expected):
   from extensions.local_files.resolver import LocalFileV2Resolver
-  from app.business.info_base.resolver import register_core_resolvers
-  from app.schemas.info_base.block import BlockModel
+  from inkcre_core.business.info_base.resolver import register_core_resolvers
+  from inkcre_core.schemas.info_base.block import BlockModel
 
   register_core_resolvers()
   now = datetime.datetime.now(datetime.UTC)

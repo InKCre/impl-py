@@ -109,5 +109,5 @@ contains corpus aliases, expected phrases or test-shaped IDs.
 - recursive graph indexing
 - implicit maintenance during a retrieval request
 
-数据库查询与 projection upsert 由 `app/persistence/lexical_retrieval/` 执行。业务入口原生 await，
+数据库查询与 projection upsert 由 `inkcre_core/persistence/lexical_retrieval/` 执行。业务入口原生 await，
 每个维护 batch 在短事务中一次 upsert 全部有效投影；Resolver 投影不占用该写事务。

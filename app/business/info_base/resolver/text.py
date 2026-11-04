@@ -1,62 +1,10 @@
-"""Exact plain-text resolver."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-import pydantic
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from .inspection import decode_unicode_bytes
-from .label import format_label
-from .main import Resolver, TextProjectionContext
+sys.modules[__name__] = import_module("inkcre_core.business.info_base.resolver.text")
 
-
-class TextDraftInput(pydantic.BaseModel):
-  """Resolver-native input for drafting one plain-text Block."""
-
-  model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
-
-  text: str
-
-
-class TextResolver(Resolver[str, str | bytes], rso_type="core.text.v1"):
-  draft_description = "Create one ordinary plain-text semantic content Block."
-  draft_input_model = TextDraftInput
-
-  @classmethod
-  def create_graph(cls, input: str | TextDraftInput):
-    from app.schemas.info_base.block import BlockForm
-    from app.schemas.info_base.main import StarsGraphForm
-
-    text = input.text if isinstance(input, TextDraftInput) else input
-    return StarsGraphForm(block=BlockForm(resolver=cls.__rsotype__, content=text))
-
-  async def _get_solved_content(
-    self,
-    *,
-    refresh: bool = False,
-    materialize_missing: bool = True,
-  ) -> str:
-    del materialize_missing
-    content = await self.get_raw_content(refresh=refresh)
-    return (
-      content
-      if isinstance(content, str)
-      else decode_unicode_bytes(content, self.__rsotype__)
-    )
-
-  async def get_text(
-    self,
-    *,
-    context: TextProjectionContext = "default",
-    refresh: bool = False,
-    materialize_missing: bool = True,
-  ) -> str:
-    del context
-    return await self.get_solved_content(
-      refresh=refresh,
-      materialize_missing=materialize_missing,
-    )
-
-  async def get_label(self, *, refresh: bool = False) -> str:
-    return format_label(
-      "text",
-      await self.get_text(refresh=refresh, materialize_missing=False),
-      first_line=True,
-    )
+if TYPE_CHECKING:
+  from inkcre_core.business.info_base.resolver.text import *

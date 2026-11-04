@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from psycopg.types.json import Jsonb
 from app.database_contract.connection import database_connection
-from app.schemas.observability import CONFIG_KEY, CONFIG_SCHEMA, ObservabilityConfig
+from inkcre_core.schemas.observability import CONFIG_KEY, CONFIG_SCHEMA, ObservabilityConfig
 
 
 def main() -> None:

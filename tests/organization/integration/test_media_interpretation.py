@@ -1,7 +1,7 @@
 """Real-storage vertical proof for media textualization and interpretation Jobs."""
 
-from app.business.deployment_config import DeploymentConfigService
-from app.persistence.info_base.uow import graph_uow
+from inkcre_core.business.deployment_config import DeploymentConfigService
+from inkcre_core.persistence.info_base.uow import graph_uow
 from tests.database import read_relations
 
 
@@ -13,34 +13,34 @@ import typing
 import pytest
 import sqlalchemy
 
-import app.business.organization_job  # noqa: F401  # exact Job registration
-from app.business.ai import AIManager
-from app.business.cron import CronManager
-from app.business.info_base.resolver import register_core_resolvers
-from app.business.info_base.resolver.audio import (
+import inkcre_core.business.organization_job  # noqa: F401  # exact Job registration
+from inkcre_core.business.ai import AIManager
+from inkcre_core.business.cron import CronManager
+from inkcre_core.business.info_base.resolver import register_core_resolvers
+from inkcre_core.business.info_base.resolver.audio import (
   AUDIO_RESOLVER_CONFIG_KEY,
   AUDIO_RESOLVER_CONFIG_SCHEMA,
 )
-from app.business.info_base.resolver.image import (
+from inkcre_core.business.info_base.resolver.image import (
   IMAGE_RESOLVER_CONFIG_KEY,
   IMAGE_RESOLVER_CONFIG_SCHEMA,
 )
-from app.business.info_base.resolver.video import (
+from inkcre_core.business.info_base.resolver.video import (
   VIDEO_RESOLVER_CONFIG_KEY,
   VIDEO_RESOLVER_CONFIG_SCHEMA,
 )
-from app.business.info_base.storage import StorageManager, WritableStorage
-from app.business.job import JobManager
-from app.business.lexical_retrieval import LexicalRetrievalManager
-from app.business.organization import SUBMIT_GRAPH_TOOL
-from app.business.organization_media import (
+from inkcre_core.business.info_base.storage import StorageManager, WritableStorage
+from inkcre_core.business.job import JobManager
+from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.organization import SUBMIT_GRAPH_TOOL
+from inkcre_core.business.organization_media import (
   MEDIA_INTERPRETATION_CONFIG_KEY,
   MEDIA_INTERPRETATION_CONFIG_SCHEMA,
   MEDIA_INTERPRETATION_JOB_TYPE,
 )
 from tests.database import TestSession
-from app.schemas import AgentDefinitionModel
-from app.schemas.ai import (
+from inkcre_core.schemas import AgentDefinitionModel
+from inkcre_core.schemas.ai import (
   AIModelModel,
   AIProviderModel,
   AssistantMessage,
@@ -53,11 +53,11 @@ from app.schemas.ai import (
   UserMessage,
   VideoContentPart,
 )
-from app.schemas.cron import CronModel
-from app.schemas.deployment_config import DeploymentConfigModel
-from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.job import JobModel, JobStatus
-from app.schemas.lexical_retrieval import LexicalMaintenanceOptions
+from inkcre_core.schemas.cron import CronModel
+from inkcre_core.schemas.deployment_config import DeploymentConfigModel
+from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
+from inkcre_core.schemas.job import JobModel, JobStatus
+from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceOptions
 
 
 pytestmark = pytest.mark.skipif(

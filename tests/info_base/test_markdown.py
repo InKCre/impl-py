@@ -3,12 +3,12 @@
 import datetime
 from unittest.mock import AsyncMock
 
-from app.business.info_base.resolver import (
+from inkcre_core.business.info_base.resolver import (
   MarkdownResolver,
   ResolverManager,
   register_core_resolvers,
 )
-from app.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.block import BlockModel
 
 
 def test_markdown_keeps_source_and_unicode(async_runner, monkeypatch):

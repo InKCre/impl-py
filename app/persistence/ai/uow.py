@@ -1,13 +1,10 @@
-"""Short database scope for AI facts; provider calls outlive this scope."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from .repository import AIRepository
+sys.modules[__name__] = import_module("inkcre_core.persistence.ai.uow")
 
-
-@asynccontextmanager
-async def ai_uow() -> AsyncGenerator[AIRepository, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield AIRepository(session)
+if TYPE_CHECKING:
+  from inkcre_core.persistence.ai.uow import *

@@ -1,13 +1,10 @@
-"""Short persistence scope; provider calls run after it closes."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from .repository import SemanticRetrievalRepository
+sys.modules[__name__] = import_module("inkcre_core.persistence.semantic_retrieval.uow")
 
-
-@asynccontextmanager
-async def semantic_retrieval_uow() -> AsyncGenerator[SemanticRetrievalRepository, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield SemanticRetrievalRepository(session)
+if TYPE_CHECKING:
+  from inkcre_core.persistence.semantic_retrieval.uow import *

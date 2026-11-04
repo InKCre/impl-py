@@ -5,8 +5,11 @@ import typing
 
 import pydantic
 
-from app.business.deployment_config import DeploymentConfigManager, DeploymentConfigService
-from app.business.peer import PeerManager
+from inkcre_core.business.deployment_config import (
+  DeploymentConfigManager,
+  DeploymentConfigService,
+)
+from inkcre_core.business.peer import PeerManager
 from app.settings import settings
 
 

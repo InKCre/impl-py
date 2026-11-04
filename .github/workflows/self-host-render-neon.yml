@@ -41,7 +41,7 @@ jobs:
           cache: true
 
       - name: Install locked runtime dependencies
-        run: pdm install --prod --no-editable --frozen-lockfile
+        run: pdm install -G app --prod --no-editable --frozen-lockfile
 
       - name: Resolve the Neon default branch owner coordinates
         id: neon

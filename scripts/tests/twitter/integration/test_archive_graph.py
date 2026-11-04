@@ -17,21 +17,21 @@ from sqlalchemy import event
 import sqlmodel
 import twikit
 
-from app.business.info_base.resolver import ResolverManager
-from app.business.info_base.storage import HTTPStorage
-from app.business.lexical_retrieval import LexicalRetrievalManager
-from app.business.source import SourceManager
-from app.persistence.info_base.repository import BlockRepository, RelationRepository
-from app.persistence.info_base.uow import graph_uow
-from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.info_base.storage import StorageBlobModel
-from app.schemas.job import JobModel
-from app.schemas.lexical_retrieval import (
+from inkcre_core.business.info_base.resolver import ResolverManager
+from inkcre_core.business.info_base.storage import HTTPStorage
+from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.source import SourceManager
+from inkcre_core.persistence.info_base.repository import BlockRepository, RelationRepository
+from inkcre_core.persistence.info_base.uow import graph_uow
+from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.info_base.storage import StorageBlobModel
+from inkcre_core.schemas.job import JobModel
+from inkcre_core.schemas.lexical_retrieval import (
   BlockLexicalRecordModel,
   LexicalMaintenanceOptions,
 )
-from app.schemas.source import SourceModel
+from inkcre_core.schemas.source import SourceModel
 from extensions.twitter.api import (
   TwitterAPI,
   TwitterAPIResult,

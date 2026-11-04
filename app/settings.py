@@ -9,8 +9,8 @@ import uuid
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.database_contract.constants import JWT_MINIMUM_SECRET_BYTES
-from libs.obsrv.setting import ObsrvSetting
+from inkcre_core.database_contract.constants import JWT_MINIMUM_SECRET_BYTES
+from inkcre_core.libs.obsrv.setting import ObsrvSetting
 
 
 class Settings(BaseSettings):

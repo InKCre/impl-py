@@ -12,15 +12,15 @@ import sqlmodel
 import vobject  # pyrefly: ignore[untyped-import]
 from sqlalchemy.exc import OperationalError
 
-from app.business.info_base.resolver import ResolverManager
-from app.business.info_base.storage import StorageManager
-from app.business.info_base.storage.postgresql import (
+from inkcre_core.business.info_base.resolver import ResolverManager
+from inkcre_core.business.info_base.storage import StorageManager
+from inkcre_core.business.info_base.storage.postgresql import (
   PostgreSQLBinaryStorage,
   PostgreSQLBlobPointer,
 )
-from app.persistence.info_base.uow import graph_uow
-from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.info_base.storage import StorageBlobModel
+from inkcre_core.persistence.info_base.uow import graph_uow
+from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
+from inkcre_core.schemas.info_base.storage import StorageBlobModel
 from extensions.caldav.graph import DAVGraph, migrate_legacy_graph
 from extensions.caldav.resolver import solve_resource
 from extensions.caldav.schema import (

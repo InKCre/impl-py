@@ -21,7 +21,7 @@ import httpx
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-from app.database_contract.constants import JWT_MINIMUM_SECRET_BYTES
+from inkcre_core.database_contract.constants import JWT_MINIMUM_SECRET_BYTES
 from app.database_contract.lifecycle import initialize
 from app.database_contract.readiness import check_database_contract
 from app.database_contract.roles import RoleSecrets

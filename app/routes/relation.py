@@ -5,9 +5,9 @@ __all__ = ["ROUTER"]
 
 import fastapi
 
-from app.business.info_base.services import RelationService
-from app.schemas.info_base.relation import RelationCreateForm
-from app.schemas.info_base.rest import RelationUpdateForm
+from inkcre_core.business.info_base.services import RelationService
+from inkcre_core.schemas.info_base.relation import RelationCreateForm
+from inkcre_core.schemas.info_base.rest import RelationUpdateForm
 
 from .entities import relation_record
 from .validation import database_write

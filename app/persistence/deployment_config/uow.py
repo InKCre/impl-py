@@ -1,12 +1,10 @@
-"""Deployment configuration transaction composition."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from app.engine import AsyncSessionFactory
-from .repository import DeploymentConfigRepository
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
+sys.modules[__name__] = import_module("inkcre_core.persistence.deployment_config.uow")
 
-@asynccontextmanager
-async def configuration_transaction() -> AsyncGenerator[DeploymentConfigRepository, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield DeploymentConfigRepository(session)
+if TYPE_CHECKING:
+  from inkcre_core.persistence.deployment_config.uow import *

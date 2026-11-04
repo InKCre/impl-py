@@ -4,10 +4,13 @@ import typing
 
 import fastapi
 
-from app.business.job import JobManager, UnknownJobTypeError
-from app.business.source.main import SourceNotFoundError, UnsupportedSourceCommandError
+from inkcre_core.business.job import JobManager, UnknownJobTypeError
+from inkcre_core.business.source.main import (
+  SourceNotFoundError,
+  UnsupportedSourceCommandError,
+)
 from app.business.sink import SinkError, SinkNotFoundError
-from app.schemas.job import JobCreateForm, JobModel, JobStatus, JobTypeModel
+from inkcre_core.schemas.job import JobCreateForm, JobModel, JobStatus, JobTypeModel
 
 from .validation import request_input
 

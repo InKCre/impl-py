@@ -9,15 +9,15 @@ import pytest
 import sqlalchemy
 import sqlalchemy.exc
 
-from app.business.agent import (
+from inkcre_core.business.agent import (
   AgentManager,
   InMemoryThreadPersistenceBackend,
   TurnTermination,
 )
-from app.business.ai import AIManager
+from inkcre_core.business.ai import AIManager
 from tests.database import TestSession
-from app.schemas import AgentDefinitionModel
-from app.schemas.ai import (
+from inkcre_core.schemas import AgentDefinitionModel
+from inkcre_core.schemas.ai import (
   AIModelModel,
   AIProviderModel,
   AssistantMessage,

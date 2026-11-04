@@ -6,13 +6,13 @@ import typing
 
 import fastapi
 
-from app.business.deployment_config import (
+from inkcre_core.business.deployment_config import (
   DeploymentConfigManager,
   DeploymentConfigService,
   DeploymentConfigNotFoundError,
   UnknownDeploymentConfigSchemaError,
 )
-from app.schemas.deployment_config import (
+from inkcre_core.schemas.deployment_config import (
   DeploymentConfigKey,
   DeploymentConfigReplaceForm,
   DeploymentConfigView,

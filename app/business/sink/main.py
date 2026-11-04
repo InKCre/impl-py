@@ -8,9 +8,9 @@ import typing
 
 import fastapi
 
-from app.persistence.sink.uow import sink_uow
-from app.schemas.peer import PeerRef
-from app.schemas.sink import SinkID, SinkModel, SinkTypeID, SinkTypeModel
+from inkcre_core.persistence.sink.uow import sink_uow
+from inkcre_core.schemas.peer import PeerRef
+from inkcre_core.schemas.sink import SinkID, SinkModel, SinkTypeID, SinkTypeModel
 
 from .errors import (
   DuplicateSinkRegistrationError,

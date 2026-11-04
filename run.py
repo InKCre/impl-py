@@ -12,9 +12,11 @@ import uvicorn
 from fastapi.responses import JSONResponse
 
 # Setup logging
-from libs.obsrv.main import close_obsrv, setup_obsrv, start_obsrv
+from inkcre_core.libs.obsrv.main import close_obsrv, setup_obsrv, start_obsrv
 
-logger = setup_obsrv()
+from app.settings import settings
+
+logger = setup_obsrv(settings.obsrv)
 # Setup logging end
 
 # Load flags
@@ -26,8 +28,7 @@ SKIP_EXTENSION_START: bool = os.getenv("SKIP_EXTENSION_START", "").lower() in (
 # Load flags end
 
 from fastapi.middleware.cors import CORSMiddleware
-from app.settings import settings
-from app.engine import ASYNC_DB_ENGINE
+from app.core import CORE, CoreMiddleware
 from app.routes.block import ROUTER as block_router
 from app.routes.relation import ROUTER as relation_router
 from app.routes.extension import PEER_INBOUND as extension_peer_inbound
@@ -52,19 +53,19 @@ from app.routes.semantic_retrieval import PEER_INBOUND as semantic_retrieval_pee
 from app.routes.semantic_retrieval import ROUTER as semantic_retrieval_router
 from app.routes.sink import ROUTER as sink_router
 from app.routes.telemetry import ROUTER as telemetry_router
-from app.business.source import SourceManager
-from app.business.cron import CronManager
-from app.business.job import JobManager
+from inkcre_core.business.source import SourceManager
+from inkcre_core.business.cron import CronManager
+from inkcre_core.business.job import JobManager
 from app.business.extension import EXTENSION_HOST
-from app.business.peer import PeerManager
-from app.business.ai import AIManager
+from inkcre_core.business.peer import PeerManager
+from inkcre_core.business.ai import AIManager
 from app.business.sink import SinkManager
 
 # Import core-owned Job contracts before their catalog is synchronized.
-from app.business.organization_job import MediaInterpretationJobHandler  # noqa: F401
+from inkcre_core.business.organization_job import MediaInterpretationJobHandler  # noqa: F401
 
 # Import independent Organization Job contracts before catalog synchronization.
-from app.business.organization.jobs import (  # noqa: F401
+from inkcre_core.business.organization.jobs import (  # noqa: F401
   DuplicateAssertionJobHandler,
   EvidenceStanceJobHandler,
   ExistingReferentAnchoringJobHandler,
@@ -75,7 +76,7 @@ from app.business.organization.jobs import (  # noqa: F401
 )
 from app.middleware import LoggingMiddleware, require_peer_jwt
 from app.observability import TelemetryMiddleware, initialize_telemetry
-from app.schemas.peer import PEER_EXECUTION_HEADER
+from inkcre_core.schemas.peer import PEER_EXECUTION_HEADER
 from app.health import check_database_readiness
 from app.runtime import (
   RUNTIME_STATUS,
@@ -137,10 +138,10 @@ def bootstrap_step(step: str):
 
 async def bootstrap_runtime(app: fastapi.FastAPI) -> None:
   """Initialize database-backed runtime services after migrations are ready."""
-  from app.business.info_base.resolver import register_core_resolvers
-  from app.business.agent import register_core_agent_tools
-  from app.business.organization import register_core_organization_behaviors
-  from app.business.info_base.storage import StorageManager
+  from inkcre_core.business.info_base.resolver import register_core_resolvers
+  from inkcre_core.business.agent import register_core_agent_tools
+  from inkcre_core.business.organization import register_core_organization_behaviors
+  from inkcre_core.business.info_base.storage import StorageManager
 
   # Register this Peer first so extension enablement can resolve its identity.
   with bootstrap_step("peer_registration"):
@@ -282,7 +283,7 @@ async def lifespan(app: fastapi.FastAPI):
       try:
         await close_obsrv()
       finally:
-        await ASYNC_DB_ENGINE.dispose()
+        await CORE.aclose()
 
 
 api_app = fastapi.FastAPI(title="InKCre", lifespan=lifespan)
@@ -328,6 +329,10 @@ api_app.add_middleware(
   allow_headers=["*"],  # 允许所有请求头
   expose_headers=[PEER_EXECUTION_HEADER],
 )
+
+
+# Bind outer request middleware and lifespan to the same owned instance.
+api_app.add_middleware(CoreMiddleware, core=CORE)
 
 
 # Set up routes

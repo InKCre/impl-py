@@ -8,8 +8,8 @@ import uuid
 
 import pydantic
 
-from app.persistence.extension.uow import extension_uow
-from app.schemas.extension import ExtensionModel, ExtensionPeerParticipationModel
+from inkcre_core.persistence.extension.uow import extension_uow
+from inkcre_core.schemas.extension import ExtensionModel, ExtensionPeerParticipationModel
 
 from .errors import ExtensionNotInstalledError, ExtensionStateConflictError
 

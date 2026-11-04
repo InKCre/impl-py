@@ -4,8 +4,8 @@ import typing
 
 import fastapi
 
-from app.business.peer import PeerManager
-from app.schemas.peer import PeerRef
+from inkcre_core.business.peer import PeerManager
+from inkcre_core.schemas.peer import PeerRef
 
 
 ROUTER = fastapi.APIRouter(prefix="/peers", tags=["peer"])

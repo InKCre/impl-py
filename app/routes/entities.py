@@ -4,10 +4,10 @@ import typing
 
 import fastapi
 
-from app.business.info_base import get_entity_records
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.info_base.rest import EntitiesGetForm
-from libs.obsrv.main import get_logger
+from inkcre_core.business.info_base import get_entity_records
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.info_base.rest import EntitiesGetForm
+from inkcre_core.libs.obsrv.main import get_logger
 
 from .content import CONTENT_RESPONSES, content_response
 

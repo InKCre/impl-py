@@ -112,7 +112,7 @@ jobs:
       - name: Install frozen publisher
         if: steps.selection.outputs.selected == 'true'
         run: >-
-          pdm install --no-default --group extension-publisher --frozen-lockfile
+          pdm install --no-self --no-default --group extension-publisher --frozen-lockfile
 
       - name: Build and verify native wheel
         if: steps.selection.outputs.selected == 'true'
@@ -203,7 +203,7 @@ jobs:
       - name: Install frozen publisher
         if: steps.candidate.outputs.selected == 'true'
         run: >-
-          pdm install --no-default --group extension-publisher --frozen-lockfile
+          pdm install --no-self --no-default --group extension-publisher --frozen-lockfile
 
       - name: Prepare exact native Release association
         if: steps.candidate.outputs.selected == 'true'

@@ -1,11 +1,10 @@
-"""Log batches commit independently of application transactions."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from libs.obsrv.log_record import LogModel
+sys.modules[__name__] = import_module("inkcre_core.persistence.observability.uow")
 
-
-async def write_logs(entries: Sequence[LogModel]) -> None:
-  async with AsyncSessionFactory.begin() as session:
-    session.add_all(entries)
+if TYPE_CHECKING:
+  from inkcre_core.persistence.observability.uow import *

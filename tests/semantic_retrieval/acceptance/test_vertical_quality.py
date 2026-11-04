@@ -1,9 +1,10 @@
 """Black-box corpus ingestion and explicit real-provider semantic quality gates."""
 
 from __future__ import annotations
+from inkcre_core import current_core
 
-from app.business.deployment_config import DeploymentConfigService
-from app.business.info_base.commands import submit_stars
+from inkcre_core.business.deployment_config import DeploymentConfigService
+from inkcre_core.business.info_base.commands import submit_stars
 from tests.database import read_block, read_relations
 
 
@@ -20,12 +21,12 @@ import pytest
 import sqlalchemy
 import sqlmodel
 
-from app.business.ai import AIManager
-from app.business.info_base.resolver import register_core_resolvers
-from app.business.info_base.resolver.html import HTMLResolver
-from app.business.info_base.storage import StorageManager
-from app.business.info_base.storage.postgresql import PostgreSQLBlobPointer
-from app.business.organization import (
+from inkcre_core.business.ai import AIManager
+from inkcre_core.business.info_base.resolver import register_core_resolvers
+from inkcre_core.business.info_base.resolver.html import HTMLResolver
+from inkcre_core.business.info_base.storage import StorageManager
+from inkcre_core.business.info_base.storage.postgresql import PostgreSQLBlobPointer
+from inkcre_core.business.organization import (
   DRAFT_GRAPH_TOOL,
   GET_DRAFT_GRAPH_SCHEMA_TOOL,
   RUMINATION_CONFIG_KEY,
@@ -33,14 +34,14 @@ from app.business.organization import (
   SUBMIT_GRAPH_TOOL,
   RuminationBehaviorResolver,
 )
-from app.business.semantic_retrieval import SemanticRetrievalManager
-from app.business.job import JobManager
-from app.business.lexical_retrieval import LexicalRetrievalManager
-from app.business.source import SOURCE_COLLECT_JOB_TYPE, SourceManager
+from inkcre_core.business.semantic_retrieval import SemanticRetrievalManager
+from inkcre_core.business.job import JobManager
+from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.source import SOURCE_COLLECT_JOB_TYPE, SourceManager
 from tests.database import TestSession
-from app.schemas import AgentDefinitionModel
+from inkcre_core.schemas import AgentDefinitionModel
 from tests.extensions.runtime_support import publish_extension
-from app.schemas.ai import (
+from inkcre_core.schemas.ai import (
   AIModelModel,
   AIProviderModel,
   AssistantMessage,
@@ -53,16 +54,19 @@ from app.schemas.ai import (
   ToolResultMessage,
   UserMessage,
 )
-from app.schemas.deployment_config import DeploymentConfigModel, DeploymentConfigView
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.semantic_retrieval import (
+from inkcre_core.schemas.deployment_config import (
+  DeploymentConfigModel,
+  DeploymentConfigView,
+)
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.semantic_retrieval import (
   EmbeddingMaintenanceOptions,
   VectorRetrievalOptions,
 )
-from app.schemas.job import JobModel, JobStatus
-from app.schemas.lexical_retrieval import LexicalMaintenanceOptions
-from app.schemas.source import SourceModel
+from inkcre_core.schemas.job import JobModel, JobStatus
+from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceOptions
+from inkcre_core.schemas.source import SourceModel
 from extensions.memos import Extension as MemosExtension
 from extensions.rss import Extension as RSSExtension
 from extensions.rss.reconcile import (
@@ -458,7 +462,7 @@ def _cleanup_corpus(run: CorpusRun) -> None:
       )
     db.commit()
   for source_id in run.source_ids:
-    SourceManager.SOURCES.pop(source_id, None)
+    current_core().sources.pop(source_id, None)
 
 
 async def _close_corpus(run: CorpusRun) -> None:

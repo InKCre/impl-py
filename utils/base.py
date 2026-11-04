@@ -1,15 +1,10 @@
-import enum
-import aiohttp
-import ssl
-import certifi
-import pydantic
+"""Legacy import; use inkcre_core for new consumers."""
 
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-enum_serializer = pydantic.PlainSerializer(
-  lambda value: value.value if isinstance(value, enum.Enum) else value,
-  return_type=str,
-)
+sys.modules[__name__] = import_module("inkcre_core.utils.base")
 
-
-def AIOHTTP_CONNECTOR_GETTER():
-  return aiohttp.TCPConnector(ssl=ssl.create_default_context(cafile=certifi.where()))
+if TYPE_CHECKING:
+  from inkcre_core.utils.base import *

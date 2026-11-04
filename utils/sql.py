@@ -1,32 +1,10 @@
-"""Sql utilities."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-import typing
-import sqlalchemy
-from sqlalchemy.dialects.postgresql import JSONB
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
+sys.modules[__name__] = import_module("inkcre_core.utils.sql")
 
-def find_by_json_field(column: typing.Any, field_name: str, value: str):
-  """Find by JSON field value.
-
-  :param column: sqlalchemy column
-
-  Examples:
-      >>> find_by_json_field(YourTable.column_name, "email", "example@example.com")
-  """
-  return sqlalchemy.cast(column, JSONB)[field_name].astext == value
-
-
-def find_by_nested_json(column: typing.Any, parent: str, child: str, value: str):
-  """Find by nested JSON field value.
-
-  :param column: sqlalchemy column
-  """
-  return sqlalchemy.cast(column, JSONB)[(parent, child)].astext == value
-
-
-def find_by_json_contains(column: typing.Any, json_obj: dict):
-  """Find by JSON contains.
-
-  :param column: sqlalchemy column
-  """
-  return sqlalchemy.cast(column, JSONB).contains(json_obj)
+if TYPE_CHECKING:
+  from inkcre_core.utils.sql import *

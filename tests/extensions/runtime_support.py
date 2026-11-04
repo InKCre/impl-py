@@ -56,14 +56,17 @@ def publish_extension(
   raise_server_exceptions: bool = True,
   persist_config: bool = False,
 ) -> PublishedExtension:
+  from app.core import CORE, CoreMiddleware
+
   runtime_app = app or fastapi.FastAPI()
+  runtime_app.add_middleware(CoreMiddleware, core=CORE)
   runtime_config = dict(config or {})
   runtime_state: dict[str, typing.Any] = {}
 
   if persist_config:
     if not os.getenv("INKCRE_TEST_DATABASE_URL"):
       raise RuntimeError("Persisted Extension setup requires an explicit test database")
-    from app.schemas.extension import ExtensionModel
+    from inkcre_core.schemas.extension import ExtensionModel
     from tests.database import TestSession
 
     with TestSession() as session:

@@ -4,8 +4,8 @@ import typing
 
 import fastapi
 
-from app.business.ai import AIManager
-from app.schemas.ai import AIModelModel
+from inkcre_core.business.ai import AIManager
+from inkcre_core.schemas.ai import AIModelModel
 
 
 ROUTER = fastapi.APIRouter(prefix="/ai", tags=["ai"])

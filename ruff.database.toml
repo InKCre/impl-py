@@ -1,6 +1,6 @@
 # Runtime-wide database rules. Readiness/CLI contract adapters own separate connections.
 extend = "ruff.toml"
-include = ["app/**/*.py", "extensions/**/*.py", "libs/**/*.py", "run.py"]
+include = ["app/**/*.py", "inkcre_core/**/*.py", "extensions/**/*.py", "libs/**/*.py", "run.py"]
 extend-exclude = ["app/database_contract"]
 
 [lint]
@@ -9,7 +9,7 @@ select = ["TID251"]
 [lint.flake8-tidy-imports.banned-api]
 "sqlmodel.Session".msg = "运行时持久化使用绑定 UoW 的 AsyncSession。"
 "sqlalchemy.orm.Session".msg = "运行时持久化使用绑定 UoW 的 AsyncSession。"
-"sqlalchemy.orm.sessionmaker".msg = "运行时只允许 app.engine 的异步工厂。"
+"sqlalchemy.orm.sessionmaker".msg = "运行时只允许 inkcre_core.context 的异步工厂。"
 "sqlalchemy.orm.scoped_session".msg = "Session 生命周期必须显式，不使用 scoped session。"
 "sqlalchemy.ext.asyncio.async_scoped_session".msg = "每个 task 独立 UoW，不隐藏 session。"
 "sqlmodel.create_engine".msg = "运行时不创建同步 engine。"

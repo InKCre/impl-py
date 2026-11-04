@@ -10,12 +10,16 @@ import sqlalchemy.exc
 import psycopg.errors
 import sqlmodel
 
-from app.business.info_base.commands import persist_graph, submit_graph, submit_stars
-from app.persistence.info_base.uow import graph_uow
-from app.business.info_base.resolver import register_core_resolvers
+from inkcre_core.business.info_base.commands import (
+  persist_graph,
+  submit_graph,
+  submit_stars,
+)
+from inkcre_core.persistence.info_base.uow import graph_uow
+from inkcre_core.business.info_base.resolver import register_core_resolvers
 from tests.database import TestSession
-from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.info_base.main import (
+from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
+from inkcre_core.schemas.info_base.main import (
   GraphBlockForm,
   GraphForm,
   GraphRelationForm,
@@ -23,7 +27,7 @@ from app.schemas.info_base.main import (
   OutArcForm,
   StarsGraphForm,
 )
-from app.schemas.info_base.relation import RelationForm, RelationModel
+from inkcre_core.schemas.info_base.relation import RelationForm, RelationModel
 
 
 pytestmark = pytest.mark.skipif(
@@ -228,9 +232,9 @@ def test_cancelled_graph_operation_rolls_back_and_releases_connection(async_runn
 
 
 def test_blob_graph_transaction_and_hydration(async_runner):
-  from app.business.info_base.storage import StorageManager, WritableStorage
-  from app.business.info_base.services import BlockService
-  from app.schemas.info_base.storage import StorageBlobModel
+  from inkcre_core.business.info_base.storage import StorageManager, WritableStorage
+  from inkcre_core.business.info_base.services import BlockService
+  from inkcre_core.schemas.info_base.storage import StorageBlobModel
 
   async def scenario():
     await StorageManager.setup_builtin_storages_async()
@@ -256,7 +260,7 @@ def test_blob_graph_transaction_and_hydration(async_runner):
         async with graph_uow() as uow:
           rolled_back_pointer = await storage.create_content(b"not committed", uow.storage)
           raise RuntimeError("abort graph")
-      from app.business.info_base.storage.postgresql import PostgreSQLBlobPointer
+      from inkcre_core.business.info_base.storage.postgresql import PostgreSQLBlobPointer
 
       blob_id = PostgreSQLBlobPointer.model_validate_json(rolled_back_pointer).blob_id
       with TestSession() as db:
@@ -274,7 +278,7 @@ def test_blob_graph_transaction_and_hydration(async_runner):
 def test_github_stars_retain_node_identity_and_reject_ambiguity(async_runner):
   from extensions.github.resolver import GitHubAccountResolver, GitHubGraphIntegrityError
   from extensions.github.schema import GitHubAccount
-  from app.business.info_base.commands import persist_stars
+  from inkcre_core.business.info_base.commands import persist_stars
 
   account = GitHubAccount(
     node_id=uuid.uuid4().hex, kind="user", login="before", url="https://github.com/before"

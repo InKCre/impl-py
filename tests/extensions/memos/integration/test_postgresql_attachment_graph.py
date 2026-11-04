@@ -11,12 +11,12 @@ import pytest
 import sqlalchemy
 import sqlmodel
 
-from app.business.info_base.storage import StorageManager
-from app.business.info_base.storage.postgresql import PostgreSQLBlobPointer
+from inkcre_core.business.info_base.storage import StorageManager
+from inkcre_core.business.info_base.storage.postgresql import PostgreSQLBlobPointer
 from tests.database import TestSession
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.info_base.storage import StorageBlobModel
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.info_base.storage import StorageBlobModel
 from extensions.memos import Extension
 from extensions.memos.family import (
   AttachmentApplicationService,
@@ -107,7 +107,7 @@ def memo_client():
 
 def test_saved_pat_replacement_and_revocation_apply_without_restart(memo_client):
   """An admitted Peer can edit config without invoking the running Host."""
-  from app.schemas.extension import ExtensionModel
+  from inkcre_core.schemas.extension import ExtensionModel
 
   old_token = "memos_pat_" + "A" * 32
   new_token = "memos_pat_" + "B" * 32
@@ -135,9 +135,9 @@ def test_saved_pat_replacement_and_revocation_apply_without_restart(memo_client)
 
 
 def test_connection_address_preserves_public_prefix_and_requires_peer_auth(memo_client):
-  from app.business.peer import PeerManager
+  from inkcre_core.business.peer import PeerManager
   from app.middleware import create_peer_jwt
-  from app.schemas.peer import PeerModel
+  from inkcre_core.schemas.peer import PeerModel
   from app.settings import settings
 
   client = memo_client

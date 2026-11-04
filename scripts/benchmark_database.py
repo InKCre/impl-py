@@ -23,11 +23,11 @@ import sqlmodel
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.business.info_base.commands import submit_graph
-from app.business.info_base.services import get_entity_records
+from inkcre_core.business.info_base.commands import submit_graph
+from inkcre_core.business.info_base.services import get_entity_records
 from app.engine import ASYNC_DB_ENGINE, AsyncSessionFactory
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.main import GraphBlockForm, GraphForm, GraphRelationForm
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.main import GraphBlockForm, GraphForm, GraphRelationForm
 
 
 def positive(value: str) -> int:

@@ -1,13 +1,10 @@
-"""Short Sink persistence scope; runtime start/close happen after commit."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from .repository import SinkRepository
+sys.modules[__name__] = import_module("inkcre_core.persistence.sink.uow")
 
-
-@asynccontextmanager
-async def sink_uow() -> AsyncGenerator[SinkRepository, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield SinkRepository(session)
+if TYPE_CHECKING:
+  from inkcre_core.persistence.sink.uow import *

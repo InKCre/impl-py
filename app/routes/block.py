@@ -3,10 +3,10 @@
 __all__ = ["ROUTER"]
 
 import fastapi
-from app.business.info_base.services import BlockService
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.block import BlockForm
-from app.schemas.info_base.rest import BlockUpdateForm
+from inkcre_core.business.info_base.services import BlockService
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.block import BlockForm
+from inkcre_core.schemas.info_base.rest import BlockUpdateForm
 from .validation import database_write
 
 ROUTER = fastapi.APIRouter(

@@ -6,8 +6,8 @@ import email.policy
 import pytest
 from bs4 import BeautifulSoup
 
-from app.business.info_base.resolver import ResolverManager
-from app.schemas.info_base.block import BlockModel
+from inkcre_core.business.info_base.resolver import ResolverManager
+from inkcre_core.schemas.info_base.block import BlockModel
 from extensions.mail.adapter import IMAPAdapter, _mailing_list, _walk_body_structure
 from extensions.mail.newsletter import (
   NEWSLETTER_HTML_RESOLVER,

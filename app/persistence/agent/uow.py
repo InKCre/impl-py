@@ -1,13 +1,10 @@
-"""Short transaction for persisted Agent definitions."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from .repository import AgentRepository
+sys.modules[__name__] = import_module("inkcre_core.persistence.agent.uow")
 
-
-@asynccontextmanager
-async def agent_uow() -> AsyncGenerator[AgentRepository, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield AgentRepository(session)
+if TYPE_CHECKING:
+  from inkcre_core.persistence.agent.uow import *

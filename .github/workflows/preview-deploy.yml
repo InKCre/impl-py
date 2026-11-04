@@ -82,7 +82,7 @@ jobs:
       - name: Install frozen Extension preview tooling
         working-directory: source
         run: >-
-          pdm install --no-default --group extension-preview --frozen-lockfile
+          pdm install --no-self --no-default --group extension-preview --frozen-lockfile
 
       - name: Build exact-head Extension wheels and sibling Registry facade
         env:

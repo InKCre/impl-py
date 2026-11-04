@@ -21,19 +21,19 @@ from mcp_types import (
 import pydantic
 from starlette.routing import Mount
 
-from app.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
-from app.business.info_base.services import BlockService, get_entity_records
-from app.business.info_base.resolver import (
+from inkcre_core.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
+from inkcre_core.business.info_base.services import BlockService, get_entity_records
+from inkcre_core.business.info_base.resolver import (
   ResolverManager,
   UnknownResolverError,
   UnsupportedResolverCapability,
 )
-from app.business.lexical_retrieval import LexicalRetrievalManager
-from app.business.semantic_retrieval import SemanticRetrievalManager
-from app.schemas.graph_navigation_retrieval import GraphDirection, PathFound
-from app.schemas.semantic_retrieval import VectorRetrievalOptions
-from app.schemas.sink import SinkModel
-from app.schemas.info_base.block import BlockModel
+from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.semantic_retrieval import SemanticRetrievalManager
+from inkcre_core.schemas.graph_navigation_retrieval import GraphDirection, PathFound
+from inkcre_core.schemas.semantic_retrieval import VectorRetrievalOptions
+from inkcre_core.schemas.sink import SinkModel
+from inkcre_core.schemas.info_base.block import BlockModel
 
 from .base import SinkBase
 from .contracts import ContentMode, RecallMode, ResolverMethodCall
