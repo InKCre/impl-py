@@ -75,3 +75,11 @@ persistent runtime configuration used by this profile.
 Delete the two exact Heroku apps when the deployment is no longer wanted. Delete the Neon project
 only if it is dedicated to this deployment and its data is disposable. Both actions are explicitly
 owner-controlled and intentionally absent from the deployment workflow.
+
+## Optional ChatGPT connection
+
+To run the OpenAI Tunnel client alongside Core in the same Eco dyno, use the
+[ChatGPT deployment integration](../../deploy/integrations/chatgpt/README.md).
+The fork variable `CHATGPT_TUNNEL_ENABLED=true` selects its composition on every deployment;
+without that selection this workflow continues building the standard Core image.
+The integration owns its runtime credentials, startup, and separate connection verification.

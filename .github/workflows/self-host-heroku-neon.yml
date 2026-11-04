@@ -71,6 +71,12 @@ jobs:
             --tag "inkcre-production-web:$HEAD_SHA" .
           bash scripts/automation/runtime_artifact.sh build-production-transports
 
+      - name: Compose optional ChatGPT web image
+        if: vars.CHATGPT_TUNNEL_ENABLED == 'true'
+        run: |
+          bash deploy/integrations/chatgpt/build.sh "inkcre-production-web:$HEAD_SHA" "inkcre-chatgpt:$HEAD_SHA"
+          docker tag "inkcre-chatgpt:$HEAD_SHA" "inkcre-production-web:$HEAD_SHA"
+
       - name: Install pinned Heroku CLI
         run: npm install --global heroku@11.8.1
 
@@ -85,6 +91,12 @@ jobs:
           HEROKU_APP_NAME: ${{ steps.settings.outputs.app_name }}
           POSTGREST_APP_NAME: ${{ steps.settings.outputs.postgrest_app_name }}
         run: bash scripts/automation/production_delivery.sh resolve-apps
+
+      - name: Check optional ChatGPT runtime configuration
+        if: vars.CHATGPT_TUNNEL_ENABLED == 'true'
+        env:
+          APP_NAME: ${{ steps.heroku.outputs.app_name }}
+        run: python -m deploy.integrations.chatgpt.heroku preflight --app "$APP_NAME"
 
       - name: Verify self-hosted apps are stopped before database changes
         env:
@@ -140,3 +152,9 @@ jobs:
           WEB_RELEASE: ${{ steps.release.outputs.web_release }}
           WEB_URL: ${{ steps.heroku.outputs.web_url }}
         run: bash scripts/automation/production_delivery.sh probe
+
+      - name: Verify optional ChatGPT integration
+        if: vars.CHATGPT_TUNNEL_ENABLED == 'true'
+        env:
+          APP_NAME: ${{ steps.heroku.outputs.app_name }}
+        run: python -m deploy.integrations.chatgpt.heroku verify --app "$APP_NAME"
