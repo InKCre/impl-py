@@ -1,10 +1,35 @@
-# 按需启用可观测性
+# 可观测性记录、查询与额外 OTLP 出口
 
-新增遥测缺省关闭。现有 stdout、PostgreSQL 日志、`job.<id>` 关联和 Job 日志查询继续工作；显式配置的 `none` 或 Logtail 也继续生效。开启遥测会增加标准 OTLP 元数据出口，不替换 PG writer，不转发历史日志或任意 Python logger。共享行为由[跨 Peer 可观测性契约](../_shared/20-product-tdd/observability-contract.md)拥有。
+基础观测默认使用内置信息库，Job 生命周期、操作摘要及已配置级别的日志由同一 Core 入口采集。部署选择外部 Loki 后，基础记录写入和查询都使用 Loki；故障不会退回 PostgreSQL。额外 OTLP Trace/指标出口仍由本地开关控制，不是基础查询 API。共享行为由[跨 Peer 可观测性契约](../_shared/20-product-tdd/observability-contract.md)拥有。
+
+## 基础后端与统一查询
+
+公共选择记录为 `configs` 的 key `inkcre.observability.backend`、schema `inkcre.observability.backend.v1`，value 为 `{"backend":"postgresql"}` 或 `{"backend":"loki"}`。缺少选择记录时使用 PostgreSQL；配置读取失败或非法时不启动基础 writer，不擅自当作缺省。它独立于旧 `inkcre.observability.v1`，避免旧 Peer 的严格 schema 拒绝新字段。普通内置使用无需生成额外部署身份。
+
+Loki 是首个双向外部实现，使用 `/loki/api/v1/push` 和 `/loki/api/v1/query_range`，不依赖供应商 SDK。服务端还需要旧身份记录中的 `deployment_id`（用于固定部署流隔离）及私密配置：
+
+```dotenv
+OBSRV__LOKI_URL=https://your-loki-host
+OBSRV__LOKI_HEADERS='{"Authorization":"Basic YOUR_ENCODED_VALUE"}'
+# 默认不将普通日志原文复制到外部；确需启用时先确定访问、保留与删除政策。
+OBSRV__EXTERNAL_CONTENT_ENABLED=false
+```
+
+URL 不带凭据、query 或 fragment；私密 headers 不进入共享 value、浏览器或错误响应。Backend 选择是唯一存储选择源，旧 `OBSRV__LOGGING_BACKEND`/Logtail writer 配置不再选择当前存储；旧 Logtail 配置会给出迁移提示。`OBSRV__LOGGING_BACKEND_LEVEL` 继续控制普通日志级别，最低生命周期事件不依赖该阈值。切换后重启 Peer/重建客户端，历史记录留在旧后端，不自动搬迁、删除或合并查询。
+
+`core.observability.v1` 通过已有 Peer HTTP 协议公告 `POST /observability`，复用 Peer JWT；客户端不能传上游 URL 或认证头。请求 action 为 `status`、`query`、`ingest`。外部委派携带 `expected_backend`，与提供方实例不符返回 409，防止选择改变后误写其它后端。内置消费者可直接通过数据库协议读取，不以 Python Peer 在线为前提。
+
+查询时间窗为 `[since, until)`，最长 31 天、每次 1–500 条。所有 severity、kind、Job、Trace、Peer、operation、文本过滤在后端截断之前执行；文本按字面匹配，不是 LogQL。返回 records、truncated、时间窗及当前 backend，按时间倒序。截断时缩小时间或过滤范围；没有会跳过同刻记录的虚假 cursor。旧 PG 日志保留原 body/attributes 和 `job.<id>` 关联，未产生的历史事件不会补写。
+
+每个 Core 实例最多四个 HTTP 能力请求、15 秒总预算；query 最多四个并发、10 秒预算。摄取最多 100 条/256 KiB，记录说明最多 8192 字符、64 项标量元数据、每项文本最多 1024 字符。状态中的 configured/queryable 代表已具备配置/能力，不是健康探测；dropped 是本实例已知损失，不是部署总数。接受摄取只表示进入队列，不保证持久化。外部错误返回固定诊断，不回显上游响应或密钥。
+
+标准记录 kind 为 log/event/span；span 是耗时/结果操作摘要，不冒充完整 Trace 树。severity_number 继续使用 OTEL 1–24（INFO 9、WARNING 13、ERROR 17）。Job 只有领取成功才记开始，数据库实际关闭后才记终态；失败/超时及失败操作记录 ERROR，取消为 INFO。AI 用量缺失与真零分别保留。选择 Loki 不自动扩大原文权限：默认只保留声明元数据，普通日志 body 替换为固定 `application.log`；显式启用内容另受 owner 的访问和保留政策约束。
+
+SDK 消费者可以创建 `ObservationRuntime(PostgreSQLBackend(core.sessions), selected="postgresql", peer_id=...)` 并赋给 `core.observability`，在自己的异步生命周期中显式调用 `start()`。LokiBackend 接受显式 URL、部署身份和私密 headers；传入的 HTTP client 是借用资源，库不会关闭它。`Core.aclose()` 收束自己的 writer，再关闭自建数据库；多 Core 不共享队列或目标。普通 SDK 导入不启动任何记录任务。
 
 ## 配置与启停
 
-每个 Python Peer 在运行环境或本地 `.env` 设置 `OBSRV__TELEMETRY_ENABLED=true` 才启用。配置 endpoint、认证头或安装 SDK 都不能自动打开它。修改后重启进程；没有后台配置探测或热重载。关闭态不初始化新增 provider、导出线程或队列，也不查询新增共享配置。
+每个 Python Peer 在运行环境或本地 `.env` 设置 `OBSRV__TELEMETRY_ENABLED=true` 才启用。配置 endpoint、认证头或安装 SDK 都不能自动打开它。修改后重启进程；没有后台配置探测或热重载。关闭时不初始化额外 OTLP provider 或导出线程，基础后端仍按上述选择记录和查询。
 
 部署 owner 在数据库已完成初始化后运行 `pdm run python scripts/observability.py`。该命令只在 `configs` 缺少 `inkcre.observability` 时插入一次 UUID；重复运行保留已存在的身份和配置，不能用于重置克隆后的身份。它不会启用任何 Peer。独立 preview、数据库克隆或新 owner 的部署，在启用前显式更换 deployment ID。
 
@@ -12,7 +37,6 @@
 
 ```dotenv
 OBSRV__TELEMETRY_ENABLED=true
-OBSRV__LOGGING_BACKEND=postgresql
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://your-otlp-host/otlp/v1/traces
 OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=https://your-otlp-host/otlp/v1/logs
 OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://your-otlp-host/otlp/v1/metrics
@@ -21,7 +45,7 @@ OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20YOUR_ENCODED_VALUE"
 
 当前出口为标准 OTLP/HTTP protobuf。三个 endpoint 使用完整地址，不自动添加路径；未配置的信号不导出。运行环境和 `.env` 的 per-signal endpoint 优先于共享默认值。认证支持公共 `OTEL_EXPORTER_OTLP_HEADERS` 和优先级更高的 `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_HEADERS`。服务名称、版本、运行实例由本实现提供，不读取任意 `OTEL_RESOURCE_ATTRIBUTES`，避免将配置原文引入 Resource。
 
-Python 在数据库准入、Peer 注册之后读取一次共享配置，读取限时两秒；配置缺失、无效或读取失败时暂停新增遥测，不影响业务 readiness。单信号初始化失败只报告不含原始配置的本地诊断，不改变业务 readiness 或 PG 生命周期。配置恢复后需要重启，不自动轮询重试。
+Python 在数据库准入、Peer 注册之后读取一次共享配置，读取限时五秒；基础 backend 选择和额外 OTLP 初始化分别报告失败，不影响业务 readiness。单信号初始化失败只报告不含原始配置的本地诊断，不改变业务 readiness 或 PG 生命周期。配置恢复后需要重启，不自动轮询重试。
 
 Grafana Cloud Free 是当前首个部署目标。`Authorization` 的 Basic 值必须是 `base64(instance ID:token)`，不能在 `Basic%20` 后直接拼原始 `glc_` token。Cloud Portal 的 stack 页面中，使用 OpenTelemetry 的 Configure 获取基础 endpoint 和认证变量；per-signal 地址应追加各自的 `/v1/traces`、`/v1/logs`、`/v1/metrics`，Python 的 Basic 空格使用 `%20`。[Grafana 官方说明](https://grafana.com/docs/grafana-cloud/send-data/otlp/send-data-otlp/)。账号准入、实际免费额度和查询读回必须在目标 stack 单独验收；配置示例不证明云端已通过。不要为本接入启用付费计划或依赖试用专属功能。
 
@@ -58,7 +82,7 @@ GenAI 映射固定到 `semantic-conventions-genai` 修订 `e07f4ebacb08f56db8c4c
 
 基础模式不导出 prompt、答案、工具输入输出、query、provider 配置、任意异常消息或 stack。配置中的模型标识受字符集与长度限制，provider 任意回显 ID/model 不复制；ToolCall ID 使用 SHA-256 摘要关联。最终引用最多导出前 128 项中的有效 ID，同时记录总数和未导出数量；不截断原业务结果。
 
-首批来源事件分别是 `inkcre.retrieval.candidates`、`inkcre.entity.read` 和 `inkcre.agent.query.result`。最后一个事件描述选入 Job 内存 state 的结果，不提前声称最终数据库 close 已成功。当前点位覆盖 Agent 的 retrieve/get_entities/Resolver Tool 与 Agent Query Sink；直接非 Agent 检索、图遍历和 Resolver 内部传递读取尚无完整来源事件覆盖。关联不能证明模型确实依据该实体或答案正确，也不提供长期内容快照。原有 `agent_debug` 与 PG/Logtail 内容行为保持，不能将新出口的元数据策略泛称为整个部署没有原文副本。
+首批来源事件分别是 `inkcre.retrieval.candidates`、`inkcre.entity.read` 和 `inkcre.agent.query.result`。最后一个事件描述选入 Job 内存 state 的结果，不提前声称最终数据库 close 已成功。当前点位覆盖 Agent 的 retrieve/get_entities/Resolver Tool 与 Agent Query Sink；直接非 Agent 检索、图遍历和 Resolver 内部传递读取尚无完整来源事件覆盖。关联不能证明模型确实依据该实体或答案正确，也不提供长期内容快照。原有 `agent_debug` 及历史存储可能包含内容，不能将新外部出口的元数据策略泛称为整个部署没有原文副本。
 
 ## 故障、关闭与迁移后端
 
@@ -66,8 +90,8 @@ GenAI 映射固定到 `semantic-conventions-genai` 修订 `e07f4ebacb08f56db8c4c
 
 Span 和 log 各使用 SDK 的 256 条有界队列、最多 256 条一批、五秒周期；metric 为三十秒 push，不增加 scrape 或唤醒归零实例的采集轮询。HTTP 导出 timeout 采用标准 `OTEL_EXPORTER_OTLP_TIMEOUT`，缺省十秒；按信号的 `OTEL_EXPORTER_OTLP_{TRACES,LOGS,METRICS}_TIMEOUT` 优先，允许有限正数且不超过三十秒。真实 Cloud 首次 TLS 往返超过一秒，固定一秒会误丢弃可用出口的数据；故障实验使用显式一秒配置。源端 SDK warning/导出失败只输出固定本地诊断，不转发 SDK 错误体或凭据。
 
-正常关闭先完成业务资源和 PG writer，再停止接受新记录，并发关闭 trace/log SDK，最后关闭 metrics 以采集前两者的最终导出与丢弃计数。SDK 1.45 的 trace/log worker 等待窗口为三十秒，metrics shutdown 等待参数为对应信号 timeout 加两秒（缺省十二秒）；这些不是网络总时限或交付保证。不先执行一次会忽略 timeout 的 force_flush。平台提前杀进程、请求后冻结或断网时允许丢失尾部记录；使用该平台前需要验证实际终止宽限期，不能延长每个业务请求来掩盖此限制。
+正常关闭先完成业务资源，并发关闭额外 trace/log SDK，最后关闭 metrics；Core 随后停止接受基础记录，最多五秒排空有界队列、两秒关闭后端，再释放数据库。SDK 1.45 的 trace/log worker 等待窗口为三十秒，metrics shutdown 等待参数为对应信号 timeout 加两秒（缺省十二秒）；这些不是网络总时限或交付保证。不先执行一次会忽略 timeout 的 force_flush。平台提前杀进程、请求后冻结或断网时允许丢失尾部记录；使用该平台前需要验证实际终止宽限期，不能延长每个业务请求来掩盖此限制。
 
-更换后端只调整标准出口和服务端认证，重新验证 ID、Links、AI unknown/zero 与聚合；Grafana 的查询、datasource、面板及诊断链接留在部署/消费侧。历史数据、查询和面板不承诺无成本迁移。故障回退是关闭本地遥测开关后重启，PG 无需恢复或迁移，业务 schema 与历史记录保持。
+更换后端只调整标准出口和服务端认证，重新验证 ID、Links、AI unknown/zero 与聚合；Grafana 的查询、datasource、面板及诊断链接留在部署/消费侧。历史数据、查询和面板不承诺无成本迁移。关闭本地 OTLP 开关只关闭额外出口，不改变基础存储。基础存储切回 PostgreSQL 必须显式修改公共选择并重建实例，不能把外部读取失败当作空结果；历史记录不自动迁移。
 
 查询验收使用独立 Viewer service account，经 Grafana 的 datasource query/proxy API 读取 Tempo、Loki、Prometheus；`GRAFANA_URL` 与 `GRAFANA_SERVICE_ACCOUNT_TOKEN` 仅供部署工具使用，不进入应用采集。写入成功必须再核对存储后的 ID、Links、AI 来源/未知值与指标。若本机 Python 没有默认 CA 路径，在进程环境用标准 `OTEL_EXPORTER_OTLP_CERTIFICATE` 指向可信 CA 文件，不能关闭 TLS 校验。

@@ -1,6 +1,7 @@
 """Non-secret deployment telemetry configuration shared by admitted Peers."""
 
 import uuid
+import typing
 import pydantic
 
 CONFIG_KEY = "inkcre.observability"
@@ -35,3 +36,14 @@ class ObservabilityConfig(pydantic.BaseModel):
   diagnostics_url: pydantic.AnyHttpUrl | None = None
 
   _url = pydantic.field_validator("diagnostics_url")(_credential_free_url)
+
+
+BACKEND_CONFIG_KEY = "inkcre.observability.backend"
+BACKEND_CONFIG_SCHEMA = "inkcre.observability.backend.v1"
+
+
+class ObservabilityBackendConfig(pydantic.BaseModel):
+  """Non-secret deployment selection; external credentials remain Peer-local."""
+
+  model_config = pydantic.ConfigDict(extra="forbid")
+  backend: typing.Literal["postgresql", "loki"] = "postgresql"

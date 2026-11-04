@@ -29,29 +29,15 @@ def setup_obsrv(config: ObsrvSetting) -> logging.Logger:
   console_handler.setFormatter(console_formatter)
   LOGGER.addHandler(console_handler)
 
-  # Add backend-specific handlers
-  backend = config.logging_backend
-  if backend == "logtail":
-    from .log_handler_logtail import LogtailHandler
+  # Destination selection belongs to the bound Core, never this global logger.
+  from .runtime import ObservationLogHandler
 
-    logtail_wrapper = LogtailHandler(
-      source_token=config.logtail_source_token,
-      host=config.logtail_host,
+  LOGGER.addHandler(ObservationLogHandler(level=config.logging_backend_level))
+  if config.logging_backend == "logtail":
+    LOGGER.warning(
+      "Legacy Logtail writer settings no longer select storage; configure "
+      "inkcre.observability.backend and a supported read/write backend"
     )
-    handler = logtail_wrapper.get_handler()
-    if handler:
-      LOGGER.addHandler(handler)
-      LOGGER.info("Logtail logging enabled")
-    else:
-      LOGGER.warning("Logtail logging configured but not available")
-  elif backend == "postgresql":
-    from .log_handler_postgresql import PostgreSQLHandler
-
-    pg_handler = PostgreSQLHandler(level=config.logging_backend_level)
-    LOGGER.addHandler(pg_handler)
-    LOGGER.info("PostgreSQL logging enabled")
-  elif backend not in (None, "", "none"):
-    LOGGER.warning(f"Unknown logging backend: {backend}")
 
   return LOGGER
 
@@ -67,19 +53,11 @@ def get_logger() -> logging.Logger:
 
 
 def start_obsrv() -> None:
-  from .log_handler_postgresql import PostgreSQLHandler
-
-  for handler in LOGGER.handlers:
-    if isinstance(handler, PostgreSQLHandler):
-      handler.start()
+  """Compatibility entry; the App starts its bound runtime after config admission."""
 
 
 async def close_obsrv() -> None:
-  from .log_handler_postgresql import PostgreSQLHandler
   from .telemetry import close_telemetry
 
   await close_telemetry()
-
-  for handler in LOGGER.handlers:
-    if isinstance(handler, PostgreSQLHandler):
-      await handler.aclose()
+  # Core.aclose owns its selected backend and drains it before closing the DB.

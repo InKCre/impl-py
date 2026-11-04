@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 import uuid
 
+from .runtime import record_event
+
 from opentelemetry.context import Context
 from opentelemetry.trace import INVALID_SPAN, Link, Span, SpanKind, StatusCode, use_span
 from opentelemetry.util.types import AttributeValue
@@ -60,7 +62,11 @@ class _Runtime:
   missing_usage: "Counter | None" = None
 
 
-_runtime: _Runtime | None = None
+def _current_runtime() -> _Runtime | None:
+  from inkcre_core.context import _CURRENT
+
+  core = _CURRENT.get(None)
+  return core.telemetry if core is not None else None
 
 
 def _diagnostic(reason: str) -> None:
@@ -106,12 +112,13 @@ def _endpoint(value: str) -> str:
 
 def is_enabled() -> bool:
   """Whether at least one metadata signal initialized for this runtime."""
-  return _runtime is not None
+  return _current_runtime() is not None
 
 
 def get_export_connection(signal: str) -> tuple[str, dict[str, str], float] | None:
   """Return private endpoint, copied headers and timeout seconds for server forwarding."""
-  connection = _runtime.connections.get(signal) if _runtime is not None else None
+  runtime = _current_runtime()
+  connection = runtime.connections.get(signal) if runtime is not None else None
   return (
     (connection[0], dict(connection[1]), connection[2]) if connection is not None else None
   )
@@ -125,9 +132,11 @@ def start_telemetry(
   endpoints: Mapping[str, str] | None = None,
 ) -> None:
   """Initialize only configured signals; configuration failures never gate readiness."""
-  global _runtime
-  if not enabled or _runtime is not None:
+  if not enabled or _current_runtime() is not None:
     return
+  from inkcre_core.context import current_core
+
+  core = current_core()
 
   _configure_diagnostics()
   try:
@@ -331,7 +340,7 @@ def start_telemetry(
       runtime.connections[signal] = (endpoint, dict(headers), timeout)
 
   if any((runtime.traces, runtime.logs, runtime.metrics)):
-    _runtime = runtime
+    core.telemetry = runtime
   else:
     _diagnostic("no usable per-signal endpoint; telemetry is disabled")
 
@@ -350,8 +359,12 @@ async def close_telemetry() -> None:
   its configured request timeout plus two seconds. These worker wait budgets are
   not transport-wide hard deadlines; freezing or termination can lose records.
   """
-  global _runtime
-  runtime, _runtime = _runtime, None
+  from inkcre_core.context import _CURRENT
+
+  core = _CURRENT.get(None)
+  if core is None:
+    return
+  runtime, core.telemetry = core.telemetry, None
   if runtime is None:
     return
   shutdowns: list[Callable[[], None]] = []
@@ -407,9 +420,28 @@ def operation(
   Exceptions and cancellation propagate unchanged. Their messages, stack traces and
   status descriptions are never recorded by this context manager.
   """
-  runtime = _runtime
+  runtime = _current_runtime()
   if runtime is None:
-    yield Operation(INVALID_SPAN)
+    observation = Operation(INVALID_SPAN)
+    started = time.perf_counter()
+    try:
+      yield observation
+    except BaseException as error:
+      observation.outcome = (
+        "cancelled" if isinstance(error, asyncio.CancelledError) else "error"
+      )
+      raise
+    finally:
+      record_event(
+        name,
+        {
+          **(attributes or {}),
+          "inkcre.operation": name,
+          "outcome": observation.outcome,
+          "duration_ms": (time.perf_counter() - started) * 1000,
+        },
+        kind="span",
+      )
     return
 
   span = INVALID_SPAN
@@ -448,6 +480,16 @@ def operation(
     if observation.outcome != "success":
       _record(partial(span.set_status, StatusCode.ERROR))
     _record(partial(span.set_attribute, "inkcre.outcome", observation.outcome))
+    record_event(
+      name,
+      {
+        **(attributes or {}),
+        "inkcre.operation": name,
+        "outcome": observation.outcome,
+        "duration_ms": (time.perf_counter() - started) * 1000,
+      },
+      kind="span",
+    )
     labels = {"operation": name, "outcome": observation.outcome}
     if runtime.operations is not None:
       _record(partial(runtime.operations.add, 1, labels))
@@ -459,7 +501,8 @@ def operation(
 
 def emit_event(name: str, attributes: Mapping[str, AttributeValue]) -> None:
   """Emit a fixed event name and admitted metadata without a Python logging bridge."""
-  runtime = _runtime
+  record_event(name, attributes)
+  runtime = _current_runtime()
   if runtime is not None and runtime.logger is not None:
     from opentelemetry._logs import SeverityNumber
 
@@ -477,12 +520,20 @@ def record_ai_usage(
   operation: str, input_tokens: int | None, output_tokens: int | None
 ) -> None:
   """Count known nonnegative provider usage and count missing fields separately."""
-  runtime = _runtime
+  known = {
+    kind: value
+    for kind, value in (("input", input_tokens), ("output", output_tokens))
+    if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 2**63 - 1
+  }
+  values: dict[str, str | int] = {"inkcre.operation": operation}
+  values.update({kind + "_tokens": value for kind, value in known.items()})
+  record_event("ai.usage", values)
+  runtime = _current_runtime()
   if runtime is None or runtime.tokens is None or runtime.missing_usage is None:
     return
-  for kind, value in (("input", input_tokens), ("output", output_tokens)):
+  for kind in ("input", "output"):
     labels = {"operation": operation, "token.type": kind}
-    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-      _record(partial(runtime.tokens.add, value, labels))
+    if kind in known:
+      _record(partial(runtime.tokens.add, known[kind], labels))
     else:
       _record(partial(runtime.missing_usage.add, 1, labels))

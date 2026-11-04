@@ -53,6 +53,10 @@ from app.routes.semantic_retrieval import PEER_INBOUND as semantic_retrieval_pee
 from app.routes.semantic_retrieval import ROUTER as semantic_retrieval_router
 from app.routes.sink import ROUTER as sink_router
 from app.routes.telemetry import ROUTER as telemetry_router
+from app.routes.observability import (
+  ROUTER as observability_router,
+  PEER_INBOUND as observability_peer_inbound,
+)
 from inkcre_core.business.source import SourceManager
 from inkcre_core.business.cron import CronManager
 from inkcre_core.business.job import JobManager
@@ -151,6 +155,7 @@ async def bootstrap_runtime(app: fastapi.FastAPI) -> None:
     PeerManager.register_inbound(lexical_retrieval_peer_inbound)
     PeerManager.register_inbound(organization_peer_inbound)
     PeerManager.register_inbound(extension_peer_inbound)
+    PeerManager.register_inbound(observability_peer_inbound)
 
   await initialize_telemetry()
 
@@ -385,6 +390,7 @@ core_router.include_router(semantic_retrieval_router)
 core_router.include_router(lexical_retrieval_router)
 core_router.include_router(sink_router)
 core_router.include_router(telemetry_router)
+core_router.include_router(observability_router)
 api_app.include_router(core_router)
 
 if __name__ == "__main__":
