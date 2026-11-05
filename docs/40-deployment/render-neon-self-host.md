@@ -17,7 +17,7 @@ continuously available. Wake the core URL and wait for `/readyz` before an inter
 session. A stronger hosting plan can improve availability without changing domain behavior.
 
 The current HS256 `JWT_SECRET` grants full admitted-Peer authority. Keep it private. Do not
-put it in a repository variable, README, deployment profile, client build, issue, log, or
+put it in a repository variable, README, deployment profile, App build, issue, log, or
 workflow summary. A public read-only experience needs a different admission surface; a
 different role name beside the same signing key does not reduce the key holder's authority.
 
@@ -50,7 +50,7 @@ deployment secret. Do not reuse a provider API key or database password as the J
 5. Open **Actions → Deploy self-hosted InKCre → Run workflow** and select the commit/branch to
    deploy.
 6. Read the workflow summary for the non-secret core URL, PostgREST URL, Peer ID, and exact
-   commit. Keep using the repository's private `JWT_SECRET` when an admitted client asks for
+   commit. Keep using the repository's private `JWT_SECRET` when an admitted Peer asks for
    the signing key.
 
 ## What The Controller Owns

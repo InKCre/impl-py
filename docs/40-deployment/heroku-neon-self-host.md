@@ -48,7 +48,7 @@ key or another password as the JWT secret.
    confirmation authorizes database initialization or migration; it does not bypass readiness or
    database checks.
 7. Read the workflow summary for the public app URLs, Peer identity, exact commit, and Heroku
-   releases. Keep using the repository's private `JWT_SECRET` when an admitted client asks for
+   releases. Keep using the repository's private `JWT_SECRET` when an admitted Peer asks for
    the signing key.
 
 ## Convergence And Safety

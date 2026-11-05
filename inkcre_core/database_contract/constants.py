@@ -23,7 +23,7 @@ JWT_MAX_LIFETIME_SECONDS = 24 * 60 * 60
 JWT_MINIMUM_SECRET_BYTES = 32
 
 DEVELOPMENT_PEER_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
-DEVELOPMENT_PEER_NAME = "client-web-development"
+DEVELOPMENT_PEER_NAME = "web-development"
 
 DATABASE_ENVIRONMENTS = frozenset({"runtime", "development", "preview", "production"})
 RESET_CONFIRMATION = "reset-development-data"

@@ -205,7 +205,7 @@ singular `content` relation 返回任意 existing child；只有缺失且 `mater
 Effective Storage 顺序是 `sources.storage` → deployment `core.source` default → built-in PostgreSQL binary `-4`。
 Catalog constraint 保证 explicit Source Storage 类型可写；runtime error 仍可以表达具体 instance unavailable。
 
-client-web 无 IMAP socket，使用 exact Peer capability 请求 provider-local materialization，再从共享数据库/Storage
+Web App 无 IMAP socket，使用 exact Peer capability 请求 provider-local materialization，再从共享数据库/Storage
 自行 solve returned child。Provider inbound 调 non-delegating local Resolver path；不建立 generic Resolver delegation。
 
 ## Failure And Concurrency Boundary
@@ -224,7 +224,7 @@ Source 入口决定逐 Mailbox/occurrence 的异步事务；网络获取和 mark
 ## Verification Authority
 
 阻塞验收使用 repository-owned professional-reading `.eml` corpus、checksum-verified Dovecot 2.4、disposable
-PostgreSQL，以及 built client-web/Mail remote：
+PostgreSQL，以及构建后的 Web App/Mail remote：
 
 - J1：ordinary horizon、mailbox exclusions、QRESYNC flags/removals、idempotence；
 - J2：exact backfill、ordinary checkpoint independence；
