@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, SecretStr, AnyHttpUrl
 from pydantic_settings import BaseSettings
 
 
@@ -32,4 +32,15 @@ class ObsrvSetting(BaseSettings):
   )
   logtail_host: Optional[str] = Field(
     default=None, description="Better Stack (Logtail) host URL"
+  )
+
+  loki_url: AnyHttpUrl | None = Field(
+    default=None, description="Private Loki base URL for the selected external backend"
+  )
+  loki_headers: SecretStr = Field(
+    default=SecretStr("{}"), description="Private Loki request headers as a JSON object"
+  )
+  external_content_enabled: bool = Field(
+    default=False,
+    description="Explicitly allow original application log content in the external backend",
   )

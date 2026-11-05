@@ -13,6 +13,8 @@ import asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 if TYPE_CHECKING:
+  from .libs.obsrv.runtime import ObservationRuntime
+  from .libs.obsrv.telemetry import _Runtime
   from .business.job import _Execution
   from .business.peer.contracts import PeerInbound, PeerOutboundFactory
   from .business.source.main import SourceBase
@@ -72,6 +74,8 @@ class Core:
     self.active_jobs: dict[int, _Execution] = {}
     self.pending_jobs: dict[int, asyncio.Task[bool]] = {}
     self.accepting_jobs = False
+    self.observability: ObservationRuntime | None = None
+    self.telemetry: _Runtime | None = None
     self._closed = False
 
   @contextmanager
@@ -98,6 +102,12 @@ class Core:
       self.sources.clear()
       self.inbounds.clear()
       self.outbounds.clear()
+      from .libs.obsrv.telemetry import close_telemetry
+
+      await close_telemetry()
+      if self.observability is not None:
+        await self.observability.aclose()
+        self.observability = None
       if self._owns_engine:
         await self.engine.dispose()
       self._closed = True

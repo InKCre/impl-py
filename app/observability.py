@@ -2,6 +2,12 @@
 
 import asyncio
 
+import pydantic
+
+from inkcre_core.context import current_core
+from inkcre_core.libs.obsrv.backends import LokiBackend, PostgreSQLBackend
+from inkcre_core.libs.obsrv.runtime import ObservationRuntime
+
 from opentelemetry.trace import SpanKind
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -10,7 +16,14 @@ from inkcre_core.business.deployment_config import (
   DeploymentConfigService,
 )
 from app.settings import settings
-from inkcre_core.schemas.observability import CONFIG_KEY, CONFIG_SCHEMA, ObservabilityConfig
+from inkcre_core.schemas.observability import (
+  CONFIG_KEY,
+  CONFIG_SCHEMA,
+  ObservabilityConfig,
+  BACKEND_CONFIG_KEY,
+  BACKEND_CONFIG_SCHEMA,
+  ObservabilityBackendConfig,
+)
 from app.version import APPLICATION_VERSION
 from inkcre_core.libs.obsrv.main import get_logger
 from inkcre_core.libs.obsrv.telemetry import is_enabled, operation, start_telemetry
@@ -29,24 +42,67 @@ DeploymentConfigManager.register_schema(
 )
 
 
+DeploymentConfigManager.register_schema(
+  BACKEND_CONFIG_SCHEMA, ObservabilityBackendConfig, keys=(BACKEND_CONFIG_KEY,)
+)
+
+
 async def initialize_telemetry() -> None:
-  """Read once after database admission; telemetry cannot fail business readiness."""
+  """Bind the selected recording/query backend; OTLP is an independent extra exit."""
+  core = current_core()
+  backend = None
+  selected = "postgresql"
+  error_message = None
+  config = None
+  try:
+    async with asyncio.timeout(5):
+      selection = await DeploymentConfigService.get(BACKEND_CONFIG_KEY)
+      if selection is not None and not isinstance(selection, ObservabilityBackendConfig):
+        raise ValueError("unexpected observability backend schema")
+      selected = selection.backend if selection is not None else "postgresql"
+      if selected == "loki" or settings.obsrv.telemetry_enabled:
+        config = await DeploymentConfigService.get(CONFIG_KEY)
+    if selected == "postgresql":
+      backend = PostgreSQLBackend(core.sessions)
+    else:
+      if not isinstance(config, ObservabilityConfig) or settings.obsrv.loki_url is None:
+        raise ValueError("external backend needs deployment identity and private URL")
+      url = settings.obsrv.loki_url
+      if url.username or url.password or url.query or url.fragment:
+        raise ValueError("private Loki URL cannot contain credentials/query/fragment")
+      headers = pydantic.TypeAdapter(dict[str, str]).validate_json(
+        settings.obsrv.loki_headers.get_secret_value()
+      )
+      backend = LokiBackend(
+        url=str(url), deployment_id=str(config.deployment_id), headers=headers
+      )
+  except Exception:
+    # Missing selection is DB. A failed/invalid selection read is not permission
+    # to silently choose DB or redirect writes from an intended external backend.
+    error_message = "Observability configuration unavailable or incomplete"
+  if core.observability is not None:
+    await core.observability.aclose()
+  core.observability = ObservationRuntime(
+    backend,
+    selected=selected,
+    peer_id=str(core.options.peer_id),
+    error=error_message,
+    allow_external_content=settings.obsrv.external_content_enabled,
+  )
+  core.observability.start()
   if not settings.obsrv.telemetry_enabled:
     return
-  attributes: dict[str, str] = {"inkcre.peer.id": str(settings.peer_id)}
-  endpoints: dict[str, str] = {}
-  try:
-    async with asyncio.timeout(2):
-      config = await DeploymentConfigService.get(CONFIG_KEY)
-    if not isinstance(config, ObservabilityConfig):
-      raise ValueError("missing or unexpected observability schema")
-    attributes["inkcre.deployment.id"] = str(config.deployment_id)
-    if config.otlp_http_endpoints is not None:
-      endpoints = config.otlp_http_endpoints.model_dump(mode="json", exclude_none=True)
-  except Exception as error:
-    # Configuration may contain credentials despite the admitted schema. Never render it.
-    get_logger().warning("Telemetry configuration unavailable (%s)", type(error).__name__)
+  if not isinstance(config, ObservabilityConfig):
+    get_logger().warning("Telemetry configuration unavailable")
     return
+  attributes: dict[str, str] = {
+    "inkcre.peer.id": str(settings.peer_id),
+    "inkcre.deployment.id": str(config.deployment_id),
+  }
+  endpoints: dict[str, str] = {}
+  if config.otlp_http_endpoints is not None:
+    endpoints = config.otlp_http_endpoints.model_dump(mode="json", exclude_none=True)
+
   try:
     start_telemetry(
       enabled=True,

@@ -135,18 +135,11 @@ Readiness 复用 `app/database_contract` 的同步 psycopg 检查，在 `asyncio
 取消 HTTP 等待不会中断已经运行的 worker，但连接仍由该 worker 的 context manager 关闭。
 业务数据库访问与日志写入均使用原生 async，不把这个例外推广到业务查询。
 
-### 8. PostgreSQL logging has a bounded async lifecycle
+### 8. Core owns a bounded observability lifecycle
 
-同步 logging 调用只捕获 LogModel 和当时的 trace/span，再写入线程安全的有界队列。
-`lifespan` 启动单个异步 writer，每批最多 100 条，在独立事务中写入，绝不加入业务事务。
-队列最多保存 1024 条；满时丢弃 backend 记录并向 stderr 报告，控制台 handler 保持独立。
-数据库写失败时丢弃该批并向 stderr 报告异常类型，不递归调用日志系统。
+同步 logging 和结构化采集都捕获当前 Core 的关联与后端，放入本实例的 1024 条队列；每批最多 100 条，独立于业务事务写入选定 PostgreSQL 或 Loki。失败丢弃并记录无敏感信息的状态，不重试业务、不回退其它存储。只有 App 完成公共选择与私密配置装配后才启动 writer。
 
-关闭时先停止接受新 backend 记录，最多等待五秒排空；超时取消写入并丢弃剩余记录，之后才释放
-连接池。日志仍为 best-effort telemetry，不承诺进程崩溃后的交付。导入模块不启动 writer、不连接数据库。
-
-新增标准遥测在显式启用时，于数据库准入和 Peer 注册后初始化；PG 路径保持独立。
-元数据来源、OTLP 出口、有界关闭和浏览器认证转发见[可观测性配置](observability.md)。
+关闭时先停止接受新记录，最多五秒排空，再限时关闭拥有的后端，随后释放数据库。借用的 session factory/HTTP client 不由后端释放。导入模块不启动 writer、不连接数据库，额外 OTLP 仍独立按需启用。具体配置、查询与历史边界见[可观测性配置](observability.md)。
 
 ### 9. Each Peer may own a scheduler
 
