@@ -8,7 +8,7 @@ import uuid
 from urllib.parse import unquote, urlsplit
 
 from app.database_contract.connection import database_connection
-from app.database_contract.constants import (
+from inkcre_core.database_contract.constants import (
   ANONYMOUS_ROLE,
   AUTHENTICATED_ROLE,
   AUTHENTICATOR_ROLE,

@@ -1,13 +1,10 @@
-"""Transaction scopes for Peer facts and database-owned leases."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from .repository import PeerRepository
+sys.modules[__name__] = import_module("inkcre_core.persistence.peer.uow")
 
-
-@asynccontextmanager
-async def peer_uow() -> AsyncGenerator[PeerRepository, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield PeerRepository(session)
+if TYPE_CHECKING:
+  from inkcre_core.persistence.peer.uow import *

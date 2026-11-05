@@ -1,6 +1,6 @@
 """Black-box proof for shared config persistence and row timestamp ownership."""
 
-from app.business.deployment_config import DeploymentConfigService
+from inkcre_core.business.deployment_config import DeploymentConfigService
 
 
 import os
@@ -16,12 +16,12 @@ import pytest
 import sqlalchemy
 import sqlmodel
 
-from app.business.deployment_config import DeploymentConfigManager
+from inkcre_core.business.deployment_config import DeploymentConfigManager
 from app.engine import ASYNC_DB_ENGINE
 from tests.database import TestSession
 from app.routes.deployment_config import ROUTER
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
 
 
 pytestmark = pytest.mark.skipif(

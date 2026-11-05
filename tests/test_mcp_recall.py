@@ -7,19 +7,22 @@ import json
 from mcp.client import Client
 from mcp.server import MCPServer
 
-from app.business.info_base.resolver import register_core_resolvers
-from app.business.lexical_retrieval import LexicalRetrievalManager
-from app.business.semantic_retrieval import SemanticRetrievalManager
+from inkcre_core.business.info_base.resolver import register_core_resolvers
+from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.semantic_retrieval import SemanticRetrievalManager
 from app.business.sink.mcp import MCPSink
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.lexical_retrieval import LexicalRetrievalMatch, LexicalRetrievalResult
-from app.schemas.semantic_retrieval import (
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.lexical_retrieval import (
+  LexicalRetrievalMatch,
+  LexicalRetrievalResult,
+)
+from inkcre_core.schemas.semantic_retrieval import (
   BlockSemanticRetrievalMatch,
   RelationSemanticRetrievalMatch,
   SemanticRetrievalResult,
 )
-from app.schemas.sink import SinkModel
+from inkcre_core.schemas.sink import SinkModel
 
 
 def test_recall_labels_preserve_evidence_and_unreadable_candidates(monkeypatch):

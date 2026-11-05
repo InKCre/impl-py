@@ -1,6 +1,7 @@
 """J1–J3: real IMAP -> Job -> graph -> Resolver/Storage acceptance."""
 
 from __future__ import annotations
+from inkcre_core import current_core
 
 import collections.abc
 import datetime
@@ -12,23 +13,23 @@ import pytest
 import sqlalchemy
 import sqlmodel
 
-from app.business.info_base.resolver import ResolverManager, register_core_resolvers
-from app.business.info_base.storage import StorageManager
-from app.business.job import JobManager
-from app.business.lexical_retrieval import LexicalRetrievalManager
-from app.business.source import (
+from inkcre_core.business.info_base.resolver import ResolverManager, register_core_resolvers
+from inkcre_core.business.info_base.storage import StorageManager
+from inkcre_core.business.job import JobManager
+from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.source import (
   SOURCE_BACKFILL_JOB_TYPE,
   SOURCE_COLLECT_JOB_TYPE,
   SourceManager,
 )
 from tests.database import TestSession
-from app.schemas.extension import ExtensionModel
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.info_base.storage import StorageBlobModel
-from app.schemas.job import JobModel, JobStatus
-from app.schemas.lexical_retrieval import LexicalMaintenanceOptions
-from app.schemas.source import SourceModel
+from inkcre_core.schemas.extension import ExtensionModel
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.info_base.storage import StorageBlobModel
+from inkcre_core.schemas.job import JobModel, JobStatus
+from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceOptions
+from inkcre_core.schemas.source import SourceModel
 from extensions.mail import Extension
 from extensions.mail.reconcile import (
   EMAIL_ADDRESS_RESOLVER,
@@ -102,7 +103,7 @@ def _reset_acceptance_database() -> None:
     }
     db.add(extension)
     db.commit()
-  SourceManager.SOURCES.clear()
+  current_core().sources.clear()
 
 
 async def _bootstrap_runtime_catalogs() -> None:

@@ -30,10 +30,11 @@ Before choosing a design, identify shared state, business contracts, and each pa
 ## Repository Map
 
 - `run.py`: FastAPI bootstrap
-- `app/`: application routes, schemas, and business units
+- `inkcre_core/`: independently consumable SDK, models, domain operations, persistence and execution
+- `app/`: service routes, configuration, extension/sink composition and legacy import shims
 - `cli/`: `inkcre-cli` implementation
 - `extensions/`: built-in first-party extension packages
-- `libs/`: shared libraries
+- `libs/`, `utils/`: legacy imports; implementations live under `inkcre_core/`
 - `migrations/`: Alembic revisions and integrity baseline (append-only after deployment)
 - `tests/`: migration integrity and mature integration/acceptance checks
 - `docs/30-unit-tdd/`: `impl-py` internal design

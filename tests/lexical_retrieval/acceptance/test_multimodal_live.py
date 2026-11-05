@@ -1,8 +1,8 @@
 """Credentialed real-provider media -> graph -> lexical acceptance."""
 
-from app.business.info_base.commands import get_related_block
-from app.business.deployment_config import DeploymentConfigService
-from app.persistence.info_base.uow import graph_uow
+from inkcre_core.business.info_base.commands import get_related_block
+from inkcre_core.business.deployment_config import DeploymentConfigService
+from inkcre_core.persistence.info_base.uow import graph_uow
 
 
 import os
@@ -12,34 +12,34 @@ import typing
 import pytest
 import sqlalchemy
 
-from app.business.ai import AIManager
-from app.business.info_base.resolver import ResolverManager, register_core_resolvers
-from app.business.info_base.resolver.audio import (
+from inkcre_core.business.ai import AIManager
+from inkcre_core.business.info_base.resolver import ResolverManager, register_core_resolvers
+from inkcre_core.business.info_base.resolver.audio import (
   AUDIO_RESOLVER_CONFIG_KEY,
   AUDIO_RESOLVER_CONFIG_SCHEMA,
 )
-from app.business.info_base.resolver.image import (
+from inkcre_core.business.info_base.resolver.image import (
   IMAGE_RESOLVER_CONFIG_KEY,
   IMAGE_RESOLVER_CONFIG_SCHEMA,
 )
-from app.business.info_base.resolver.video import (
+from inkcre_core.business.info_base.resolver.video import (
   VIDEO_RESOLVER_CONFIG_KEY,
   VIDEO_RESOLVER_CONFIG_SCHEMA,
 )
-from app.business.info_base.storage import StorageManager, WritableStorage
-from app.business.lexical_retrieval import LexicalRetrievalManager
-from app.business.organization import SUBMIT_GRAPH_TOOL
-from app.business.organization_media import (
+from inkcre_core.business.info_base.storage import StorageManager, WritableStorage
+from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.organization import SUBMIT_GRAPH_TOOL
+from inkcre_core.business.organization_media import (
   MEDIA_INTERPRETATION_CONFIG_KEY,
   MEDIA_INTERPRETATION_CONFIG_SCHEMA,
   interpret_missing_media,
 )
 from tests.database import TestSession
-from app.schemas import AgentDefinitionModel
-from app.schemas.ai import AIModelModel, AIProviderModel, ChatCapability
-from app.schemas.deployment_config import DeploymentConfigModel
-from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.lexical_retrieval import LexicalMaintenanceOptions
+from inkcre_core.schemas import AgentDefinitionModel
+from inkcre_core.schemas.ai import AIModelModel, AIProviderModel, ChatCapability
+from inkcre_core.schemas.deployment_config import DeploymentConfigModel
+from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
+from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceOptions
 
 from .prepare_media_assets import prepare_assets
 

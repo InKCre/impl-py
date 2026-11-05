@@ -5,8 +5,8 @@ import typing
 import fastapi
 from fastapi.exceptions import RequestValidationError
 
-from app.business.info_base.services import BlockService
-from app.business.info_base.resolver import (
+from inkcre_core.business.info_base.services import BlockService
+from inkcre_core.business.info_base.resolver import (
   ResolverManager,
   ResolverMethodInputError,
   UnknownResolverError,

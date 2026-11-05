@@ -11,8 +11,8 @@ from app.business.extension import (
   InstalledExtension,
 )
 from app.business.extension.errors import ExtensionHostError
-from app.business.peer import PeerHTTPInbound, PeerManager
-from app.schemas.extension import (
+from inkcre_core.business.peer import PeerHTTPInbound, PeerManager
+from inkcre_core.schemas.extension import (
   DisableExtensionCommand,
   EnableExtensionCommand,
   ExtensionManagementCommand,
@@ -21,7 +21,7 @@ from app.schemas.extension import (
   SelectExtensionInput,
   UnselectExtensionCommand,
 )
-from app.schemas.peer import PeerRef
+from inkcre_core.schemas.peer import PeerRef
 
 from .validation import request_input
 

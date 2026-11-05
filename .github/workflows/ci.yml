@@ -63,7 +63,7 @@ jobs:
           cache: true
 
       - name: Install locked dependencies
-        run: pdm install -G dev --frozen-lockfile
+        run: pdm install -G app -G dev --frozen-lockfile
 
       - name: Enforce release intent
         env:

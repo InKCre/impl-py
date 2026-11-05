@@ -17,15 +17,16 @@ from psycopg import sql
 import pytest
 import sqlalchemy
 import sqlmodel
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.database_contract.connection import normalized_database_url, psycopg_database_url
-from app.business.info_base.storage.postgresql import PostgreSQLBlobPointer
+from inkcre_core import Core
+from inkcre_core.business.info_base.storage.postgresql import PostgreSQLBlobPointer
 from tests.database import TestSession
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.info_base.storage import StorageBlobModel
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.info_base.storage import StorageBlobModel
 from extensions.memos import Extension
 from extensions.memos.family import AttachmentApplicationService, CanonicalAttachment
 
@@ -54,6 +55,7 @@ def attachment_database(monkeypatch):
   )
   engine = sqlalchemy.create_engine(database_url, poolclass=NullPool)
   async_engine = create_async_engine(database_url, poolclass=NullPool)
+  core = Core(async_engine)
   config = Config(PROJECT_ROOT / "alembic.ini")
   config.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
   with psycopg.connect(psycopg_database_url(owner_url), autocommit=True) as owner:
@@ -61,10 +63,6 @@ def attachment_database(monkeypatch):
   try:
     monkeypatch.setenv("MIGRATION_DATABASE_URL", database_url)
     monkeypatch.setattr("tests.database.TEST_ENGINE", engine)
-    monkeypatch.setattr(
-      "app.persistence.info_base.uow.AsyncSessionFactory",
-      async_sessionmaker(async_engine, expire_on_commit=False),
-    )
     command.upgrade(config, ATTACHMENT_REVISION)
     with engine.begin() as connection:
       connection.execute(
@@ -79,8 +77,10 @@ def attachment_database(monkeypatch):
           "VALUES (-4, 'postgresql_binary', '{}'::jsonb)"
         )
       )
-    yield config
+    with core.bind():
+      yield config
   finally:
+    asyncio.run(core.aclose())
     engine.dispose()
     asyncio.run(async_engine.dispose())
     with psycopg.connect(psycopg_database_url(owner_url), autocommit=True) as owner:

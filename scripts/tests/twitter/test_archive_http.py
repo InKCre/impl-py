@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 import jwt
 import pytest
 
-from app.business.peer import PeerManager
-from app.database_contract.constants import JWT_ALGORITHM
+from inkcre_core.business.peer import PeerManager
+from inkcre_core.database_contract.constants import JWT_ALGORITHM
 from app.middleware import create_peer_jwt
 from app.settings import Settings, settings
 from extensions.twitter import archive_http, archive_session
@@ -303,7 +303,7 @@ def test_session_does_not_renew_for_no_cors_subresource(archive_client):
 
 def test_extension_publishes_claimed_archive_routes(monkeypatch):
   from extensions.twitter import Extension
-  from app.business.source import SourceManager
+  from inkcre_core.business.source import SourceManager
 
   async def sync_source_types():
     return None

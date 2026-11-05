@@ -1,7 +1,7 @@
 # extension/ Local Guide
 
-本目录实现唯一的 Core Extension Host。修改前同时核对 `main.py`、`state.py`、
-`release.py`、`distribution.py`、`app/schemas/extension/main.py` 与 `run.py`。
+本目录实现服务的 Extension Host 装配。修改前同时核对 `main.py`、`state.py`、
+`release.py`、`distribution.py`、`inkcre_core/schemas/extension/main.py` 与 `run.py`。
 
 ## 稳定边界
 
@@ -35,7 +35,7 @@
 ## 权限和持久化
 
 `state.py` 拥有异步持久化用例与 shared state/config 规则；SQL 和 session-bound repository 位于
-`app/persistence/extension/`，UoW 工厂使用原生异步事务。`extensions.state` 是 deployment-wide Extension-produced state；
+`inkcre_core/persistence/extension/`，UoW 工厂使用原生异步事务。`extensions.state` 是 deployment-wide Extension-produced state；
 `extension_peer_participations` 保存 Peer-local selection、enabled intent 与精确版本 config schema。SQLModel 不应泄露成 Host 的稳定接口。
 
 Extension authoring 与 wheel metadata 规则见 `extensions/AGENTS.md`。

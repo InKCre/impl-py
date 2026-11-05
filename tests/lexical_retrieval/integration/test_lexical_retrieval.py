@@ -1,6 +1,6 @@
 """Real PostgreSQL proof for lexical projection, freshness, and ranking."""
 
-from app.business.info_base.services import BlockService
+from inkcre_core.business.info_base.services import BlockService
 from tests.database import seed_block
 
 
@@ -9,25 +9,34 @@ import os
 import pytest
 import sqlalchemy
 
-from app.business.info_base.resolver import register_core_resolvers
-from app.business.cron import CronManager
-from app.business.job import JobManager
-from app.business.lexical_retrieval import (
+from inkcre_core.business.info_base.resolver import register_core_resolvers
+from inkcre_core.business.cron import CronManager
+from inkcre_core.business.job import JobManager
+from inkcre_core.business.lexical_retrieval import (
   LEXICAL_MAINTAIN_JOB_TYPE,
   LEXICAL_REBUILD_JOB_TYPE,
   LexicalRetrievalManager,
 )
 from tests.database import TestSession
-from app.schemas.info_base.block import BlockForm
-from app.schemas.cron import CronModel
-from app.schemas.job import JobModel, JobStatus
-from app.schemas.lexical_retrieval import LexicalMaintenanceOptions
+from inkcre_core.schemas.info_base.block import BlockForm
+from inkcre_core.schemas.cron import CronModel
+from inkcre_core.schemas.job import JobModel, JobStatus
+from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceOptions
 
 
 pytestmark = pytest.mark.skipif(
   not os.getenv("INKCRE_TEST_DATABASE_URL"),
   reason="requires an explicitly selected migrated PostgreSQL runtime",
 )
+
+
+@pytest.fixture
+def job_execution(async_runner):
+  JobManager.start()
+  try:
+    yield
+  finally:
+    async_runner.run(JobManager.shutdown())
 
 
 def _reset() -> None:
@@ -123,6 +132,7 @@ def test_unknown_resolver_is_bounded_unavailable_diagnostic(
 
 def test_direct_and_cron_created_jobs_share_exact_handler_path(
   async_runner,
+  job_execution,
 ):
   _reset()
   register_core_resolvers()

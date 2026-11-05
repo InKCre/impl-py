@@ -1,5 +1,7 @@
 """Real PostgreSQL proof for Peer snapshots, database-time lease and discovery."""
 
+from dataclasses import replace
+from inkcre_core import current_core
 import datetime
 import os
 import time
@@ -8,9 +10,9 @@ import uuid
 import pytest
 import sqlalchemy
 
-from app.business.peer import PeerHTTPInbound, PeerManager
+from inkcre_core.business.peer import PeerHTTPInbound, PeerManager
 from tests.database import TestSession
-from app.schemas.peer import PEER_HTTP_PROTOCOL, PeerModel
+from inkcre_core.schemas.peer import PEER_HTTP_PROTOCOL, PeerModel
 from app.version import APPLICATION_VERSION
 
 
@@ -23,19 +25,22 @@ CAPABILITY = "core.peer.integration.v1"
 
 
 def test_real_snapshot_database_lease_and_candidate_filtering(monkeypatch, async_runner):
-  original_peer = PeerManager.get_current_peer_ref()
-  original_inbounds = PeerManager._INBOUNDS
-  original_outbounds = PeerManager._OUTBOUNDS
+  original_options = current_core().options
+  original_inbounds = current_core().inbounds
+  original_outbounds = current_core().outbounds
   local = uuid.uuid4()
   live = uuid.uuid4()
   expired = uuid.uuid4()
   malformed = uuid.uuid4()
   peer_ids = (local, live, expired, malformed)
   try:
-    monkeypatch.setattr(PeerManager, "_INBOUNDS", {})
-    monkeypatch.setattr(PeerManager, "_OUTBOUNDS", {})
-    monkeypatch.setattr("app.business.peer.main.settings.peer_id", local)
-    monkeypatch.setattr("app.business.peer.main.settings.peer_name", "integration-local")
+    monkeypatch.setattr(current_core(), "inbounds", {})
+    monkeypatch.setattr(current_core(), "outbounds", {})
+    monkeypatch.setattr(
+      current_core(),
+      "options",
+      replace(current_core().options, peer_id=local, peer_name="integration-local"),
+    )
 
     async_runner.run(PeerManager.register_self())
     PeerManager.setup_builtin_outbounds()
@@ -132,9 +137,9 @@ def test_real_snapshot_database_lease_and_candidate_filtering(monkeypatch, async
     assert cleared is not None
     assert cleared.lease_expires_at is None
   finally:
-    monkeypatch.setattr(PeerManager, "_INBOUNDS", original_inbounds)
-    monkeypatch.setattr(PeerManager, "_OUTBOUNDS", original_outbounds)
-    monkeypatch.setattr("app.business.peer.main.settings.peer_id", original_peer)
+    monkeypatch.setattr(current_core(), "inbounds", original_inbounds)
+    monkeypatch.setattr(current_core(), "outbounds", original_outbounds)
+    monkeypatch.setattr(current_core(), "options", original_options)
     with TestSession() as db:
       db.connection().execute(
         sqlalchemy.text("DELETE FROM inkcre.peers WHERE id = ANY(:ids)"),
@@ -148,11 +153,21 @@ def test_failed_cold_restore_preserves_intent_and_reports_not_ready(monkeypatch)
   from fastapi.testclient import TestClient
 
   import run
-  from app.schemas.extension import ExtensionModel, ExtensionPeerParticipationModel
+  from inkcre_core.schemas.extension import ExtensionModel, ExtensionPeerParticipationModel
+
+  from app.core import create_core
 
   peer = uuid.uuid4()
   name = f"issue121/missing-{peer.hex}"
-  monkeypatch.setattr("app.settings.settings.peer_id", peer)
+  # This lifespan closes its owned Core; do not close other tests' service instance.
+  service_core = create_core()
+  service_core.options = replace(service_core.options, peer_id=peer)
+  original_core = run.CORE
+  monkeypatch.setattr(run, "CORE", service_core)
+  monkeypatch.setattr(run.api_app, "middleware_stack", None)
+  for middleware in run.api_app.user_middleware:
+    if middleware.kwargs.get("core") is original_core:
+      monkeypatch.setitem(middleware.kwargs, "core", service_core)
   monkeypatch.setattr(run, "SKIP_EXTENSION_START", False)
   with TestSession() as db:
     db.add(

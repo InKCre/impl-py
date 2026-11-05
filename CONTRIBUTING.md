@@ -15,7 +15,7 @@ bugs that do not cross a security boundary.
 
 ```bash
 git submodule update --init --recursive
-pdm install -G dev --frozen-lockfile
+pdm install -G app -G dev --frozen-lockfile
 pdm run pre-commit install
 pdm run doctor
 pdm run check

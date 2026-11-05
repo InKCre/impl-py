@@ -4,10 +4,10 @@ import typing
 
 import fastapi
 
-from app.business.agent.main import AgentManager
-from app.business.agent.contracts import AgentNotFoundError, MissingAgentToolError
-from app.schemas.agent import AgentDefinitionModel, AgentForm, AgentUpdateForm
-from app.schemas.ai import FunctionTool
+from inkcre_core.business.agent.main import AgentManager
+from inkcre_core.business.agent.contracts import AgentNotFoundError, MissingAgentToolError
+from inkcre_core.schemas.agent import AgentDefinitionModel, AgentForm, AgentUpdateForm
+from inkcre_core.schemas.ai import FunctionTool
 
 from .validation import database_write, request_input
 

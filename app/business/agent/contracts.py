@@ -1,59 +1,10 @@
-"""Agent Tool binding and runtime failure contracts."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from __future__ import annotations
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-import typing
+sys.modules[__name__] = import_module("inkcre_core.business.agent.contracts")
 
-import pydantic
-
-from app.schemas.ai import FunctionTool, JSONValue
-
-
-AgentToolHandler: typing.TypeAlias = Callable[
-  [pydantic.BaseModel],
-  JSONValue | Awaitable[JSONValue],
-]
-AgentToolInputModelFactory: typing.TypeAlias = Callable[[], type[pydantic.BaseModel]]
-
-
-class AgentError(RuntimeError):
-  """Base failure exposed by the Agent domain."""
-
-
-class AgentNotFoundError(AgentError):
-  pass
-
-
-class AgentToolBindingError(AgentError):
-  pass
-
-
-class DuplicateAgentToolRegistrationError(AgentToolBindingError):
-  pass
-
-
-class MissingAgentToolError(AgentToolBindingError):
-  pass
-
-
-class AgentTurnActiveError(AgentError):
-  pass
-
-
-class ToolExecutionError(Exception):
-  """A Tool-owned actionable failure intended for the model."""
-
-  def __init__(self, content: JSONValue):
-    super().__init__("Agent Tool execution failed")
-    self.content = content
-
-
-@dataclass(frozen=True)
-class BoundAgentTool:
-  """One run-local Tool schema, validation model and code-owned handler."""
-
-  definition: FunctionTool
-  input_model: type[pydantic.BaseModel]
-  handler: AgentToolHandler
+if TYPE_CHECKING:
+  from inkcre_core.business.agent.contracts import *

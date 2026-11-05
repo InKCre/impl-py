@@ -1,21 +1,10 @@
-"""Job admission also reads Source contracts within its transaction."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from app.persistence.source.repository import SourceRepository
-from .repository import JobRepository
+sys.modules[__name__] = import_module("inkcre_core.persistence.job.uow")
 
-
-@dataclass(frozen=True)
-class JobUnitOfWork:
-  jobs: JobRepository
-  sources: SourceRepository
-
-
-@asynccontextmanager
-async def job_uow() -> AsyncGenerator[JobUnitOfWork, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield JobUnitOfWork(JobRepository(session), SourceRepository(session))
+if TYPE_CHECKING:
+  from inkcre_core.persistence.job.uow import *

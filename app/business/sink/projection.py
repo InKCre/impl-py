@@ -11,8 +11,8 @@ import typing
 
 import pydantic
 
-from app.business.info_base.resolver import ResolverManager
-from app.schemas.info_base.block import BlockModel
+from inkcre_core.business.info_base.resolver import ResolverManager
+from inkcre_core.schemas.info_base.block import BlockModel
 
 from .contracts import ContentMode
 

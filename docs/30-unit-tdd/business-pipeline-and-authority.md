@@ -17,9 +17,9 @@ implementation direction; it must not redefine Peer wire behavior or shared capa
 在以下情况先读这里：
 
 - 修改 `app/business/extension/`
-- 修改 `app/business/source/`
-- 修改 `app/business/info_base/`
-- 修改 `app/business/ai/` 或 application/use capability
+- 修改 `inkcre_core/business/source/`
+- 修改 `inkcre_core/business/info_base/`
+- 修改 `inkcre_core/business/ai/` 或 application/use capability
 - 修改这些子树之间的 ownership / dependency / authority
 
 ## Structure
@@ -59,7 +59,7 @@ implementation direction; it must not redefine Peer wire behavior or shared capa
 
 ### 数据库事务边界
 
-`app/business` 拥有应用用例、业务规则及事务组合；`app/persistence` 按业务责任分组，拥有
+`inkcre_core/business` 拥有应用用例、业务规则及事务组合；`inkcre_core/persistence` 按业务责任分组，拥有
 session-bound repository 和 UoW 的数据库工厂实现。用例决定何时进入、退出作用域，UoW 工厂负责
 实际创建 session 和原生事务 framing。repository 不反向依赖 business。
 HTTP route 只解析请求并调用 business 入口，不直接查询 repository；例如 `get_entity_records`
@@ -83,12 +83,12 @@ AI 调用前释放读取 scope，返回后重新检查已有派生，再在一�
 
 配置 HTTP 使用 DeploymentConfigService，AI、Agent 定义和 Peer 的数据库入口各自使用所属 UoW。
 AI provider 调用和 Peer outbound 执行前结束数据库作用域；Peer 的内存 capability 注册仍是同步函数。
-`app/engine.py` 是异步 factory 的 authority，lifespan 在业务运行资源退出后 dispose 异步 engine。
+`inkcre_core.Core` 每实例拥有异步 factory；`app/core.py` 只负责服务装配与 ASGI 绑定。lifespan 在业务运行资源退出后 await Core.aclose()，外部借用的 engine 不由 Core dispose。
 UoW 不跨并发任务共享。应用操作不接受可选 session；共同原子提交必须组合事务内操作，而不调用
 独立提交入口。`expire_on_commit=False` 允许已提交的已加载字段在 scope 外读取，不授权隐式延迟查询。
 
 ExtensionStateService 与 Host 的数据库操作已异步化，state/config transform 在行锁内同步执行，
-SQL 位于 app/persistence/extension；Source catalog 批量同步提供 SDK async startup 所需能力。
+SQL 位于 inkcre_core/persistence/extension；Source catalog 批量同步提供 SDK async startup 所需能力。
 启用／停用的持久化失败补偿和启动取消清理属于 Host；Peer 广播失败不撤销已提交的 disabled 状态。
 Registry origin 查询结束后才执行网络／wheel 获取。旧同步 Host 合同通过 Host 0.2 窗口隔离。
 

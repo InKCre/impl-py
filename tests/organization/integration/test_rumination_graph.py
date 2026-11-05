@@ -1,6 +1,6 @@
 """Real PostgreSQL context and draft-to-submit graph proof."""
 
-from app.business.deployment_config import DeploymentConfigService
+from inkcre_core.business.deployment_config import DeploymentConfigService
 from tests.database import seed_block, seed_relation
 
 
@@ -15,10 +15,10 @@ import pytest
 import sqlalchemy
 import sqlmodel
 
-from app.business.agent import AgentManager
-from app.business.ai import AIManager
-from app.business.info_base.resolver import register_core_resolvers
-from app.business.organization import (
+from inkcre_core.business.agent import AgentManager
+from inkcre_core.business.ai import AIManager
+from inkcre_core.business.info_base.resolver import register_core_resolvers
+from inkcre_core.business.organization import (
   DRAFT_GRAPH_TOOL,
   RUMINATION_CONFIG_KEY,
   RUMINATION_CONFIG_SCHEMA,
@@ -26,8 +26,8 @@ from app.business.organization import (
   RuminationBehaviorResolver,
 )
 from tests.database import TestSession
-from app.schemas import AgentDefinitionModel
-from app.schemas.ai import (
+from inkcre_core.schemas import AgentDefinitionModel
+from inkcre_core.schemas.ai import (
   AIModelModel,
   AIProviderModel,
   AssistantMessage,
@@ -37,9 +37,9 @@ from app.schemas.ai import (
   ToolCall,
   ToolResultMessage,
 )
-from app.schemas.deployment_config import DeploymentConfigModel
-from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.deployment_config import DeploymentConfigModel
+from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
 
 
 pytestmark = pytest.mark.skipif(

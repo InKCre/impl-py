@@ -3,14 +3,14 @@
 import fastapi
 import pydantic
 
-from app.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
-from app.schemas.graph_navigation_retrieval import (
+from inkcre_core.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
+from inkcre_core.schemas.graph_navigation_retrieval import (
   GraphDirection,
   GraphModel,
   DEFAULT_NEIGHBORHOOD_LIMIT,
   MAX_NEIGHBORHOOD_LIMIT,
 )
-from app.schemas.info_base.rest import GraphPathForm, GraphComponentsForm
+from inkcre_core.schemas.info_base.rest import GraphPathForm, GraphComponentsForm
 
 from .entities import relation_record
 

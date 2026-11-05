@@ -1,37 +1,3 @@
-from .main import (
-  DisableExtensionCommand,
-  EnableExtensionCommand,
-  ExtensionPeerStatus,
-  ExtensionPeerStatusRow,
-  EXTENSION_NAME_PATTERN,
-  EXTENSION_SEMVER_PATTERN,
-  ExtensionManagementCommand,
-  ExtensionModel,
-  ExtensionPeerParticipationModel,
-  ExtensionName,
-  InstallExtensionCommand,
-  PatchExtensionConfigCommand,
-  SelectExtensionInput,
-  SelectExtensionCommand,
-  ExtensionStatusCommand,
-  UnselectExtensionCommand,
-)
+"""Legacy import; use inkcre_core for new consumers."""
 
-__all__ = [
-  "DisableExtensionCommand",
-  "EnableExtensionCommand",
-  "ExtensionPeerStatus",
-  "ExtensionPeerStatusRow",
-  "EXTENSION_NAME_PATTERN",
-  "EXTENSION_SEMVER_PATTERN",
-  "ExtensionManagementCommand",
-  "ExtensionModel",
-  "ExtensionPeerParticipationModel",
-  "ExtensionName",
-  "InstallExtensionCommand",
-  "PatchExtensionConfigCommand",
-  "SelectExtensionInput",
-  "SelectExtensionCommand",
-  "ExtensionStatusCommand",
-  "UnselectExtensionCommand",
-]
+from inkcre_core.schemas.extension import *

@@ -14,8 +14,9 @@ WORKDIR /app
 # PDM 2.28 requires the httpx client replaced in unearth 0.19.
 RUN pip install --no-cache-dir "pdm==${PDM_VERSION}" "unearth==0.18.3"
 
-COPY pyproject.toml pdm.lock README.md ./
-RUN pdm install --prod --no-editable --frozen-lockfile
+COPY pyproject.toml pdm.lock README.md LICENSE ./
+COPY inkcre_core/ inkcre_core/
+RUN pdm install -G app --prod --no-editable --frozen-lockfile
 
 
 FROM python:${PYTHON_VERSION}-slim AS runtime

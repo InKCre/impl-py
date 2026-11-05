@@ -1,23 +1,27 @@
 """Runtime projection of optional deployment telemetry and context boundaries."""
 
 import asyncio
-from collections.abc import Mapping
 
-from opentelemetry.context import Context
-from opentelemetry.trace import Link, SpanKind
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from opentelemetry import trace
+from opentelemetry.trace import SpanKind
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.business.deployment_config import DeploymentConfigManager, DeploymentConfigService
+from inkcre_core.business.deployment_config import (
+  DeploymentConfigManager,
+  DeploymentConfigService,
+)
 from app.settings import settings
-from app.schemas.observability import CONFIG_KEY, CONFIG_SCHEMA, ObservabilityConfig
+from inkcre_core.schemas.observability import CONFIG_KEY, CONFIG_SCHEMA, ObservabilityConfig
 from app.version import APPLICATION_VERSION
-from libs.obsrv.main import get_logger
-from libs.obsrv.telemetry import emit_event, is_enabled, operation, start_telemetry
+from inkcre_core.libs.obsrv.main import get_logger
+from inkcre_core.libs.obsrv.telemetry import is_enabled, operation, start_telemetry
 
 
-PROPAGATOR = TraceContextTextMapPropagator()
+from inkcre_core.libs.obsrv.propagation import (
+  extract_context,
+  inject_context as inject_context,
+  submission_context as submission_context,
+  submission_links as submission_links,
+)
 
 
 DeploymentConfigManager.register_schema(
@@ -52,48 +56,6 @@ async def initialize_telemetry() -> None:
     )
   except Exception as error:
     get_logger().warning("Telemetry initialization failed (%s)", type(error).__name__)
-
-
-def inject_context() -> dict[str, str]:
-  """Inject only standard Trace Context when this runtime explicitly enabled telemetry."""
-  carrier: dict[str, str] = {}
-  if is_enabled():
-    PROPAGATOR.inject(carrier)
-  return carrier
-
-
-def submission_context() -> dict[str, str | None]:
-  carrier = inject_context()
-  state = carrier.get("tracestate")
-  if state is not None and len(state.encode("utf-8")) > 512:
-    state = None
-    emit_event("telemetry.carrier.dropped", {"reason": "tracestate_capacity"})
-  return {
-    "submission_traceparent": carrier.get("traceparent"),
-    "submission_tracestate": state,
-  }
-
-
-def extract_context(carrier: Mapping[str, str]) -> Context:
-  """Use the SDK parser within the application's bounded, two-header carrier."""
-  if not is_enabled():
-    return Context()
-  bounded = {
-    key: value
-    for key in ("traceparent", "tracestate")
-    if (value := carrier.get(key)) is not None and len(value.encode("utf-8")) <= 512
-  }
-  return PROPAGATOR.extract(bounded, context=Context())
-
-
-def submission_links(parent: str | None, state: str | None) -> tuple[Link, ...]:
-  carrier = {}
-  if parent is not None:
-    carrier["traceparent"] = parent
-  if state is not None:
-    carrier["tracestate"] = state
-  context = trace.get_current_span(extract_context(carrier)).get_span_context()
-  return (Link(context),) if context.is_valid else ()
 
 
 class TelemetryMiddleware:

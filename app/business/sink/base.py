@@ -5,7 +5,7 @@ import typing
 import fastapi
 import pydantic
 
-from app.schemas.sink import SinkModel, SinkTypeID
+from inkcre_core.schemas.sink import SinkModel, SinkTypeID
 
 
 ConfigT = typing.TypeVar("ConfigT", bound=pydantic.BaseModel)

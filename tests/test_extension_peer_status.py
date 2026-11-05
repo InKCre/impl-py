@@ -5,7 +5,7 @@ import pytest
 
 from app.business.extension.main import ExtensionHost
 from app.business.extension.state import ExtensionStore, InstalledExtension
-from app.schemas.extension.main import ExtensionPeerStatus, SelectExtensionCommand
+from inkcre_core.schemas.extension.main import ExtensionPeerStatus, SelectExtensionCommand
 
 
 def test_shared_protocol_preserves_a_distribution_unknown_to_python():

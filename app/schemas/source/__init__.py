@@ -1,19 +1,3 @@
-__all__ = [
-  "SourceID",
-  "SourceModel",
-  "SourceTypesModel",
-  "SourceCollectParameters",
-  "SourceBackfillParameters",
-  "SourceCreateForm",
-  "SourceUpdateForm",
-]
+"""Legacy import; use inkcre_core for new consumers."""
 
-from .main import (
-  SourceBackfillParameters,
-  SourceCollectParameters,
-  SourceID,
-  SourceModel,
-  SourceTypesModel,
-  SourceCreateForm,
-  SourceUpdateForm,
-)
+from inkcre_core.schemas.source import *

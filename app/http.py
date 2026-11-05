@@ -1,6 +1,6 @@
 """Public HTTP address supplied by this Core's deployment configuration."""
 
-from app.business.peer import PeerManager
+from inkcre_core.business.peer import PeerManager
 
 
 async def get_public_http_base_url() -> str | None:

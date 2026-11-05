@@ -13,7 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import NullPool
 
 from migrations.settings import MigrationSettings
-from app.database_contract.constants import PROTOCOL_SCHEMA
+from inkcre_core.database_contract.constants import PROTOCOL_SCHEMA
 from scripts.sanitize_preview_base import LINEAGE_TABLE
 
 

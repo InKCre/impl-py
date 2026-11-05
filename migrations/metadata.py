@@ -2,9 +2,9 @@
 
 from sqlalchemy import MetaData
 
-from app.database_contract import PROTOCOL_SCHEMA
-from app.schemas import Base
-from libs.obsrv.log_record import LogModel
+from inkcre_core.database_contract import PROTOCOL_SCHEMA
+from inkcre_core.schemas import Base
+from inkcre_core.libs.obsrv.log_record import LogModel
 
 
 _qualified_log_table = f"{PROTOCOL_SCHEMA}.{LogModel.__tablename__}"

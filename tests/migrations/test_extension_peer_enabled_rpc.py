@@ -19,15 +19,15 @@ import sqlalchemy.exc
 import sqlmodel
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.business.cron import CronManager
+from inkcre_core.business.cron import CronManager
 from app.business.extension.errors import ExtensionStateConflictError
 from app.business.extension.state import ExtensionStateService
-from app.business.job import JobManager
-from app.business.source import SOURCE_COLLECT_JOB_TYPE, SourceManager
-from app.persistence.extension import uow as extension_uow
-from app.schemas.extension import ExtensionModel, ExtensionPeerParticipationModel
-from app.schemas.peer import PeerModel
-from app.schemas.cron import CronForm
+from inkcre_core.business.job import JobManager
+from inkcre_core.business.source import SOURCE_COLLECT_JOB_TYPE, SourceManager
+from inkcre_core.persistence.extension import uow as extension_uow
+from inkcre_core.schemas.extension import ExtensionModel, ExtensionPeerParticipationModel
+from inkcre_core.schemas.peer import PeerModel
+from inkcre_core.schemas.cron import CronForm
 from extensions.twitter.bookmark import Source as BookmarkSource
 
 
@@ -462,9 +462,9 @@ def test_setup_source_and_cron_use_simple_core_owned_operations(
 ):
   import asyncio
   from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-  from app.persistence.cron import uow as cron_uow
-  from app.persistence.job import uow as job_uow
-  from app.persistence.source import uow as source_uow
+  from inkcre_core.persistence.cron import uow as cron_uow
+  from inkcre_core.persistence.job import uow as job_uow
+  from inkcre_core.persistence.source import uow as source_uow
 
   engine = create_async_engine(setup_domain_engine.url)
   factory = async_sessionmaker(engine, expire_on_commit=False)

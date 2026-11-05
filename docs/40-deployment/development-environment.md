@@ -93,7 +93,7 @@ For Python-only iteration against an already initialized database:
 
 ```bash
 cp .env.example .env
-pdm install -G dev --frozen-lockfile
+pdm install -G app -G dev --frozen-lockfile
 pdm run doctor
 pdm run check
 pdm run dev

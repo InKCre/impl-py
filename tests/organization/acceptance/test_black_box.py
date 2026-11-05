@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.business.deployment_config import DeploymentConfigService
+from inkcre_core.business.deployment_config import DeploymentConfigService
 from tests.database import seed_block, seed_relation
 
 
@@ -15,19 +15,19 @@ import pytest
 import sqlalchemy
 import sqlmodel
 
-from app.business.ai import AIManager
-from app.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
-from app.business.graph_navigation_retrieval.tools import (
+from inkcre_core.business.ai import AIManager
+from inkcre_core.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
+from inkcre_core.business.graph_navigation_retrieval.tools import (
   FIND_PATH_TOOL,
   GET_CONNECTED_COMPONENTS_TOOL,
   GET_ENTITY_NEIGHBORHOOD_TOOL,
 )
-from app.business.info_base.tools import GET_ENTITIES_TOOL, RETRIEVE_TOOL
-from app.business.info_base.resolver import ResolverManager, register_core_resolvers
-from app.business.info_base.resolver.tools import RESOLVER_TOOL
-from app.business.job import JobManager
-from app.business.lexical_retrieval import LexicalRetrievalManager
-from app.business.organization import (
+from inkcre_core.business.info_base.tools import GET_ENTITIES_TOOL, RETRIEVE_TOOL
+from inkcre_core.business.info_base.resolver import ResolverManager, register_core_resolvers
+from inkcre_core.business.info_base.resolver.tools import RESOLVER_TOOL
+from inkcre_core.business.job import JobManager
+from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.organization import (
   ANCHOR_EXISTING_REFERENT_TOOL,
   CREATE_SYNTHESIS_TOOL,
   DRAFT_GRAPH_TOOL,
@@ -39,16 +39,16 @@ from app.business.organization import (
   SUBMIT_GRAPH_TOOL,
   register_core_organization_behaviors,
 )
-from app.business.organization.duplicate_assertion import (
+from inkcre_core.business.organization.duplicate_assertion import (
   DUPLICATE_ASSERTION_CONFIG_KEY,
   DUPLICATE_ASSERTION_CONFIG_SCHEMA,
   DUPLICATES_ASSERTION_RELATION,
 )
-from app.business.organization.evidence_stance import (
+from inkcre_core.business.organization.evidence_stance import (
   EVIDENCE_STANCE_CONFIG_KEY,
   EVIDENCE_STANCE_CONFIG_SCHEMA,
 )
-from app.business.organization.jobs import (
+from inkcre_core.business.organization.jobs import (
   DUPLICATE_ASSERTION_JOB_TYPE,
   EVIDENCE_STANCE_JOB_TYPE,
   REFERENT_ANCHORING_JOB_TYPE,
@@ -57,39 +57,42 @@ from app.business.organization.jobs import (
   SUPERSESSION_JOB_TYPE,
   SYNTHESIS_JOB_TYPE,
 )
-from app.business.organization.referent_anchoring import (
+from inkcre_core.business.organization.referent_anchoring import (
   HAS_MENTION_RELATION,
   REFERENT_ANCHORING_CONFIG_KEY,
   REFERENT_ANCHORING_CONFIG_SCHEMA,
   REFERS_TO_RELATION,
 )
-from app.business.organization.refinement import (
+from inkcre_core.business.organization.refinement import (
   REFINEMENT_CONFIG_KEY,
   REFINEMENT_CONFIG_SCHEMA,
 )
-from app.business.organization.rumination import (
+from inkcre_core.business.organization.rumination import (
   RUMINATION_CONFIG_KEY,
   RUMINATION_CONFIG_SCHEMA,
 )
-from app.business.organization.supersession import (
+from inkcre_core.business.organization.supersession import (
   SUPERSESSION_CONFIG_KEY,
   SUPERSESSION_CONFIG_SCHEMA,
   SUPERSESSION_BEHAVIOR,
   SUPERSEDES_RELATION,
 )
-from app.business.organization.synthesis import (
+from inkcre_core.business.organization.synthesis import (
   SYNTHESIS_CONFIG_KEY,
   SYNTHESIS_CONFIG_SCHEMA,
   SYNTHESIS_RELATION,
 )
 from tests.database import TestSession
-from app.schemas import AgentDefinitionModel
-from app.schemas.ai import AIModelModel, AIProviderModel, ChatCapability
-from app.schemas.deployment_config import DeploymentConfigModel, DeploymentConfigView
-from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.job import JobModel, JobStatus
-from app.schemas.lexical_retrieval import LexicalMaintenanceOptions
+from inkcre_core.schemas import AgentDefinitionModel
+from inkcre_core.schemas.ai import AIModelModel, AIProviderModel, ChatCapability
+from inkcre_core.schemas.deployment_config import (
+  DeploymentConfigModel,
+  DeploymentConfigView,
+)
+from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.job import JobModel, JobStatus
+from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceOptions
 
 from .corpus import CorpusManifest, load_manifest, read_artifact
 

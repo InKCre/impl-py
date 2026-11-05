@@ -1,13 +1,10 @@
-"""Short lexical database scope, separate from Resolver projection."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from .repository import LexicalRepository
+sys.modules[__name__] = import_module("inkcre_core.persistence.lexical_retrieval.uow")
 
-
-@asynccontextmanager
-async def lexical_uow() -> AsyncGenerator[LexicalRepository, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield LexicalRepository(session)
+if TYPE_CHECKING:
+  from inkcre_core.persistence.lexical_retrieval.uow import *

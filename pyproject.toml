@@ -1,19 +1,13 @@
 [project]
 name = "inkcre-core"
 version = "0.10.0"
-description = "Backend of InKCre."
+description = "InKCre Python SDK for information-base operations and Peer capabilities."
 authors = [{ name = "Lan_zhijiang", email = "lanzhijiang@foxmail.com" }]
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "inkcre-extension-runtime-core-py @ https://github.com/InKCre/ext-reg/releases/download/runtime-core-py-v0.2.0/inkcre_extension_runtime_core_py-0.2.0-py3-none-any.whl",
-    "authlib>=1.7.2,<2.0.0",
     "pydantic (>=2.11.7,<3.0.0)",
     "pydantic-settings (>=2.14.2,<3.0.0)",
-    "fastapi (>=0.139.2,<0.140.0)",
-    "packaging (>=25.0,<26.0)",
-    "pip (>=25.2,<26.0)",
-    "semantic-version (>=2.10.0,<3.0.0)",
     "sqlalchemy[asyncio]<3.0.0,>=2.0.41",
     "aiohttp (>=3.14.1,<4.0.0)",
     "tencentcloud-sdk-python-lke (>=3.0.1427,<4.0.0)",
@@ -21,20 +15,12 @@ dependencies = [
     "openai (>=1.97.1,<2.0.0)",
     "numpy (>=2.3.2,<3.0.0)",
     "pgvector (>=0.4.1,<0.5.0)",
-    "uvicorn (>=0.35.0,<0.36.0)",
     "requests (>=2.33.0,<3.0.0)",
     "httpx>=0.28.1,<0.29.0",
     "sqlmodel (>=0.0.24,<0.0.25)",
     "datadot (>=1.0.0,<2.0.0)",
-    "apscheduler>=3.11.0",
     "html2text>=2025.4.15",
-    "logtail-python>=0.3.0",
-    "python-telegram-bot==22.8",
-    "alembic>=1.16.4",
-    "alembic-utils>=0.8.8",
-    "alembic-postgresql-enum>=1.8.0",
     "PyJWT>=2.10.1",
-    # Fixed built-in extension profile
     "beautifulsoup4>=4.12.0,<5.0.0",
     "chardet>=5.0.0,<6.0.0",
     "lxml>=5.0.0,<7.0.0",
@@ -43,19 +29,36 @@ dependencies = [
     "av>=18.0.0,<19.0.0",
     "pypdf>=6.14.2,<7.0.0",
     "puremagic>=2.2.0,<3.0.0",
+    "jsonschema<5,>=4.25",
+    "croniter<7,>=6",
+    "opentelemetry-sdk==1.45.0",
+    "opentelemetry-exporter-otlp-proto-http==1.45.0",
+    "anyio<5,>=4",
+]
+
+[project.optional-dependencies]
+app = [
+    "inkcre-extension-runtime-core-py @ https://github.com/InKCre/ext-reg/releases/download/runtime-core-py-v0.2.0/inkcre_extension_runtime_core_py-0.2.0-py3-none-any.whl",
+    "authlib>=1.7.2,<2.0.0",
+    "fastapi (>=0.139.2,<0.140.0)",
+    "packaging (>=25.0,<26.0)",
+    "pip (>=25.2,<26.0)",
+    "semantic-version (>=2.10.0,<3.0.0)",
+    "uvicorn (>=0.35.0,<0.36.0)",
+    "apscheduler>=3.11.0",
+    "logtail-python>=0.3.0",
+    "python-telegram-bot==22.8",
+    "alembic>=1.16.4",
+    "alembic-utils>=0.8.8",
+    "alembic-postgresql-enum>=1.8.0",
     "feedparser>=6.0.12,<7.0.0",
     "trafilatura>=2.1.0,<3.0.0",
     "PyGithub>=2.8.1,<3.0.0",
     "twikit>=2.3.3,<3.0.0",
-    "jsonschema<5,>=4.25",
-    "croniter<7,>=6",
     "imapclient<4,>=3.1",
     "mcp>=2.1.1,<2.2.0",
-    "opentelemetry-sdk==1.45.0",
-    "opentelemetry-exporter-otlp-proto-http==1.45.0",
     "Radicale==3.8.3",
     "vobject<0.10,>=0.9.9",
-    "anyio<5,>=4",
 ]
 
 [dependency-groups]
@@ -81,11 +84,8 @@ dev = [
     "towncrier==25.8.0",
 ]
 
-[tool.poetry]
-package-mode = false
-
 [tool.pdm]
-distribution = false
+distribution = true
 
 [tool.pdm.scripts]
 dev = "python run.py"
@@ -107,11 +107,12 @@ test = "python -m pytest -q"
 "check:releases" = "python scripts/release.py check {args}"
 "build:extension-preview" = "python scripts/build_extension_preview.py {args}"
 "release:prepare" = "python scripts/release.py prepare {args}"
+"check:core-package" = { composite = ["python -m build --wheel --no-isolation", "python scripts/check_core_package.py"] }
 "check:foundation" = { composite = ["doctor", "check:lock", "check:migrations", "check:automation"] }
 "lint:database-imports" = "ruff check --config ruff.database.toml ."
 "lint:database-ownership" = "python scripts/check_database_boundaries.py"
 "lint:database-boundaries" = { composite = ["lint:database-imports", "lint:database-ownership"] }
-"check" = { composite = ["check:foundation", "format:check", "lint", "lint:database-boundaries", "typecheck", "test"] }
+"check" = { composite = ["check:foundation", "format:check", "lint", "lint:database-boundaries", "typecheck", "check:core-package", "test"] }
 "db:revision" = "alembic revision -m {args}"
 "db:generate" = "alembic revision --autogenerate -m {args}"
 "db:record" = "python scripts/check_migration_history.py --record-new"
@@ -135,6 +136,7 @@ test = "python -m pytest -q"
 
 [tool.pyrefly]
 project-includes = [
+    "inkcre_core",
     "app",
     "deploy",
     "extensions",
@@ -160,5 +162,11 @@ markers = [
 ]
 
 [build-system]
-requires = []
-build-backend = "none"
+requires = ["setuptools>=80,<81"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["inkcre_core*"]
+
+[tool.setuptools.package-data]
+inkcre_core = ["py.typed"]

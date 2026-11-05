@@ -9,9 +9,9 @@ import uuid
 import pytest
 import sqlalchemy
 
-from app.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
-from app.business.info_base.resolver import register_core_resolvers
-from app.business.organization import (
+from inkcre_core.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
+from inkcre_core.business.info_base.resolver import register_core_resolvers
+from inkcre_core.business.organization import (
   DuplicateAssertionBehaviorResolver,
   EvidenceStanceBehaviorResolver,
   ExistingReferentAnchoringBehaviorResolver,
@@ -21,7 +21,7 @@ from app.business.organization import (
   register_core_organization_behaviors,
 )
 from tests.database import TestSession
-from app.schemas.info_base.block import BlockForm
+from inkcre_core.schemas.info_base.block import BlockForm
 
 
 pytestmark = pytest.mark.skipif(
@@ -222,8 +222,8 @@ def test_connected_component_reports_missing_and_bounded_incomplete_proof(
 
 
 def test_synthesis_rolls_back_block_and_basis_on_write_failure(async_runner, monkeypatch):
-  from app.persistence.info_base.repository import RelationRepository
-  from app.persistence.info_base.uow import graph_uow
+  from inkcre_core.persistence.info_base.repository import RelationRepository
+  from inkcre_core.persistence.info_base.uow import graph_uow
 
   marker = uuid.uuid4().hex
 

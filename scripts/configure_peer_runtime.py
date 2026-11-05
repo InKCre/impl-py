@@ -17,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.database_contract.connection import database_connection
-from app.schemas.peer import CorePeerConfig, PEER_HTTP_PROTOCOL
+from inkcre_core.schemas.peer import CorePeerConfig, PEER_HTTP_PROTOCOL
 
 
 CAPABILITY_PATHS = {

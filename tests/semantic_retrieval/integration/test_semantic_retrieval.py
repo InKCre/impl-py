@@ -1,7 +1,7 @@
 """Real PostgreSQL vertical proof for maintenance, freshness and ranking."""
 
-from app.business.deployment_config import DeploymentConfigService
-from app.business.info_base.services import RelationService
+from inkcre_core.business.deployment_config import DeploymentConfigService
+from inkcre_core.business.info_base.services import RelationService
 
 
 import os
@@ -10,25 +10,25 @@ import time
 import pytest
 import sqlalchemy
 
-from app.business.ai import AIManager
-from app.business.info_base.resolver import register_core_resolvers
-from app.business.semantic_retrieval import (
+from inkcre_core.business.ai import AIManager
+from inkcre_core.business.info_base.resolver import register_core_resolvers
+from inkcre_core.business.semantic_retrieval import (
   EmbeddingProfileNotFoundError,
   SEMANTIC_RETRIEVAL_CONFIG_KEY,
   SEMANTIC_RETRIEVAL_CONFIG_SCHEMA,
   SemanticRetrievalManager,
 )
 from tests.database import TestSession
-from app.schemas.ai import (
+from inkcre_core.schemas.ai import (
   AIModelModel,
   AIProviderModel,
   BlockEmbeddingModel,
   EmbeddingCapability,
   EmbeddingProfileModel,
 )
-from app.schemas.info_base.block import BlockModel
-from app.schemas.info_base.relation import RelationModel
-from app.schemas.semantic_retrieval import (
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.semantic_retrieval import (
   EmbeddingMaintenanceOptions,
   VectorRetrievalOptions,
 )

@@ -1,29 +1,3 @@
-"""Executable peer database runtime contract."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from .constants import (
-  AUTHENTICATED_ROLE,
-  AUTHENTICATOR_ROLE,
-  CONTRACT_REVISION,
-  CORE_RUNTIME_ROLE,
-  DEVELOPMENT_PEER_ID,
-  INTERNAL_SCHEMA,
-  JWT_ALGORITHM,
-  JWT_AUDIENCE,
-  JWT_ISSUER,
-  JWT_MAX_LIFETIME_SECONDS,
-  PROTOCOL_SCHEMA,
-)
-
-__all__ = [
-  "AUTHENTICATED_ROLE",
-  "AUTHENTICATOR_ROLE",
-  "CONTRACT_REVISION",
-  "CORE_RUNTIME_ROLE",
-  "DEVELOPMENT_PEER_ID",
-  "INTERNAL_SCHEMA",
-  "JWT_ALGORITHM",
-  "JWT_AUDIENCE",
-  "JWT_ISSUER",
-  "JWT_MAX_LIFETIME_SECONDS",
-  "PROTOCOL_SCHEMA",
-]
+from inkcre_core.database_contract import *

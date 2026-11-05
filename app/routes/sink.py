@@ -5,7 +5,7 @@ import typing
 import fastapi
 import pydantic
 
-from app.business.peer import PeerManager
+from inkcre_core.business.peer import PeerManager
 from app.business.sink import (
   SinkError,
   SinkManager,
@@ -13,7 +13,7 @@ from app.business.sink import (
   SinkStateConflictError,
   UnknownSinkTypeError,
 )
-from app.schemas.sink import SinkCreateForm, SinkID, SinkModel, SinkTypeModel
+from inkcre_core.schemas.sink import SinkCreateForm, SinkID, SinkModel, SinkTypeModel
 
 
 ROUTER = fastapi.APIRouter(tags=["sink"])

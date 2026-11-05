@@ -18,8 +18,8 @@ import jsonschema  # pyrefly: ignore[untyped-import]
 from packaging.utils import canonicalize_name
 import sqlmodel
 
-from app.business.peer import PeerManager
-from app.schemas.extension import (
+from inkcre_core.business.peer import PeerManager
+from inkcre_core.schemas.extension import (
   DisableExtensionCommand,
   EnableExtensionCommand,
   ExtensionPeerStatus,
@@ -30,11 +30,11 @@ from app.schemas.extension import (
   SelectExtensionCommand,
   UnselectExtensionCommand,
 )
-from app.schemas.peer import PeerProtocolRequest, PeerProtocolResponse, PeerRef
+from inkcre_core.schemas.peer import PeerProtocolRequest, PeerProtocolResponse, PeerRef
 from app.settings import settings
 from app.version import CORE_VERSION
 from app.runtime import request_process_restart
-from libs.obsrv.main import get_logger
+from inkcre_core.libs.obsrv.main import get_logger
 
 from .distribution import (
   AcquiredDistribution,

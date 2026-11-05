@@ -4,9 +4,12 @@ __all__ = ["ROUTER"]
 
 import fastapi
 
-from app.business.organization import RUMINATION_CAPABILITY, RuminationBehaviorResolver
-from app.business.peer import PeerHTTPInbound
-from app.schemas.organization import RuminationRequest
+from inkcre_core.business.organization import (
+  RUMINATION_CAPABILITY,
+  RuminationBehaviorResolver,
+)
+from inkcre_core.business.peer import PeerHTTPInbound
+from inkcre_core.schemas.organization import RuminationRequest
 
 
 ROUTER = fastapi.APIRouter(tags=["organization"])

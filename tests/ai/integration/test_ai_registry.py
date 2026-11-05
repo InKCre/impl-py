@@ -8,9 +8,9 @@ import pytest
 import sqlalchemy
 import sqlalchemy.exc
 
-from app.business.ai import AIManager
+from inkcre_core.business.ai import AIManager
 from tests.database import TestSession
-from app.schemas.ai import (
+from inkcre_core.schemas.ai import (
   AIModelModel,
   AIProviderModel,
   ChatCapability,

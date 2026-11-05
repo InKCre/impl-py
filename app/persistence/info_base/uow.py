@@ -1,30 +1,10 @@
-"""Graph transaction composition; repositories share one private session."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
+sys.modules[__name__] = import_module("inkcre_core.persistence.info_base.uow")
 
-from .repository import BlockRepository, RelationRepository
-from .storage import StorageRepository
-
-
-@dataclass(frozen=True)
-class GraphUnitOfWork:
-  blocks: BlockRepository
-  relations: RelationRepository
-  storage: StorageRepository
-
-
-@asynccontextmanager
-async def graph_uow(
-  *, repeatable_read: bool = False
-) -> AsyncGenerator[GraphUnitOfWork, None]:
-  """Commit on success; roll back on failure and always close the session."""
-  async with AsyncSessionFactory.begin() as session:
-    if repeatable_read:
-      await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
-    yield GraphUnitOfWork(
-      BlockRepository(session), RelationRepository(session), StorageRepository(session)
-    )
+if TYPE_CHECKING:
+  from inkcre_core.persistence.info_base.uow import *

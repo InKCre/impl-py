@@ -8,20 +8,20 @@ import fastapi
 import pydantic
 from starlette.routing import BaseRoute
 
-from app.business.agent import AgentManager
-from app.business.job import JobHandler, JobManager
+from inkcre_core.business.agent import AgentManager
+from inkcre_core.business.job import JobHandler, JobManager
 from app.middleware import require_peer_jwt
-from app.persistence.job.uow import JobUnitOfWork
-from app.schemas.ai import (
+from inkcre_core.persistence.job.uow import JobUnitOfWork
+from inkcre_core.schemas.ai import (
   AssistantMessage,
   JSONValue,
   TextContentPart,
   ToolResultMessage,
   UserMessage,
 )
-from app.schemas.job import JobModel
-from app.schemas.sink import SinkModel
-from libs.obsrv.telemetry import emit_event
+from inkcre_core.schemas.job import JobModel
+from inkcre_core.schemas.sink import SinkModel
+from inkcre_core.libs.obsrv.telemetry import emit_event
 
 from .base import SinkBase
 from .errors import SinkNotFoundError, SinkStateConflictError

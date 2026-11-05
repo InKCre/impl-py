@@ -28,7 +28,16 @@ def _web() -> int:
 
   from app.business.extension.main import EXTENSION_HOST
 
-  asyncio.run(EXTENSION_HOST.provision_enabled_distributions())
+  from app.core import create_core
+
+  async def provision() -> None:
+    with create_core().bind() as core:
+      try:
+        await EXTENSION_HOST.provision_enabled_distributions()
+      finally:
+        await core.aclose()
+
+  asyncio.run(provision())
 
   os.execvp(
     sys.executable,

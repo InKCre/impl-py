@@ -12,8 +12,8 @@ import sqlmodel
 from sqlalchemy.pool import NullPool
 
 from app.settings import settings
-from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.info_base.relation import RelationModel
+from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
 
 
 TEST_ENGINE = sqlmodel.create_engine(settings.database_url, poolclass=NullPool)

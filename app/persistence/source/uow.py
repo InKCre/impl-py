@@ -1,31 +1,10 @@
-"""Source state, graph and storage participate in one short transaction."""
+"""Legacy import; use inkcre_core for new consumers."""
 
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
-from app.engine import AsyncSessionFactory
-from app.persistence.info_base.uow import GraphUnitOfWork
-from app.persistence.info_base.repository import BlockRepository, RelationRepository
-from app.persistence.info_base.storage import StorageRepository
-from app.persistence.deployment_config.repository import DeploymentConfigRepository
-from .repository import SourceRepository
+sys.modules[__name__] = import_module("inkcre_core.persistence.source.uow")
 
-
-@dataclass(frozen=True)
-class SourceUnitOfWork:
-  sources: SourceRepository
-  graph: GraphUnitOfWork
-  configuration: DeploymentConfigRepository
-
-
-@asynccontextmanager
-async def source_uow() -> AsyncGenerator[SourceUnitOfWork, None]:
-  async with AsyncSessionFactory.begin() as session:
-    yield SourceUnitOfWork(
-      SourceRepository(session),
-      GraphUnitOfWork(
-        BlockRepository(session), RelationRepository(session), StorageRepository(session)
-      ),
-      DeploymentConfigRepository(session),
-    )
+if TYPE_CHECKING:
+  from inkcre_core.persistence.source.uow import *

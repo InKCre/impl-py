@@ -5,10 +5,10 @@ import os
 
 import pytest
 
-from app.business.info_base.resolver import ResolverManager
-from app.business.source import SourceManager
-from app.schemas.info_base.block import BlockForm
-from app.persistence.source.uow import source_uow
+from inkcre_core.business.info_base.resolver import ResolverManager
+from inkcre_core.business.source import SourceManager
+from inkcre_core.schemas.info_base.block import BlockForm
+from inkcre_core.persistence.source.uow import source_uow
 from extensions.mail.newsletter import MAILING_LIST_RESOLVER, NEWSLETTER_HTML_RESOLVER
 from extensions.mail.reconcile import MailGraphReconciler
 from extensions.mail.schema import (

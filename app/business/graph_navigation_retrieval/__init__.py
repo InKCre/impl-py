@@ -1,3 +1,3 @@
-from .main import GraphNavigationRetrievalManager
+"""Legacy import; use inkcre_core for new consumers."""
 
-__all__ = ["GraphNavigationRetrievalManager"]
+from inkcre_core.business.graph_navigation_retrieval import *

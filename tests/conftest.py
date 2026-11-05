@@ -49,3 +49,11 @@ def async_runner():
       yield runner
     finally:
       runner.run(ASYNC_DB_ENGINE.dispose())
+
+
+@pytest.fixture(autouse=True)
+def application_core_scope():
+  from app.core import CORE
+
+  with CORE.bind():
+    yield CORE

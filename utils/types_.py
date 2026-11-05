@@ -1,10 +1,10 @@
-__all__ = ["Undefined", "_undefined"]
+"""Legacy import; use inkcre_core for new consumers."""
 
-import enum
+from typing import TYPE_CHECKING
+from importlib import import_module
+import sys
 
+sys.modules[__name__] = import_module("inkcre_core.utils.types_")
 
-class Undefined(enum.Enum):
-  _undefined = 0
-
-
-_undefined = Undefined._undefined
+if TYPE_CHECKING:
+  from inkcre_core.utils.types_ import *
