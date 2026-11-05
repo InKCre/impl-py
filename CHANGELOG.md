@@ -4,6 +4,18 @@ Core release notes start from the current `0.1.1` baseline. Earlier repository h
 
 <!-- towncrier release notes start -->
 
+## 0.11.0 - 2026-11-05
+
+### Added
+
+- 新增可独立构建的 inkcre_core SDK，显式绑定数据库与 Peer 执行上下文；服务保留环境、HTTP、调度和安装装配，旧扩展导入继续兼容。 (#core-app-separation)
+- 统一可观测性记录与查询：默认写入内置信息库，可选择 Loki 双向后端；提供精确 Peer 查询/摄取能力、Job 生命周期和操作摘要，并明确外部故障、历史范围与资源关闭责任。 (#observability-unification)
+
+### Changed
+
+- 统一使用 App 表示应用、Peer 表示参与运行的实例；Web 部署和开发种子的默认展示名改为 web 与 web-development，保持 Peer UUID 与协议身份不变，并更新部署和扩展连接说明。 (#app-peer-naming)
+
+
 ## 0.10.0 - 2026-10-27
 
 ### Added
