@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=80,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inkcre-ext-bilibili"
+version = "0.1.0"
+description = "Read shared Bilibili favorites in Python peers"
+requires-python = ">=3.12,<3.13"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = [
+  "pydantic>=2.11.7,<3.0.0",
+]
+
+[project.entry-points."inkcre.core.extensions"]
+bilibili = "extensions.bilibili:Extension"
+
+[tool.inkcre-extension]
+name = "inkcre/bilibili"
+nickname = "B 站收藏夹"
+host-sdk = "core-py"
+host-sdk-version = ">=0.3.4 <0.4.0"
+
+[tool.setuptools]
+packages = ["extensions.bilibili"]
+
+[tool.setuptools.package-dir]
+"extensions.bilibili" = "."
