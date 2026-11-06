@@ -28,6 +28,9 @@
     "e1f4a5b6c7d8_migrate_memos_attachment_v2.py": "5f3691149e06b28378f79eed7eaacd1c415ee6c92fb83b3b5745a429346d5e01",
     "e5a01f9e69ef_init.py": "a10de6c0818abc593951a34e51a974ffcd999f60ba5afc441f87ac6cef8d869e",
     "e6a1b2c3d4f5_extension_peer_participation_v2.py": "bf71d955b1e3e27015f412815d020666157eda6af78ed0472ca2b7d38ada872f",
+    "f1b2c3d4e5a6_add_source_batch_persistence.py": "f80ebf02ea7475ad2935aabd39904f5062696572847deebd1d1f2f7fd5eea7cd",
+    "f1b2c3d4e5a7_commit_source_batch_root.py": "0ba844592cecdc1b3847ab1f32f59e3d7f7cafe335f97923ee36a0e6d8f3037e",
+    "f1b2c3d4e5a8_preserve_source_anchor.py": "0d86aa4f01040a834a8e1dc21fb85c0f60d555115fcaf8b24ba7cbf20d64b6ce",
     "f2a6c8e4b1d7_add_extension_registry_deployment_state.py": "a2cf3059f87e17292baf9fd10a1acb8b26ccb928845dbe4bec95b374164cd46d",
     "f2c8a6d1e4b7_add_postgresql_binary_storage.py": "1137323490b324da3f1672cf5a3a8b5edb1e6a258cc10129926bf6e8d232a111",
     "f7a8b9c0d1e2_add_deployment_configs.py": "9bb58b1d22dccef5817e28df8bcb88ab6edfff70a6823d80b3637752899188fe"

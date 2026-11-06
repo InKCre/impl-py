@@ -1,50 +1,78 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "dev": {
-    "targets": {
+    "resources": {
       "database": {
-        "poll_interval": 1,
-        "probe": {
-          "argv": [
-            "pdm",
-            "run",
-            "dev:database",
-            "probe",
-            "${dev.instance}"
-          ],
-          "cwd": ".",
-          "kind": "exec",
-          "output_limit": 2048,
-          "timeout": 8
-        },
-        "provision": {
-          "argv": [
-            "pdm",
-            "run",
-            "dev:database",
-            "ensure",
-            "${dev.instance}"
-          ],
-          "cwd": ".",
-          "env": {
-            "INKCRE_DATABASE_PROVIDER": "local"
-          },
-          "kind": "exec",
-          "mode": "run"
-        },
-        "readiness_timeout": 600,
         "scope": "worktree",
-        "stop": {
-          "argv": [
-            "pdm",
-            "run",
-            "dev:database",
-            "stop",
-            "${dev.instance}"
-          ],
-          "cwd": ".",
-          "kind": "exec",
-          "timeout": 300
+        "observations": {
+          "ready": {
+            "label": "就绪状态",
+            "purpose": "runtime-readiness",
+            "probe": {
+              "argv": [
+                "pdm",
+                "run",
+                "dev:database",
+                "probe",
+                "${dev.instance}"
+              ],
+              "cwd": ".",
+              "kind": "exec",
+              "output_limit": 2048,
+              "timeout": 8
+            }
+          }
+        },
+        "actions": {
+          "ensure": {
+            "argv": [
+              "pdm",
+              "run",
+              "dev:database",
+              "ensure",
+              "${dev.instance}"
+            ],
+            "cwd": ".",
+            "env": {
+              "INKCRE_DATABASE_PROVIDER": "local"
+            },
+            "kind": "exec",
+            "intent": "准备database开发资源",
+            "traits": [
+              "runtime",
+              "provision"
+            ],
+            "effect_scope": "当前工作树的database开发资源",
+            "data_effect": "modify",
+            "completion": "exit",
+            "interruption": "wait",
+            "conditions": [
+              "ready"
+            ],
+            "completion_timeout": 30,
+            "poll_interval": 1,
+            "convergent": true
+          },
+          "stop": {
+            "argv": [
+              "pdm",
+              "run",
+              "dev:database",
+              "stop",
+              "${dev.instance}"
+            ],
+            "cwd": ".",
+            "kind": "exec",
+            "intent": "移除database开发资源",
+            "traits": [
+              "runtime",
+              "provision"
+            ],
+            "effect_scope": "当前工作树的database开发资源",
+            "data_effect": "delete",
+            "completion": "exit",
+            "interruption": "wait"
+          }
         }
       }
     }

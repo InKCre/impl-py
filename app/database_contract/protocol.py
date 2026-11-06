@@ -18,6 +18,26 @@ PROTOCOL_DOCUMENT_FORMAT = 1
 POSTGREST_OCTET_STREAM_TYPE = f'{PROTOCOL_SCHEMA}."application/octet-stream"'
 
 PROTOCOL_FUNCTIONS: dict[str, dict[str, object]] = {
+  "commit_source_batch": {
+    "arguments": [
+      {"name": "source_id", "type": {"kind": "number", "format": "integer"}},
+      {"name": "namespace", "type": {"kind": "string"}},
+      *[
+        {"name": name, "type": {"kind": "json"}}
+        for name in (
+          "expected_config",
+          "expected_state",
+          "next_state",
+          "records",
+          "relations",
+        )
+      ],
+      {"name": "root_key", "type": {"kind": "string"}, "has_default": True},
+    ],
+    "returns": {"kind": "json"},
+    "returns_set": False,
+    "volatility": "volatile",
+  },
   "create_storage_blob": {
     "arguments": [
       {
@@ -76,6 +96,8 @@ def _database_type_name(type_document: dict[str, object]) -> str:
   if isinstance(format_, str):
     return format_
   kind = type_document.get("kind")
+  if kind == "json":
+    return "jsonb"
   if kind == "string":
     return "text"
   if kind == "boolean":

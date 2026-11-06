@@ -23,8 +23,10 @@ RUNTIME_ROOT = PROJECT_ROOT / ".runtime"
 BUILD_CONTEXT_PATHS = (
   Path("Dockerfile"),
   Path("README.md"),
+  Path("LICENSE"),
   Path("alembic.ini"),
   Path("app"),
+  Path("inkcre_core"),
   Path("extensions"),
   Path("libs"),
   Path("migrations"),
@@ -91,6 +93,17 @@ def _provision_environment(
   legacy_profile: str | None,
 ) -> dict[str, str]:
   dev = config.get("dev", {})
+  resources = dev.get("resources")
+  if isinstance(resources, dict):
+    environment = (
+      resources.get("database", {}).get("actions", {}).get("ensure", {}).get("env", {})
+    )
+    if not isinstance(environment, dict) or not all(
+      isinstance(name, str) and isinstance(value, str)
+      for name, value in environment.items()
+    ):
+      raise ValueError("database provision environment must contain string values")
+    return environment
   targets = dev.get("targets")
   if targets is None:
     profile = dev.get("profile") or legacy_profile
@@ -201,7 +214,7 @@ def _compose_failure(
   compose_environment: Path,
   provider: DatabaseProvider,
 ) -> RuntimeError:
-  raw_diagnostics = error.stderr or error.stdout or b""
+  raw_diagnostics = b"\n".join(value for value in (error.stderr, error.stdout) if value)
   diagnostics = raw_diagnostics.decode(errors="replace")
   try:
     for line in compose_environment.read_text().splitlines():
