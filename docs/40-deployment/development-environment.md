@@ -12,9 +12,7 @@ Python selector and PDM version.
 
 ## Local Startup
 
-The supported complete runtime is an SVC worktree capability. `svc.json` declares schema 5
-resources, actions and readiness observations; use a SVC CLI that accepts this schema. The
-database action keeps the worktree identity and delegates provisioning to `scripts/dev_database.py`:
+The supported complete runtime is an SVC worktree capability:
 
 ```bash
 svc status . --json

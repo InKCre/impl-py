@@ -266,26 +266,6 @@ HTTP 422。普通 REST 的请求输入、错误位置和内容表示见 [rest-in
 - Agent definition 是 shared database fact；Thread state、bound Tool handlers 与正在执行的 Turn 是 peer-local
   runtime fact。Agent definition 更新不会改写已经创建的 Thread snapshot。
 
-## Source 批次持久化
-
-浏览器等非 Python 执行者通过数据库协议的 `commit_source_batch` 提交原生记录、稳定关系和 Source 进度。
-`collection_records` 只拥有 `(namespace, native_key) → Block` 的身份映射；语义内容仍由 Block 和 Relation
-拥有，不进入 Source.state。namespace 是采集扩展选择的业务身份域，不是执行 Peer 或某次 Job 的身份。
-
-一次调用先锁定 Source 并核对调用者观察到的完整 config/state，再取得 namespace 事务锁，串行化同一身份域
-的跨 Source 写入。记录复用既有 Block，顶层合并 JSON 对象，缺省字段保留；resolver 不一致、非 inline
-内容或不合法端点拒绝整批。关系按精确端点和稳定 content 去重追加，不清理用户关系或未见条目。
-图与 next_state 在同一事务提交。可选 root_key 指向同 namespace 的业务根；Source.block 仍是该 Source
-独占的 `core.source.v1` 锚点，不能直接指向跨 Source 共用的业务实体。事务内建立或刷新锚点的
-`{id,type,nickname}`，并追加锚点到业务根的 `collects` 关系；回包的 source_block 给出实际锚点 ID。
-省略 root_key 保留既有入口，不改写非 Source resolver 的 Block。CAS 冲突为 `PT409`，结果未知时调用者
-重新观察原 Source，不自动重放。
-
-namespace 锁将冲突范围保持在扩展的身份域内，代价是同域批次串行；每次最多 500 条记录、2000 条关系和
-4 MiB JSON 输入，不能把无界归档作为单个事务。位置、收藏时间等可变成员事实由扩展的独立成员记录解释，
-不借变化的 Relation.content 隐式创建新的关系身份。精确输入、DDL 和准入签名分别由 migration、metadata
-与 `app/database_contract/protocol.py` 维护；本节不另建 DTO 权威。
-
 ## Non-Goals
 
 本文件不承接以下内容：

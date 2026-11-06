@@ -93,17 +93,6 @@ def _provision_environment(
   legacy_profile: str | None,
 ) -> dict[str, str]:
   dev = config.get("dev", {})
-  resources = dev.get("resources")
-  if isinstance(resources, dict):
-    environment = (
-      resources.get("database", {}).get("actions", {}).get("ensure", {}).get("env", {})
-    )
-    if not isinstance(environment, dict) or not all(
-      isinstance(name, str) and isinstance(value, str)
-      for name, value in environment.items()
-    ):
-      raise ValueError("database provision environment must contain string values")
-    return environment
   targets = dev.get("targets")
   if targets is None:
     profile = dev.get("profile") or legacy_profile

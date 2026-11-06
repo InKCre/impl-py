@@ -4,7 +4,7 @@
 
 ## 读取与索引边界
 
-`extensions/bilibili/schema.py` 验证四类 v1 原生记录，拒绝未知字段、显式 null、非字符串身份和错误类型。原生身份映射由 `collection_records` 拥有；记录之间的关联仅在 Relations，不在 Python 另存引用或内容副本。
+`extensions/bilibili/schema.py` 验证四类 v1 原生记录，拒绝未知字段、显式 null、非字符串身份和错误类型。User、Folder、Video 的原生身份保存在 Block 内容中；Membership 由所属 Folder 和指向 Video 的关系定位，不复制关联 ID。Python 解释这些已保存的资料。
 
 Resolver 只从已持久化内容产生 Block-local 标签与文本。视频与收藏夹投影包括已保存的标题、简介，未知标题回退到 aid、BVID 或列表 ID。词法维护使用既有 `LexicalRetrievalManager` 和普通维护 Job；插件不直接写派生检索表，也不递归抓取相关视频以补全文本。
 
