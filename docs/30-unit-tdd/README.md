@@ -14,6 +14,7 @@ This directory owns expensive internal design truth for logical units delivered 
 | [memos-extension.md](memos-extension.md) | Memos adapter identity, graph grammar, persistence, and failure boundaries |
 | [capture-extension.md](capture-extension.md) | Capture submission identity, original materials, shared graph, and atomic recovery |
 | [local-files-extension.md](local-files-extension.md) | 本地文件资料、原件状态与正文的读取分发 |
+| [bilibili-extension.md](bilibili-extension.md) | B 站共享收藏图的 Python 读取与词法投影边界 |
 | [rss-extension.md](rss-extension.md) | RSS adapter identity, collection lifecycle, reconciliation, and materialization |
 | [twitter-extension.md](twitter-extension.md) | Twitter 共同身份、Bookmark 过渡、事务合并和按需媒体读取 |
 | [security-model.md](security-model.md) | Core-py realization of the shared security boundary model |
