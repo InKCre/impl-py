@@ -1,11 +1,12 @@
 """Real MCP/PG journey: zero-ID discovery, metadata isolation and continued reads.
 
-A private schema in an explicitly disposable database makes empty catalogs observable.
-The production reads run in PostgreSQL read-only transactions. SQL capture proves that
-secret-bearing columns are not even loaded, beyond checking the public response.
+A migration-owner connection owns the private schema and fixture writes in an explicitly
+disposable database. Production reads use the runtime role with only USAGE/SELECT on
+that schema and read-only transactions. SQL capture also excludes secret-bearing columns.
 """
 
 import asyncio
+import base64
 import json
 import os
 import re
@@ -19,8 +20,10 @@ import sqlalchemy
 import sqlalchemy.event
 import sqlmodel
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.business.sink.mcp import MCPSink
+from app.database_contract.connection import normalized_database_url
 from inkcre_core import Core
 from inkcre_core.business.info_base.resolver import ResolverManager, register_core_resolvers
 from inkcre_core.business.info_base.storage import StorageManager
@@ -35,8 +38,8 @@ from tests.database import TEST_ENGINE
 pytestmark = [
   pytest.mark.integration,
   pytest.mark.skipif(
-    not os.getenv("INKCRE_TEST_DATABASE_URL"),
-    reason="requires an explicitly selected disposable PostgreSQL runtime",
+    not os.getenv("INKCRE_TEST_DATABASE_URL") or not os.getenv("MIGRATION_DATABASE_URL"),
+    reason="requires a disposable PostgreSQL runtime and explicit migration-owner URL",
   ),
 ]
 
@@ -45,19 +48,39 @@ pytestmark = [
 def discovery_database():
   schema = f"mcp_discovery_{uuid.uuid4().hex}"
   translation = {"inkcre": schema}
-  engine = TEST_ENGINE.execution_options(schema_translate_map=translation)
+  with TEST_ENGINE.connect() as connection:
+    runtime_role = connection.scalar(sqlalchemy.text("SELECT current_user"))
+  engine = sqlalchemy.create_engine(
+    normalized_database_url(os.environ["MIGRATION_DATABASE_URL"]),
+    poolclass=NullPool,
+    execution_options={"schema_translate_map": translation},
+  )
   tables = [
     Base.metadata.tables[f"inkcre.{name}"]
     for name in ("storage_types", "storages", "blocks", "sources_types", "sources")
   ]
-  with engine.begin() as connection:
-    connection.execute(sqlalchemy.schema.CreateSchema(schema))
-    Base.metadata.create_all(connection, tables=tables)
   try:
+    with engine.begin() as connection:
+      connection.execute(sqlalchemy.schema.CreateSchema(schema))
+      Base.metadata.create_all(connection, tables=tables)
+      quote = connection.dialect.identifier_preparer.quote_identifier
+      connection.execute(
+        sqlalchemy.text(f"GRANT USAGE ON SCHEMA {quote(schema)} TO {quote(runtime_role)}")
+      )
+      connection.execute(
+        sqlalchemy.text(
+          f"GRANT SELECT ON ALL TABLES IN SCHEMA {quote(schema)} TO {quote(runtime_role)}"
+        )
+      )
     yield engine, translation
   finally:
-    with engine.begin() as connection:
-      connection.execute(sqlalchemy.schema.DropSchema(schema, cascade=True))
+    try:
+      with engine.begin() as connection:
+        connection.execute(
+          sqlalchemy.schema.DropSchema(schema, cascade=True, if_exists=True)
+        )
+    finally:
+      engine.dispose()
 
 
 def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
@@ -305,6 +328,24 @@ def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
               assert failed.is_error
               if "limit" not in arguments:
                 assert failed.structured_content["error"]["code"] == "invalid_arguments"
+
+            # A forged cursor must not reach PostgreSQL's INTEGER parameter cast.
+            for key in (-(2**100), 2**100):
+              cursor = base64.urlsafe_b64encode(
+                json.dumps(
+                  {
+                    "version": 1,
+                    "collection": "storages",
+                    "resolver": None,
+                    "key": key,
+                  }
+                ).encode()
+              ).decode()
+              failed = await client.call_tool(
+                "inkcre_discover", {"collection": "storages", "cursor": cursor}
+              )
+              assert failed.is_error
+              assert failed.structured_content["error"]["code"] == "invalid_arguments"
 
           assert statements and all(
             statement.lstrip().startswith("SELECT") for statement in statements

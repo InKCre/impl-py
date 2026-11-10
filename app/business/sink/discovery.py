@@ -31,7 +31,10 @@ class _Cursor(pydantic.BaseModel):
   version: typing.Literal[1] = 1
   collection: DiscoveryCollection
   resolver: str | None
-  key: pydantic.StrictStr | pydantic.StrictInt
+  key: (
+    pydantic.StrictStr
+    | typing.Annotated[pydantic.StrictInt, pydantic.Field(ge=-(2**31), le=2**31 - 1)]
+  )
 
 
 def _after(
