@@ -25,8 +25,8 @@ def block_preview(block: BlockModel) -> dict[str, typing.Any]:
     "id": block.id,
     "resolver": block.resolver,
     "storage": block.storage,
-    "created_at": block.created_at.isoformat(),
-    "updated_at": block.updated_at.isoformat(),
+    "created_at": block.created_at.isoformat() if block.created_at is not None else None,
+    "updated_at": block.updated_at.isoformat() if block.updated_at is not None else None,
   }
 
 

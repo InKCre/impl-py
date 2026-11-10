@@ -45,6 +45,7 @@ class BlockForm(sqlmodel.SQLModel):
 
 class BlockModel(BlockForm, table=True):
   __tablename__ = "blocks"  # type: ignore
+  __table_args__ = (sqlalchemy.Index("blocks_resolver_id_idx", "resolver", "id"),)
 
   id: Opt[BlockID] = sqlmodel.Field(
     sa_column=sqlmodel.Column(sqlmodel.Integer, primary_key=True, autoincrement=True),

@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 import sqlmodel
 
+from inkcre_core.persistence.discovery import metadata_page
 from inkcre_core.schemas.info_base.storage import (
   StorageBlobModel,
   StorageModel,
@@ -26,6 +27,32 @@ class StorageRepository:
         sqlmodel.select(StorageModel).where(StorageModel.id == storage_id)
       )
     ).one()
+
+  async def discover_types(self, *, limit: int, after: str | None) -> list[dict]:
+    return await metadata_page(
+      self._session,
+      sqlmodel.select(
+        StorageTypesModel.id,
+        sqlmodel.func.substr(StorageTypesModel.description, 1, 512).label("description"),
+        StorageTypesModel.writable,
+      ),
+      StorageTypesModel.id,
+      limit=limit,
+      after=after,
+    )
+
+  async def discover_instances(self, *, limit: int, after: int | None) -> list[dict]:
+    return await metadata_page(
+      self._session,
+      sqlmodel.select(
+        StorageModel.id,
+        StorageModel.type,
+        sqlmodel.func.substr(StorageModel.nickname, 1, 160).label("nickname"),
+      ),
+      StorageModel.id,
+      limit=limit,
+      after=after,
+    )
 
   async def sync_types(self, values: Sequence[dict[str, Any]]) -> None:
     if not values:

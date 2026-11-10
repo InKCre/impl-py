@@ -26,8 +26,9 @@ Streamable HTTP JSON；parent lifecycle 显式进入 SDK session manager，并�
 Public Host authority 属于现有 deployment/reverse proxy；SDK 的独立-listener Host filter 在嵌入模式关闭。Endpoint
 仍要求该 instance config 中长期有效的 Bearer PAT，不使用 Peer JWT。
 
-MVP 暴露且只暴露：
+当前暴露八个通用 Agent actions：
 
+- `inkcre_discover`
 - `inkcre_recall`
 - `inkcre_open_entities`
 - `inkcre_read_blocks`
@@ -42,6 +43,40 @@ Batch 返回按输入关联；自然 payload 表示成功，仅失败 atom 包�
 Recall 候选的 `label` 帮助调用者判断读取对象：lexical 沿用索引名称，semantic Block 使用既有
 Resolver label，Relation 展示有界关系文字和端点引用。名称不可用时为 null，仍保留实体和 score。
 名称和 excerpt 是来源内容，不是指令；后续读取继续使用现有 Tool/Resource，不增加结果版本或窗口协议。
+
+## Metadata Discovery
+
+`inkcre_discover(collection, limit=20, cursor=null, resolver=null)` 提供从零开始的只读发现。
+返回 `{collection, results, next_cursor}`；没有结果时为空列表和 null cursor。
+
+| collection | authority / 字段白名单 |
+| --- | --- |
+| `resolvers` | 当前 Peer registry：`id`、description、`registered_locally=true`、`supports_draft`；具体 typed read capabilities 继续用 `inkcre_resolver_methods` |
+| `persisted_resolvers` | 现存 Blocks 使用的 distinct exact resolver：`id`、`registered_locally`；不是新 Resolver catalog，也不是所有曾安装版本的历史 |
+| `source_types` | 持久 catalog：`id`、description、`registered_locally` |
+| `storage_types` | 持久 catalog：`id`、description、`writable`、`registered_locally` |
+| `sources` | 配置实例：`id`、`type`、nickname、`storage`、`block`、`registered_locally`；不创建缺失 anchor |
+| `storages` | 配置实例：`id`、`type`、nickname、`registered_locally`，保留负数内置 ID |
+| `blocks` | exact resolver 下的持久引用：`id`、`entity=block:<id>`、`resolver`、`storage`、row timestamps、`registered_locally` |
+
+`registered_locally` 只表示本 Peer 已加载 class，不表示 Extension enabled、instance running、配置有效、外部资源
+可达或执行会成功。Source/Storage catalog 不按本地 registry 过滤；Resolver 没有持久 type catalog。
+`blocks` 必须提供非空 exact `resolver`，不要求其在 registry 中；其他 collection 拒绝 resolver 参数。
+历史未注册 Resolver 的 Block 仍可通过 entity preview / persisted content 读取，solved/method reads 则明确 unavailable。
+
+分页始终为 `1..100` 项，默认 20；按唯一 ID 升序、exclusive keyset seek，数据库只读 `limit+1` 项白名单列。
+字符串排序/比较沿用数据库同一 collation；内存 registry 按 exact ID 排序。opaque cursor 带版本、collection、
+exact resolver filter 与有类型的最后返回 key；畸形、错误类型或跨 scope cursor 报参数错误，不退回第一页。
+这是 live traversal，不提供跨调用快照、total count 或并发修改下无遗漏保证；cursor 不是授权凭据。
+
+description 最多 512 字符，nickname 最多 160 字符，均是描述数据而非指令；exact ID 不截断。
+config、state、所有 config schemas、Block content/pointer、blob bytes 从 SQL 列投影中排除。
+发现不构造 Resolver/Source/Storage handler、不动态 import、不调用 get_label、hydrate、解析、AI 或外部读取，也不写入数据。
+每次独立调用使用 owning domain 的短 UoW，不保留跨调用 session/cache。
+
+`blocks(resolver,id)` 索引支持 exact-resolver seek 与 persisted resolver 枚举；distinct 仍可能扫描大量重复索引键，
+分页只约束输出/传输，不承诺恒定查询成本。部署新增索引使用普通 transactional build，期间可能阻塞 Block 写入；
+大库应安排维护窗口。降级只删除该索引，不删除业务数据。
 
 ## Content And Resolver Methods
 

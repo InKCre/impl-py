@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
 from inkcre_core.schemas.info_base.relation import RelationCreateForm, RelationModel
+from inkcre_core.persistence.discovery import metadata_page
 
 
 class BlockRepository:
@@ -44,6 +45,36 @@ class BlockRepository:
           )
         )
       ).all()
+    )
+
+  async def discover_resolvers(self, *, limit: int, after: str | None) -> list[dict]:
+    return await metadata_page(
+      self._session,
+      sqlmodel.select(sqlmodel.col(BlockModel.resolver).label("id")).distinct(),
+      BlockModel.resolver,
+      limit=limit,
+      after=after,
+    )
+
+  async def discover_blocks(
+    self,
+    resolver: str,
+    *,
+    limit: int,
+    after: int | None,
+  ) -> list[dict]:
+    return await metadata_page(
+      self._session,
+      sqlalchemy.select(
+        sqlmodel.col(BlockModel.id),
+        sqlmodel.col(BlockModel.resolver),
+        sqlmodel.col(BlockModel.storage),
+        sqlmodel.col(BlockModel.created_at),
+        sqlmodel.col(BlockModel.updated_at),
+      ).where(sqlmodel.col(BlockModel.resolver) == resolver),
+      BlockModel.id,
+      limit=limit,
+      after=after,
     )
 
   async def get_by_resolvers(

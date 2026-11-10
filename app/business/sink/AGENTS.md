@@ -27,7 +27,9 @@
 ## MCP Boundary
 
 - `core.mcp.v1` 使用官方 SDK 的 stateless Streamable HTTP，exact endpoint 是 `/sinks/{id}/mcp`；PAT 不复用 Peer JWT。
-- Tool surface 固定为七个 Agent actions。Resolver-specific read behavior 通过 scoped method discovery/invocation envelope
+- Tool surface 为八个通用 Agent actions（包括 metadata-only `inkcre_discover`）。发现只投影 owning domain 的
+  bounded 白名单列，不读取 config/state/schema/content，不构造 handler 或触发 materialization。
+  Resolver-specific read behavior 通过 scoped method discovery/invocation envelope
   动态投影，Resolver 与 Extension 不声明 MCP metadata。
 - `raw`、`hydrated`、`solved` 分别来自 persisted Block、Storage hydration 与 exact Resolver。过大/bytes value 使用
   deterministic live Resource URI；Resource read 重新读取当前 authority，不建立持久 Resource/session/cache。
