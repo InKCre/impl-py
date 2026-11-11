@@ -11,12 +11,6 @@ from inkcre_core.persistence.info_base.uow import graph_uow
 
 class BlockService:
   @staticmethod
-  async def discover_resolvers(*, limit: int, after: str | None = None) -> list[dict]:
-    """Read exact Resolver values in persisted Blocks, independent of code loading."""
-    async with graph_uow() as uow:
-      return await uow.blocks.discover_resolvers(limit=limit, after=after)
-
-  @staticmethod
   async def discover_blocks(
     resolver: str,
     *,

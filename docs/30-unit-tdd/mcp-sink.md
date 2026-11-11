@@ -52,7 +52,6 @@ Resolver label，Relation 展示有界关系文字和端点引用。名称不可
 | collection | authority / 字段白名单 |
 | --- | --- |
 | `resolvers` | 当前 Peer registry：`id`、description、`registered_locally=true`、`supports_draft`；具体 typed read capabilities 继续用 `inkcre_resolver_methods` |
-| `persisted_resolvers` | 现存 Blocks 使用的 distinct exact resolver：`id`、`registered_locally`；不是新 Resolver catalog，也不是所有曾安装版本的历史 |
 | `source_types` | 持久 catalog：`id`、description、`registered_locally` |
 | `storage_types` | 持久 catalog：`id`、description、`writable`、`registered_locally` |
 | `sources` | 配置实例：`id`、`type`、nickname、`storage`、`block`、`registered_locally`；不创建缺失 anchor |
@@ -60,8 +59,9 @@ Resolver label，Relation 展示有界关系文字和端点引用。名称不可
 | `blocks` | exact resolver 下的持久引用：`id`、`entity=block:<id>`、`resolver`、`storage`、row timestamps、`registered_locally` |
 
 `registered_locally` 只表示本 Peer 已加载 class，不表示 Extension enabled、instance running、配置有效、外部资源
-可达或执行会成功。Source/Storage catalog 不按本地 registry 过滤；Resolver 没有持久 type catalog。
-`blocks` 必须提供非空 exact `resolver`，不要求其在 registry 中；其他 collection 拒绝 resolver 参数。
+可达或执行会成功。Source/Storage catalog 不按本地 registry 过滤；Resolver 目录唯一来自 MCP Sink 所在 Peer 的
+`ResolverManager.RESOLVER_CLS`，不访问数据库，也不从持久 Block 值派生另一份目录。
+`blocks` 必须提供已知的非空 exact `resolver`，不要求其在 registry 中；其他 collection 拒绝 resolver 参数。
 历史未注册 Resolver 的 Block 仍可通过 entity preview / persisted content 读取，solved/method reads 则明确 unavailable。
 
 分页始终为 `1..100` 项，默认 20；按唯一 ID 升序、exclusive keyset seek，数据库只读 `limit+1` 项白名单列。
@@ -72,10 +72,10 @@ exact resolver filter 与有类型的最后返回 key；畸形、错误类型或
 description 最多 512 字符，nickname 最多 160 字符，均是描述数据而非指令；exact ID 不截断。
 config、state、所有 config schemas、Block content/pointer、blob bytes 从 SQL 列投影中排除。
 发现不构造 Resolver/Source/Storage handler、不动态 import、不调用 get_label、hydrate、解析、AI 或外部读取，也不写入数据。
-每次独立调用使用 owning domain 的短 UoW，不保留跨调用 session/cache。
+持久数据读取使用 owning domain 的短 UoW；Resolver 目录只读本地内存 registry，不保留跨调用 session/cache。
 
-`blocks(resolver,id)` 索引支持 exact-resolver seek 与 persisted resolver 枚举；distinct 仍可能扫描大量重复索引键，
-分页只约束输出/传输，不承诺恒定查询成本。部署新增索引使用普通 transactional build，期间可能阻塞 Block 写入；
+`blocks(resolver,id)` 索引支持已知 exact Resolver 下的 Block keyset seek。
+部署新增索引使用普通 transactional build，期间可能阻塞 Block 写入；
 大库应安排维护窗口。降级只删除该索引，不删除业务数据。
 
 ## Content And Resolver Methods

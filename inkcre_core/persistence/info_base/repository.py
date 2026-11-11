@@ -47,15 +47,6 @@ class BlockRepository:
       ).all()
     )
 
-  async def discover_resolvers(self, *, limit: int, after: str | None) -> list[dict]:
-    return await metadata_page(
-      self._session,
-      sqlmodel.select(sqlmodel.col(BlockModel.resolver).label("id")).distinct(),
-      BlockModel.resolver,
-      limit=limit,
-      after=after,
-    )
-
   async def discover_blocks(
     self,
     resolver: str,

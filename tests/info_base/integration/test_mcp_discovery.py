@@ -130,7 +130,6 @@ def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
 
           collections = (
             "resolvers",
-            "persisted_resolvers",
             "source_types",
             "storage_types",
             "sources",
@@ -263,6 +262,7 @@ def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
               arguments = {"resolver": "legacy/unloaded"} if collection == "blocks" else {}
               rows = []
               cursor = None
+              statement_count = len(statements)
               while True:
                 page = await discover(collection, limit=1, cursor=cursor, **arguments)
                 assert len(page["results"]) <= 1
@@ -271,16 +271,18 @@ def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
                 if cursor is None:
                   break
                 cursors.setdefault(collection, cursor)
+              if collection == "resolvers":
+                assert len(statements) == statement_count
               all_rows[collection] = rows
             assert [row["id"] for row in all_rows["storages"]] == [-4, -1, 10]
-            assert len(all_rows["resolvers"]) >= 10
-            assert {
-              row["id"]: row["registered_locally"]
-              for row in all_rows["persisted_resolvers"]
-            } == {
-              "core.text.v1": True,
-              "legacy/unloaded": False,
-            }
+            # Registry-only types are listed even without Blocks; persisted-only
+            # Resolver values do not become entries in the current Peer catalog.
+            assert [row["id"] for row in all_rows["resolvers"]] == sorted(
+              ResolverManager.RESOLVER_CLS
+            )
+            assert "core.image.v1" in {row["id"] for row in all_rows["resolvers"]}
+            assert "legacy/unloaded" not in {row["id"] for row in all_rows["resolvers"]}
+            assert all(row["registered_locally"] for row in all_rows["resolvers"])
             assert {
               row["id"]: row["registered_locally"] for row in all_rows["source_types"]
             } == {

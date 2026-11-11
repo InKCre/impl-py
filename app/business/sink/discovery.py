@@ -16,7 +16,6 @@ from inkcre_core.business.source import SourceManager
 
 DiscoveryCollection = typing.Literal[
   "resolvers",
-  "persisted_resolvers",
   "source_types",
   "storage_types",
   "sources",
@@ -94,10 +93,6 @@ async def discover(
       }
       for key in ids
     ]
-  elif collection == "persisted_resolvers":
-    rows = await BlockService.discover_resolvers(limit=limit, after=text_after)
-    for row in rows:
-      row["registered_locally"] = row["id"] in ResolverManager.RESOLVER_CLS
   elif collection == "source_types":
     rows = await SourceManager.discover_types(limit=limit, after=text_after)
     for row in rows:
