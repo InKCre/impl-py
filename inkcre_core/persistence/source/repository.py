@@ -1,6 +1,5 @@
 """Persistence for Source catalog and instances."""
 
-import sqlalchemy
 import sqlmodel
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,21 +81,6 @@ class SourceRepository:
         sqlmodel.func.substr(SourceTypesModel.description, 1, 512).label("description"),
       ),
       SourceTypesModel.id,
-      limit=limit,
-      after=after,
-    )
-
-  async def discover_instances(self, *, limit: int, after: int | None) -> list[dict]:
-    return await metadata_page(
-      self._session,
-      sqlalchemy.select(
-        sqlmodel.col(SourceModel.id),
-        sqlmodel.col(SourceModel.type),
-        sqlmodel.func.substr(SourceModel.nickname, 1, 160).label("nickname"),
-        sqlmodel.col(SourceModel.storage),
-        sqlmodel.col(SourceModel.block),
-      ),
-      SourceModel.id,
       limit=limit,
       after=after,
     )

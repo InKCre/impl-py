@@ -10,6 +10,7 @@ import sqlalchemy.dialects.postgresql
 import sqlmodel
 
 from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.query import BlockQueryFilters
 
 
 LexicalEvidence: typing.TypeAlias = typing.Literal[
@@ -85,6 +86,7 @@ class LexicalRetrievalRequest(pydantic.BaseModel):
 
   query: str
   limit: int = pydantic.Field(default=20, ge=1, le=20)
+  filters: BlockQueryFilters | None = None
 
   @pydantic.field_validator("query")
   @classmethod

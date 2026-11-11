@@ -1,1 +1,1 @@
-MCP Sink 新增有界分页的类型、资源实例和 Block 元数据发现；Resolver 目录只来自本 Peer registry，Source/Storage 区分已加载实现与持久目录，支持按已知 Resolver ID 枚举 Block（包括未加载的历史类型），不读取配置秘密或触发内容解析。
+MCP Sink 新增四类只读 `meta_discover`（本 Peer Resolver identities、Source/Storage 类型目录和 Storage IDs）及双分支 `query`：支持文本检索前 exact resolver/storage AND 过滤，以及不依赖检索索引的有界 Block keyset 查询。统一八个工具名去掉 `inkcre_` 前缀、`recall` 改为 `query`，无旧名 alias；升级后需刷新 Client tools。新增 Storage/Block seek 索引迁移，大库需安排索引构建维护窗口。

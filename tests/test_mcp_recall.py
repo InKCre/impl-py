@@ -1,4 +1,4 @@
-"""Recall candidates remain identifiable without changing the MCP read protocol."""
+"""Text query candidates preserve independent evidence and unreadable references."""
 
 import asyncio
 import datetime
@@ -25,7 +25,7 @@ from inkcre_core.schemas.semantic_retrieval import (
 from inkcre_core.schemas.sink import SinkModel
 
 
-def test_recall_labels_preserve_evidence_and_unreadable_candidates(monkeypatch):
+def test_query_labels_preserve_evidence_and_unreadable_candidates(monkeypatch):
   register_core_resolvers()
   now = datetime.datetime.now(datetime.UTC)
   blocks = [
@@ -80,7 +80,7 @@ def test_recall_labels_preserve_evidence_and_unreadable_candidates(monkeypatch):
   async def scenario():
     async with Client(server, mode="legacy") as client:
       response = await client.call_tool(
-        "inkcre_recall", {"query": "document", "modes": ["lexical", "semantic"]}
+        "query", {"query": "document", "modes": ["lexical", "semantic"]}
       )
       assert not response.is_error
       data = response.structured_content

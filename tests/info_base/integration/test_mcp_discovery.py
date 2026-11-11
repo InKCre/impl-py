@@ -1,9 +1,4 @@
-"""Real MCP/PG journey: zero-ID discovery, metadata isolation and continued reads.
-
-A migration-owner connection owns the private schema and fixture writes in an explicitly
-disposable database. Production reads use the runtime role with only USAGE/SELECT on
-that schema and read-only transactions. SQL capture also excludes secret-bearing columns.
-"""
+"""Read-only role/SQL whitelist regression, separate from mounted HTTP acceptance."""
 
 import asyncio
 import base64
@@ -32,14 +27,14 @@ from inkcre_core.schemas import Base
 from inkcre_core.schemas.info_base.block import BlockModel
 from inkcre_core.schemas.info_base.storage import StorageModel, StorageTypesModel
 from inkcre_core.schemas.sink import SinkModel
-from inkcre_core.schemas.source import SourceModel, SourceTypesModel
+from inkcre_core.schemas.source import SourceTypesModel
 from tests.database import TEST_ENGINE
 
 pytestmark = [
   pytest.mark.integration,
   pytest.mark.skipif(
     not os.getenv("INKCRE_TEST_DATABASE_URL") or not os.getenv("MIGRATION_DATABASE_URL"),
-    reason="requires a disposable PostgreSQL runtime and explicit migration-owner URL",
+    reason="requires disposable PostgreSQL and explicit migration-owner URL",
   ),
 ]
 
@@ -57,7 +52,7 @@ def discovery_database():
   )
   tables = [
     Base.metadata.tables[f"inkcre.{name}"]
-    for name in ("storage_types", "storages", "blocks", "sources_types", "sources")
+    for name in ("storage_types", "storages", "blocks", "sources_types")
   ]
   try:
     with engine.begin() as connection:
@@ -83,19 +78,17 @@ def discovery_database():
       engine.dispose()
 
 
-def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
-  discovery_database,
-  monkeypatch,
+def test_metadata_and_condition_pages_never_load_secrets_or_handlers(
+  discovery_database, monkeypatch
 ):
   engine, translation = discovery_database
   monkeypatch.setattr(ResolverManager, "RESOLVER_CLS", {})
   monkeypatch.setattr(SourceManager, "_SOURCE_CLASSES", {})
-  # Keep actual built-in handlers, but no instances are ever constructed.
   storage_classes = StorageManager._STORAGE_CLASSES.copy()
   monkeypatch.setattr(StorageManager, "_STORAGE_CLASSES", {})
   secret = uuid.uuid4().hex
   sink = MCPSink(SinkModel(id=1, type="core.mcp.v1", config={"pat": "test-only"}))
-  server = MCPServer("zero-id-discovery")
+  server = MCPServer("metadata-isolation")
   sink._register_tools(server)
 
   async def scenario():
@@ -117,31 +110,16 @@ def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
       with core.bind():
         async with Client(server, mode="legacy") as client:
 
-          async def discover(collection, **arguments):
-            response = await client.call_tool(
-              "inkcre_discover",
-              {"collection": collection, **arguments},
-            )
+          async def call(tool, **arguments):
+            response = await client.call_tool(tool, arguments)
             assert not response.is_error, response
             data = response.structured_content
-            assert data is not None
-            assert secret not in json.dumps(data)
+            assert data is not None and secret not in json.dumps(data)
             return data
 
-          collections = (
-            "resolvers",
-            "source_types",
-            "storage_types",
-            "sources",
-            "storages",
-            "blocks",
-          )
+          collections = ("resolvers", "source_types", "storage_types", "storages")
           for collection in collections:
-            arguments = {"resolver": "legacy/unloaded"} if collection == "blocks" else {}
-            empty = await discover(collection, **arguments)
-            assert empty["results"] == []
-            assert empty["next_cursor"] is None
-
+            assert (await call("meta_discover", collection=collection))["results"] == []
           register_core_resolvers()
           StorageManager._STORAGE_CLASSES.update(storage_classes)
 
@@ -152,10 +130,9 @@ def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
             """A locally registered collection implementation."""
 
             async def collect(self, job, config):
-              raise AssertionError("Discovery must not collect")
+              raise AssertionError("Metadata must not collect")
 
           local_type = f"{LocalSource.__module__}.{LocalSource.__qualname__}"
-          # Real rows include catalog-only types and a missing import path.
           with engine.begin() as connection:
             connection.execute(
               sqlalchemy.insert(StorageTypesModel),
@@ -218,54 +195,29 @@ def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
                 {"id": 3, "resolver": "legacy/unloaded", "content": secret, "storage": -1},
               ],
             )
-            # Historical Block timestamps are nullable in the admitted schema,
-            # including the lookahead row for a one-item page.
             connection.execute(
               sqlalchemy.update(BlockModel)
               .where(sqlmodel.col(BlockModel.id).in_([2, 3]))
               .values(created_at=None, updated_at=None)
             )
-            connection.execute(
-              sqlalchemy.insert(SourceModel),
-              [
-                {
-                  "id": 1,
-                  "type": local_type,
-                  "nickname": "Inbox",
-                  "config": {"token": secret},
-                  "state": {"cursor": secret},
-                  "storage": -4,
-                  "block": 1,
-                },
-                {
-                  "id": 2,
-                  "type": "retired.Source",
-                  "nickname": None,
-                  "config": {"token": secret},
-                  "state": {"cursor": secret},
-                  "storage": None,
-                  "block": None,
-                },
-              ],
-            )
 
           def forbidden(*_args, **_kwargs):
-            raise AssertionError("Discovery must not construct or invoke a handler")
+            raise AssertionError(
+              "Metadata/conditions must not construct or invoke handlers"
+            )
 
           with monkeypatch.context() as guard:
             guard.setattr(ResolverManager, "get", forbidden)
             guard.setattr(StorageManager, "from_record", forbidden)
             guard.setattr(SourceManager, "get_source_ins", forbidden)
-            all_rows = {}
-            cursors = {}
+            rows_by_collection, cursors = {}, {}
             for collection in collections:
-              arguments = {"resolver": "legacy/unloaded"} if collection == "blocks" else {}
-              rows = []
-              cursor = None
+              rows, cursor = [], None
               statement_count = len(statements)
               while True:
-                page = await discover(collection, limit=1, cursor=cursor, **arguments)
-                assert len(page["results"]) <= 1
+                page = await call(
+                  "meta_discover", collection=collection, limit=1, cursor=cursor
+                )
                 rows.extend(page["results"])
                 cursor = page["next_cursor"]
                 if cursor is None:
@@ -273,81 +225,62 @@ def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
                 cursors.setdefault(collection, cursor)
               if collection == "resolvers":
                 assert len(statements) == statement_count
-              all_rows[collection] = rows
-            assert [row["id"] for row in all_rows["storages"]] == [-4, -1, 10]
-            # Registry-only types are listed even without Blocks; persisted-only
-            # Resolver values do not become entries in the current Peer catalog.
-            assert [row["id"] for row in all_rows["resolvers"]] == sorted(
+              rows_by_collection[collection] = rows
+            assert [row["id"] for row in rows_by_collection["storages"]] == [-4, -1, 10]
+            assert set(rows_by_collection["storages"][0]) == {"id", "type", "nickname"}
+            assert len(rows_by_collection["storages"][1]["nickname"]) == 160
+            assert len(rows_by_collection["storage_types"][1]["description"]) == 512
+            assert [row["id"] for row in rows_by_collection["resolvers"]] == sorted(
               ResolverManager.RESOLVER_CLS
             )
-            assert "core.image.v1" in {row["id"] for row in all_rows["resolvers"]}
-            assert "legacy/unloaded" not in {row["id"] for row in all_rows["resolvers"]}
-            assert all(row["registered_locally"] for row in all_rows["resolvers"])
-            assert {
-              row["id"]: row["registered_locally"] for row in all_rows["source_types"]
-            } == {
-              local_type: True,
-              "retired.Source": False,
+            assert "core.image.v1" in {row["id"] for row in rows_by_collection["resolvers"]}
+            assert "legacy/unloaded" not in {
+              row["id"] for row in rows_by_collection["resolvers"]
             }
             assert {
-              row["id"]: row["registered_locally"] for row in all_rows["storage_types"]
-            } == {
-              "http": True,
-              "missing.package.Storage": False,
-            }
-            assert [row["registered_locally"] for row in all_rows["sources"]] == [
-              True,
-              False,
-            ]
-            assert all_rows["sources"][0]["block"] == 1
-            assert all_rows["sources"][0]["storage"] == -4
-            assert [row["entity"] for row in all_rows["blocks"]] == ["block:2", "block:3"]
-            assert all(not row["registered_locally"] for row in all_rows["blocks"])
-            assert all(
-              row["created_at"] is None and row["updated_at"] is None
-              for row in all_rows["blocks"]
+              row["id"]: row["registered_locally"]
+              for row in rows_by_collection["source_types"]
+            } == {local_type: True, "retired.Source": False}
+            assert {
+              row["id"]: row["registered_locally"]
+              for row in rows_by_collection["storage_types"]
+            } == {"http": True, "missing.package.Storage": False}
+            filters = {"resolver": {"eq": "legacy/unloaded"}}
+            first = await call("query", filters=filters, limit=1)
+            second = await call(
+              "query", filters=filters, cursor=first["next_cursor"], limit=1
             )
-            assert len(all_rows["storages"][1]["nickname"]) == 160
-            assert len(all_rows["storage_types"][1]["description"]) == 512
-            assert (await discover("blocks", resolver="absent"))["results"] == []
-            exact = await discover("blocks", resolver="legacy/unloaded", limit=2)
-            assert len(exact["results"]) == 2 and exact["next_cursor"] is None
-
-            # Cursor misuse fails instead of silently restarting or changing scope.
-            for arguments in (
-              {"collection": "sources", "cursor": cursors["storages"]},
-              {
-                "collection": "blocks",
-                "resolver": "core.text.v1",
-                "cursor": cursors["blocks"],
-              },
-              {"collection": "sources", "cursor": "not-a-cursor"},
-              {"collection": "blocks"},
-              {"collection": "sources", "resolver": "ignored"},
-              {"collection": "sources", "limit": 101},
+            assert [row["entity"] for row in first["results"] + second["results"]] == [
+              "block:2",
+              "block:3",
+            ]
+            assert second["next_cursor"] is None
+            assert all(row["updated_at"] is None for row in second["results"])
+            for tool, arguments in (
+              (
+                "meta_discover",
+                {"collection": "source_types", "cursor": cursors["storages"]},
+              ),
+              ("meta_discover", {"collection": "storages", "cursor": first["next_cursor"]}),
+              ("query", {"filters": filters, "cursor": cursors["storages"]}),
+              (
+                "query",
+                {"filters": {"storage": {"eq": -1}}, "cursor": first["next_cursor"]},
+              ),
+              ("query", {"filters": filters, "cursor": "not-a-cursor"}),
             ):
-              failed = await client.call_tool("inkcre_discover", arguments)
-              assert failed.is_error
-              if "limit" not in arguments:
-                assert failed.structured_content["error"]["code"] == "invalid_arguments"
-
-            # A forged cursor must not reach PostgreSQL's INTEGER parameter cast.
-            for key in (-(2**100), 2**100):
-              cursor = base64.urlsafe_b64encode(
-                json.dumps(
-                  {
-                    "version": 1,
-                    "collection": "storages",
-                    "resolver": None,
-                    "key": key,
-                  }
-                ).encode()
-              ).decode()
-              failed = await client.call_tool(
-                "inkcre_discover", {"collection": "storages", "cursor": cursor}
-              )
+              failed = await client.call_tool(tool, arguments)
               assert failed.is_error
               assert failed.structured_content["error"]["code"] == "invalid_arguments"
+            decoded = json.loads(base64.urlsafe_b64decode(first["next_cursor"]))
+            for changes in ({"key": 2**100}, {"key": -(2**100)}, {"version": True}):
+              cursor = base64.urlsafe_b64encode(
+                json.dumps({**decoded, **changes}).encode()
+              ).decode()
+              failed = await client.call_tool(
+                "query", {"filters": filters, "cursor": cursor}
+              )
+              assert failed.is_error
 
           assert statements and all(
             statement.lstrip().startswith("SELECT") for statement in statements
@@ -360,25 +293,13 @@ def test_zero_id_discovery_is_bounded_safe_and_connects_to_existing_reads(
             for statement in statements
           )
           sqlalchemy.event.remove(read_engine.sync_engine, "before_cursor_execute", capture)
-
-          # The references work with existing tools; unloaded methods remain unavailable.
-          opened = await client.call_tool("inkcre_open_entities", {"entities": ["block:2"]})
-          assert not opened.is_error
-          assert (
-            opened.structured_content["results"][0]["block"]["resolver"]
-            == "legacy/unloaded"
-          )
-          methods = await client.call_tool("inkcre_resolver_methods", {"blocks": [2]})
-          assert methods.structured_content["errors"][0]["error"]["code"] == "unavailable"
-          methods = await client.call_tool(
-            "inkcre_resolver_methods", {"resolvers": ["core.text.v1"]}
-          )
-          assert methods.structured_content["results"][0]["methods"]
-          read = await client.call_tool(
-            "inkcre_read_blocks", {"blocks": [1], "content": "solved"}
-          )
-          assert not read.is_error
-          assert read.structured_content["results"][0]["content"] == "Readable evidence"
+          opened = await call("open_entities", entities=["block:2"])
+          assert opened["results"][0]["block"]["resolver"] == "legacy/unloaded"
+          methods = await call("resolver_methods", blocks=[2])
+          assert methods["errors"][0]["error"]["code"] == "unavailable"
+          assert (await call("read_blocks", blocks=[1], content="solved"))["results"][0][
+            "content"
+          ] == "Readable evidence"
     finally:
       await core.aclose()
       await read_engine.dispose()

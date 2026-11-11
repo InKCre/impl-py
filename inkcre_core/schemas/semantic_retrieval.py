@@ -7,6 +7,7 @@ import pydantic
 
 from inkcre_core.schemas.ai import EmbeddingProfileID
 from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.query import BlockQueryFilters
 from inkcre_core.schemas.info_base.relation import RelationModel
 
 
@@ -32,6 +33,7 @@ class VectorRetrievalOptions(pydantic.BaseModel):
 
   limit: int = pydantic.Field(default=20, ge=1, le=100)
   min_score: float | None = pydantic.Field(default=None, ge=-1, le=1)
+  filters: BlockQueryFilters | None = None
   entity_types: frozenset[SemanticEntityType] = pydantic.Field(
     default_factory=_default_entity_types,
     min_length=1,

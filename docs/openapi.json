@@ -4687,6 +4687,22 @@
         ],
         "title": "BlockModel"
       },
+      "BlockQueryFilters": {
+        "properties": {
+          "resolver": {
+            "$ref": "#/components/schemas/ResolverEquality",
+            "title": "Resolver"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/StorageEquality",
+            "title": "Storage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "BlockQueryFilters",
+        "description": "Block-only exact AND predicates; omission differs from a null equality."
+      },
       "BlockSemanticRetrievalMatch": {
         "properties": {
           "type": {
@@ -5794,6 +5810,16 @@
             "minimum": 1.0,
             "title": "Limit",
             "default": 20
+          },
+          "filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BlockQueryFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -5951,6 +5977,20 @@
         "additionalProperties": false,
         "type": "object",
         "title": "RelationUpdateForm"
+      },
+      "ResolverEquality": {
+        "properties": {
+          "eq": {
+            "type": "string",
+            "title": "Eq"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "eq"
+        ],
+        "title": "ResolverEquality"
       },
       "RuminationRequest": {
         "properties": {
@@ -6355,6 +6395,22 @@
         "title": "SourceUpdateForm",
         "description": "Only submitted fields are written; config is replaced, not deep-merged."
       },
+      "StorageEquality": {
+        "properties": {
+          "eq": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": -2147483648.0,
+            "title": "Eq"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "eq"
+        ],
+        "title": "StorageEquality"
+      },
       "SubmitGraphResult": {
         "properties": {
           "blocks": {
@@ -6433,6 +6489,16 @@
               }
             ],
             "title": "Min Score"
+          },
+          "filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BlockQueryFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "entity_types": {
             "items": {

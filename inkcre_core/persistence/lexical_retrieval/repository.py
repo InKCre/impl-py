@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import sqlmodel
 
 from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.query import BlockQueryFilters
+from inkcre_core.persistence.info_base.filters import block_predicates
 from inkcre_core.schemas.lexical_retrieval import BlockLexicalRecordModel
 
 
@@ -16,7 +18,9 @@ class LexicalRepository:
   def __init__(self, session: AsyncSession) -> None:
     self._session = session
 
-  async def search(self, normalized: str, limit: int):
+  async def search(
+    self, normalized: str, limit: int, filters: BlockQueryFilters | None = None
+  ):
     literal_pattern = f"%{self._escape_like(normalized)}%"
 
     block_columns = typing.cast(
@@ -54,6 +58,7 @@ class LexicalRepository:
         record_columns.block == block_columns.id,
       )
       .where(
+        *block_predicates(filters),
         record_columns.updated_at >= block_columns.updated_at,
         sqlalchemy.or_(
           label_exact,

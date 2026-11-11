@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
 from inkcre_core.schemas.info_base.relation import RelationCreateForm, RelationModel
 from inkcre_core.persistence.discovery import metadata_page
+from inkcre_core.persistence.info_base.filters import block_predicates
+from inkcre_core.schemas.info_base.query import BlockQueryFilters
 
 
 class BlockRepository:
@@ -47,9 +49,9 @@ class BlockRepository:
       ).all()
     )
 
-  async def discover_blocks(
+  async def query_blocks(
     self,
-    resolver: str,
+    filters: BlockQueryFilters,
     *,
     limit: int,
     after: int | None,
@@ -62,7 +64,7 @@ class BlockRepository:
         sqlmodel.col(BlockModel.storage),
         sqlmodel.col(BlockModel.created_at),
         sqlmodel.col(BlockModel.updated_at),
-      ).where(sqlmodel.col(BlockModel.resolver) == resolver),
+      ).where(*block_predicates(filters)),
       BlockModel.id,
       limit=limit,
       after=after,

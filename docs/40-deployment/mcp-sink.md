@@ -39,21 +39,42 @@ freezing a model Tool sequence.
 
 ## Start Without IDs
 
-Call `inkcre_discover` with `collection="resolvers"`, `"source_types"`, `"storage_types"`, `"sources"`, or `"storages"`.
-These are metadata-only pages. `registered_locally` describes code loaded on this Peer, not running/healthy resources.
-The Resolver catalog comes only from this Peer's registry, without database queries or scanning persisted Block values.
-Use `collection="blocks"` with a known exact `resolver` to enumerate its Blocks, even if that decoder is no longer loaded.
-Historical Resolver IDs are not added to the current Peer catalog. Block `entity` references work with
-`inkcre_open_entities`; typed method discovery uses `inkcre_resolver_methods`. Content reads are separate and may
-materialize or fetch bytes under their existing contracts.
+The eight tools are `meta_discover`, `query`, `open_entities`, `read_blocks`, `expand_entities`, `find_path`,
+`resolver_methods`, `invoke_resolver_methods`. There are no old-name aliases: refresh client tool snapshots after upgrading.
+Sink type, endpoint and Resource URIs are unchanged.
 
-Use `limit` in `1..100` (default 20) and pass `next_cursor` unchanged with the same collection/filter until it is null.
-Pagination observes live data rather than a snapshot. Descriptions/nicknames are bounded data, not instructions; no config,
-state, schema defaults, Block content, or Storage pointers are included.
+Call `meta_discover` with `collection="resolvers"`, `"source_types"`, `"storage_types"`, or `"storages"` (no Source-instance
+or Block collection). Resolver identities come solely from this Peer's registry, without querying Blocks, and grant no
+behavior capability. Type `registered_locally` flags mean code presence, not health/execution guarantees. Storage rows
+contain only `id`, `type` and nullable, nonunique bounded `nickname`; `id` is the key for subsequent Block queries.
 
-Deploy migration `0ab4b22c6d3b` before use at scale. It creates `blocks(resolver,id)` with a transactional index build;
-plan a maintenance window for large existing Block tables because writes may wait. Reverting the app removes the Tool;
-the additive index can remain, or be downgraded independently without deleting rows.
+For example, after discovering Storage ID -2:
+
+```json
+{"filters":{"storage":{"eq":-2}},"limit":20}
+```
+
+Call `query` with this input, then pass its `next_cursor` with the same filters. Add `resolver.eq` for exact AND selection;
+known historical Resolver IDs are queryable even if absent from the catalog. Without text, queries require at least one
+filter and reject retrieval modes; they directly read Block metadata, independent of retrieval records, without relevance
+scores. Storage IDs must be signed INTEGERs, not strings/bools/null. No other operators are supported.
+For text retrieval, supply nonblank `query` and explicit nonempty `modes` (`lexical`/`semantic`), optional filters, limit
+`1..20`, and no cursor. Each owner applies Block filters before ranking/top-K, excluding Relations when filtered.
+
+Both metadata and condition-only pages use `limit=1..100` (default 20). Cursors cannot be reused across tools/conditions.
+Pagination observes live data, not a snapshot. Pages exclude config/state/schema/URL/content/pointers and never construct
+handlers or fetch external resources. Use returned `block:<id>` refs with `open_entities`, then IDs with `read_blocks`;
+content/method reads are separate and may materialize or fetch bytes under their existing contracts.
+
+Deploy migrations `0ab4b22c6d3b` and `bb5dcb562587` before use at scale. They create `blocks(resolver,id)` and
+`blocks(storage,id)` using transactional index builds; plan a maintenance window because Block writes may wait.
+AND queries can use one index and check the other predicate; costs still depend on selectivity. Reverting the app restores
+its previous tool surface; additive indexes may remain or be downgraded independently without deleting rows.
+
+Automated disposable-database acceptance is part of `pdm run test:database`: mounted TCP HTTP/PAT with normal
+Core/SinkManager lifecycle, real graph producers and retrieval maintenance, deterministic embedding dialect, metadata →
+query → open → read, adversarial pre-top-K filters, PAT rejection and shutdown cleanup. A skipped E2E is not acceptance;
+ChatGPT/tunnel remains separate manual verification.
 
 ## Diagnostics
 

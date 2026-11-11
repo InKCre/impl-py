@@ -63,7 +63,13 @@ timestamps.
 
 `SemanticRetrievalManager.retrieve()` is the domain facade. Local execution embeds one text query, compares exact cosine
 distance against fresh compatible records, merges Block and Relation candidates into one stable global order, applies the
-caller limit/threshold/type filters, and returns no more than the requested bound. Retrieval never calls `maintain()`.
+caller limit/threshold/type controls, and returns no more than the requested bound. Retrieval never calls `maintain()`.
+
+`VectorRetrievalOptions.filters` accepts the shared exact-AND `BlockQueryFilters` (`resolver.eq`, strict signed-INTEGER
+`storage.eq`). Block predicates enter candidate SQL before cosine ranking/top-K. Any actual Block predicate suppresses the
+Relation candidate query entirely; an empty filter has no effect. SDK/facade/inbound/delegation preserve the same typed
+options, including omitted predicates. No post-top-K filtering or oversampling is used. Pure-condition MCP queries bypass
+semantic retrieval and embeddings altogether.
 
 When a caller explicitly targets another Peer, the same facade delegates exact capability
 `core.semantic_retrieval.v1`. The provider inbound invokes `retrieve_local()` and cannot recursively delegate. Generic

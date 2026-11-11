@@ -266,12 +266,6 @@ class SourceManager:
       return await uow.sources.discover_types(limit=limit, after=after)
 
   @classmethod
-  async def discover_instances(cls, *, limit: int, after: int | None = None) -> list[dict]:
-    """Read configured instance references without config or collection state."""
-    async with source_uow() as uow:
-      return await uow.sources.discover_instances(limit=limit, after=after)
-
-  @classmethod
   async def update(cls, source_id: SourceID, form: SourceUpdateForm) -> SourceModel:
     async with source_uow() as uow:
       source = await uow.sources.get(source_id, lock=True)

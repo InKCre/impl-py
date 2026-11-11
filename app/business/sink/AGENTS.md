@@ -27,7 +27,7 @@
 ## MCP Boundary
 
 - `core.mcp.v1` 使用官方 SDK 的 stateless Streamable HTTP，exact endpoint 是 `/sinks/{id}/mcp`；PAT 不复用 Peer JWT。
-- Tool surface 为八个通用 Agent actions（包括 metadata-only `inkcre_discover`）。发现只投影 owning domain 的
+- Tool surface 为八个通用 Agent actions（无前缀，包括 metadata-only `meta_discover` 与双分支 `query`）。发现只投影 owning domain 的
   bounded 白名单列，不读取 config/state/schema/content，不构造 handler 或触发 materialization。
   Resolver-specific read behavior 通过 scoped method discovery/invocation envelope
   动态投影，Resolver 与 Extension 不声明 MCP metadata。

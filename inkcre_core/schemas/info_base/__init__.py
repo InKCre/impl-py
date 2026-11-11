@@ -1,4 +1,5 @@
 from .block import BlockForm, BlockModel, BlockID, ResolverType
+from .query import BlockQueryFilters, ResolverEquality, StorageEquality
 from .relation import RelationCreateForm, RelationForm, RelationModel, RelationID
 from .storage import StorageBlobModel, StorageModel, StorageID, StorageTypesModel
 from .main import (
@@ -14,6 +15,9 @@ from .main import (
 
 __all__ = [
   "BlockModel",
+  "BlockQueryFilters",
+  "ResolverEquality",
+  "StorageEquality",
   "BlockForm",
   "BlockID",
   "ResolverType",

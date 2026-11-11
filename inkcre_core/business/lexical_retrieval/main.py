@@ -17,6 +17,7 @@ from inkcre_core.business.info_base.resolver import (
 from inkcre_core.business.peer import PeerManager
 from inkcre_core.persistence.lexical_retrieval.uow import lexical_uow
 from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.query import BlockQueryFilters
 from inkcre_core.schemas.lexical_retrieval import (
   LexicalEvidence,
   LexicalMaintenanceDiagnostic,
@@ -99,14 +100,15 @@ class LexicalRetrievalManager:
     query: str,
     limit: int = 20,
     *,
+    filters: BlockQueryFilters | None = None,
     route_to_peer: PeerRef | None = None,
   ) -> LexicalRetrievalResult:
-    request = LexicalRetrievalRequest(query=query, limit=limit)
+    request = LexicalRetrievalRequest(query=query, limit=limit, filters=filters)
     if route_to_peer is None or route_to_peer == PeerManager.get_current_peer_ref():
-      return await cls.retrieve_local(request.query, request.limit)
+      return await cls.retrieve_local(request.query, request.limit, filters=request.filters)
 
     payload = PeerProtocolRequest(
-      body=typing.cast(typing.Any, request.model_dump(mode="json"))
+      body=typing.cast(typing.Any, request.model_dump(mode="json", exclude_none=True))
     )
     result = await PeerManager.delegate(
       LEXICAL_RETRIEVAL_CAPABILITY,
@@ -126,11 +128,13 @@ class LexicalRetrievalManager:
       ) from error
 
   @classmethod
-  async def retrieve_local(cls, query: str, limit: int = 20) -> LexicalRetrievalResult:
-    request = LexicalRetrievalRequest(query=query, limit=limit)
+  async def retrieve_local(
+    cls, query: str, limit: int = 20, *, filters: BlockQueryFilters | None = None
+  ) -> LexicalRetrievalResult:
+    request = LexicalRetrievalRequest(query=query, limit=limit, filters=filters)
     normalized = request.query.strip()
     async with lexical_uow() as repository:
-      rows = await repository.search(normalized, request.limit)
+      rows = await repository.search(normalized, request.limit, request.filters)
 
     return LexicalRetrievalResult(
       matches=tuple(

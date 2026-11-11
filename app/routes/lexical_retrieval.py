@@ -25,4 +25,6 @@ PEER_INBOUND = PeerHTTPInbound(
 
 @ROUTER.post("/lexical-retrieval")
 async def retrieve(body: LexicalRetrievalRequest) -> LexicalRetrievalResult:
-  return await LexicalRetrievalManager.retrieve_local(body.query, body.limit)
+  return await LexicalRetrievalManager.retrieve_local(
+    body.query, body.limit, filters=body.filters
+  )
