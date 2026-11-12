@@ -37,7 +37,7 @@ from inkcre_core.schemas.info_base.block import BlockModel
 from inkcre_core.schemas.info_base.query import BlockQueryFilters
 
 from .base import SinkBase
-from .contracts import ContentMode, RecallMode, ResolverMethodCall
+from .contracts import ContentMode, RetrievalMode, ResolverMethodCall
 from .discovery import DiscoveryCollection, discover
 from .pagination import page_after, page_result
 from .projection import (
@@ -311,7 +311,7 @@ class MCPSink(SinkBase[MCPSinkConfig], sink_type="core.mcp.v1", config_cls=MCPSi
     )
     async def query_entities(
       query: str | None = None,
-      modes: tuple[RecallMode, ...] | None = None,
+      modes: tuple[RetrievalMode, ...] | None = None,
       filters: BlockQueryFilters | None = None,
       limit: typing.Annotated[int, pydantic.Field(ge=1, le=100)] = 20,
       cursor: typing.Annotated[str | None, pydantic.Field(max_length=16384)] = None,
@@ -346,7 +346,7 @@ class MCPSink(SinkBase[MCPSinkConfig], sink_type="core.mcp.v1", config_cls=MCPSi
           is_error=True,
         )
 
-      async def run(mode: RecallMode) -> tuple[RecallMode, typing.Any]:
+      async def run(mode: RetrievalMode) -> tuple[RetrievalMode, typing.Any]:
         if mode == "lexical":
           return mode, await LexicalRetrievalManager.retrieve(query, limit, filters=filters)
         return mode, await SemanticRetrievalManager.retrieve(

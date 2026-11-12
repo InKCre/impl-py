@@ -7,6 +7,7 @@ The private schema lives exclusively in the explicitly selected disposable datab
 
 import asyncio
 from contextlib import asynccontextmanager
+import logging
 import os
 import socket
 import uuid
@@ -112,7 +113,7 @@ def journey_database():
 
 
 def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
-  journey_database, monkeypatch
+  journey_database, monkeypatch, caplog
 ):
   owner, translation = journey_database
   # Isolate process-local registries/resources, not domain behavior.
@@ -170,9 +171,6 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
     )
     core = Core(engine)
     pat = uuid.uuid4().hex
-    sink_id = None
-    instance = None
-    session_task = None
     server_task = None
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
@@ -200,6 +198,9 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
     app.include_router(lexical_retrieval.ROUTER)
     app.include_router(semantic_retrieval.ROUTER)
     server = ReadyServer(uvicorn.Config(app, log_level="error", lifespan="on"))
+    # Uvicorn's normal handler does not propagate to pytest's root log capture.
+    transport_logger = logging.getLogger("uvicorn.error")
+    transport_logger.addHandler(caplog.handler)
     try:
       with core.bind():
         await StorageManager.setup_builtin_storages_async()
@@ -304,16 +305,16 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
 
         server_task = asyncio.create_task(server.serve(sockets=[listener]))
         await asyncio.wait_for(ready.wait(), timeout=10)
-        assert not server_task.done()
         sink = await SinkManager.create("core.mcp.v1", config={"pat": pat})
         assert sink.id is not None
         sink_id = sink.id
-        await SinkManager.enable(sink_id, core.options.peer_id)
-        instance = SinkManager.get_running(sink_id)
-        assert isinstance(instance, MCPSink)
-        session_task = instance._session_task
         base = f"http://127.0.0.1:{port}"
         url = f"{base}/sinks/{sink_id}/mcp"
+        async with httpx.AsyncClient() as http:
+          assert (
+            await http.post(url, headers={"Authorization": f"Bearer {pat}"}, json={})
+          ).status_code == 404
+        await SinkManager.enable(sink_id, core.options.peer_id)
         async with httpx.AsyncClient() as http:
           for headers in ({}, {"Authorization": "Bearer wrong"}):
             assert (await http.post(url, headers=headers, json={})).status_code == 401
@@ -455,29 +456,43 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
                 row["entity"]["id"] for row in response.json()["matches"]
               } == target_ids
         await SinkManager.disable(sink_id, core.options.peer_id)
-        assert SinkManager.get_running(sink_id) is None
-        assert session_task is not None and session_task.done()
         async with httpx.AsyncClient() as http:
           assert (
             await http.post(url, headers={"Authorization": f"Bearer {pat}"}, json={})
           ).status_code == 404
-        # Leave an active endpoint for normal ASGI lifespan shutdown as well.
+          # The ordinary DB-backed Core API remains usable with the Sink disabled.
+          healthy = await http.get(f"{base}/embedding-profiles/{profile}")
+          assert healthy.status_code == 200 and healthy.json()["id"] == profile
         await SinkManager.enable(sink_id, core.options.peer_id)
-        instance = SinkManager.get_running(sink_id)
-        assert isinstance(instance, MCPSink)
-        session_task = instance._session_task
-        assert session_task is not None and not session_task.done()
+        # A fresh transport/client must initialize again at the exact same URL.
+        async with httpx2.AsyncClient(
+          headers={"Authorization": f"Bearer {pat}"}, trust_env=False
+        ) as http:
+          async with Client(
+            streamable_http_client(url, http_client=http), mode="legacy"
+          ) as reconnected:
+            assert {tool.name for tool in (await reconnected.list_tools()).tools} == TOOLS
+
+        shutdown_start = len(caplog.records)
+        server.should_exit = True
+        await asyncio.wait_for(server_task, timeout=10)
+        # Observe the closed endpoint and ordinary diagnostics before fallback cleanup.
+        async with httpx.AsyncClient(trust_env=False, timeout=2) as http:
+          with pytest.raises(httpx.ConnectError):
+            await http.post(url, headers={"Authorization": f"Bearer {pat}"}, json={})
+        shutdown_errors = [
+          record.getMessage()
+          for record in caplog.records[shutdown_start:]
+          if record.levelno >= logging.ERROR
+        ]
+        assert not shutdown_errors, shutdown_errors
     finally:
       server.should_exit = True
       try:
         if server_task is not None:
           await asyncio.wait_for(server_task, timeout=10)
-          # Check lifecycle effects before fallback cleanup can hide a regression.
-          assert SinkManager._app is None and not SinkManager._running
-          assert instance is not None and instance._mount is None
-          assert instance._server is None
-          assert session_task is not None and session_task.done()
       finally:
+        transport_logger.removeHandler(caplog.handler)
         listener.close()
         with core.bind():
           await SinkManager.shutdown()

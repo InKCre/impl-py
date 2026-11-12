@@ -118,7 +118,9 @@ materialize；相关工具不虚假声明绝对无副作用。
 
 `tests/info_base/integration/test_mcp_http_journey.py` 使用 disposable PostgreSQL、正常 Core/SinkManager 生命周期、
 真实 TCP Streamable HTTP/PAT 与独立 MCP Client，验证 initialize/tools/list、四类 meta → storage/resolver/AND query →
-跨 HTTP 分页 → open → solved content，以及历史 Resolver、无/错 PAT、关闭清理。语料通过 graph commands 与字节 Storage
+跨 HTTP 分页 → open → solved content，以及历史 Resolver、无/错 PAT。生命周期只观察公开行为：disable 后 endpoint 404、
+普通 Core API 可用，re-enable 后新独立 Client 在同 URL initialize/tools/list 成功；shutdown 后外部 TCP 连接失败且
+普通 transport/Sink 日志无关闭错误，不检查 private running/session/mount flags。语料通过 graph commands 与字节 Storage
 建立；real lexical/semantic maintain 创建索引，确定性 AI dialect 提供 vectors。每种模式都有超过 K 个排名更高的
 不匹配 Block 和高分 Relation，断言过滤后确实返回目标数量/ID。另保留只读角色、SQL 白名单与不构造 handler 的低层回归。
 
