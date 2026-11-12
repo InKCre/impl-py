@@ -45,6 +45,22 @@ class StorageManager:
     return cls.from_record(record)
 
   @classmethod
+  async def discover_types(cls, *, limit: int, after: str | None = None) -> list[dict]:
+    """Read persisted type metadata without importing or constructing handlers."""
+    from inkcre_core.persistence.info_base.uow import graph_uow
+
+    async with graph_uow() as uow:
+      return await uow.storage.discover_types(limit=limit, after=after)
+
+  @classmethod
+  async def discover_instances(cls, *, limit: int, after: int | None = None) -> list[dict]:
+    """Read configured Storage references without loading credentials/config."""
+    from inkcre_core.persistence.info_base.uow import graph_uow
+
+    async with graph_uow() as uow:
+      return await uow.storage.discover_instances(limit=limit, after=after)
+
+  @classmethod
   def from_record(cls, record: StorageModel) -> "Storage":
     storage_class = cls._STORAGE_CLASSES.get(record.type)
     if storage_class is None:

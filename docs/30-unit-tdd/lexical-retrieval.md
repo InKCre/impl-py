@@ -84,6 +84,11 @@ without promising Chinese tokenization. The weighted `tsvector` supports primiti
 recall. Results are stable by evidence class, text-search rank and Block ID, capped at 20,
 and expose `label`, bounded plain-text `excerpt`, `evidence` and numeric `rank`.
 
+Optional `BlockQueryFilters` (`resolver.eq`, strict signed-INTEGER `storage.eq`) are exact AND predicates over Block rows,
+applied inside candidate SQL before evidence ordering/top-K. Omitted predicates stay omitted through request serialization;
+unknown fields/operators and null equalities are rejected. These controls do not imply Resolver availability. The MCP
+`query` condition-only branch belongs to info-base and does not read lexical records.
+
 `LexicalRetrievalManager.retrieve()` is the uniform local/delegating facade. Exact capability
 `core.feature_retrieval.lexical.v1` uses the generic Peer protocol; the provider inbound calls
 `retrieve_local()` and cannot delegate recursively. Retrieval never invokes maintenance.

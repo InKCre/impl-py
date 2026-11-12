@@ -29,7 +29,7 @@ async def retrieve_lexical(
   body: LexicalRetrievalRequest, route_to_peer: PeerRef | None = None
 ) -> LexicalRetrievalResult:
   return await LexicalRetrievalManager.retrieve(
-    body.query, body.limit, route_to_peer=route_to_peer
+    body.query, body.limit, filters=body.filters, route_to_peer=route_to_peer
   )
 
 

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import sqlmodel
 
 from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.persistence.info_base.filters import block_predicates
 from inkcre_core.schemas.info_base.relation import RelationModel
 from inkcre_core.schemas.semantic_retrieval import VectorRetrievalOptions
 
@@ -127,6 +128,7 @@ class SemanticRetrievalRepository:
       sqlmodel.select(BlockModel, distance)
       .join(BlockEmbeddingModel, record_columns.block == block_columns.id)
       .where(
+        *block_predicates(options.filters),
         record_columns.profile == profile_id,
         record_columns.updated_at >= profile.updated_at,
         record_columns.updated_at >= block_columns.updated_at,

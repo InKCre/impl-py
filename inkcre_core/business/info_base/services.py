@@ -5,11 +5,27 @@ from typing import Optional as Opt
 from inkcre_core.schemas.info_base.block import BlockForm, BlockModel, BlockID, ResolverType
 from inkcre_core.schemas.info_base.relation import RelationModel, RelationID
 from inkcre_core.schemas.info_base.storage import StorageID
+from inkcre_core.schemas.info_base.query import BlockQueryFilters
 from inkcre_core.utils.types_ import Undefined, _undefined
 from inkcre_core.persistence.info_base.uow import graph_uow
 
 
 class BlockService:
+  @staticmethod
+  async def query_blocks(
+    filters: BlockQueryFilters,
+    *,
+    limit: int,
+    after: int | None = None,
+  ) -> list[dict]:
+    """Read bounded exact-AND references, independent of retrieval records."""
+    if not filters.has_conditions:
+      raise ValueError("At least one Block filter is required")
+    if not 1 <= limit <= 100:
+      raise ValueError("Block query limit must be between 1 and 100")
+    async with graph_uow() as uow:
+      return await uow.blocks.query_blocks(filters, limit=limit, after=after)
+
   @staticmethod
   async def get_many(block_ids: typing.Collection[BlockID]) -> tuple[BlockModel, ...]:
     async with graph_uow() as uow:

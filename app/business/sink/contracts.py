@@ -4,7 +4,7 @@ import typing
 
 import pydantic
 
-RecallMode: typing.TypeAlias = typing.Literal["lexical", "semantic"]
+RetrievalMode: typing.TypeAlias = typing.Literal["lexical", "semantic"]
 ContentMode: typing.TypeAlias = typing.Literal["raw", "hydrated", "solved"]
 
 

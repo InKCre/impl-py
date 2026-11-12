@@ -1,7 +1,8 @@
 # MCP Sink Acceptance
 
 > Accepted exact acceptance realization under D-398、D-400 and D-402。This is task control，not an
-> automated-test mandate。
+> automated-test mandate。Tool naming and the discovery/query extension below follow the current
+> [#185 MVP baseline](https://github.com/InKCre/impl-py/issues/185#issuecomment-6790532701)。
 
 ## Evidence Authorities
 
@@ -30,10 +31,13 @@ selected during preflight and recorded with the manual run evidence。
 
 1. Persist one MCPSink with a real PAT and empty `enabled` list：its endpoint is absent。
 2. Enable it for the current Peer：`/sinks/{id}/mcp` initializes through authenticated Streamable HTTP。
-3. Initialization advertises Tools、Resources and the exact Skills extension subset；`tools/list` exposes exactly the seven
-   accepted InKCre Tools。
-4. Disable the Sink：the exact route is withdrawn while Core remains ready and observable。
-5. Re-enable it：a fresh SDK runtime serves the same deterministic path and PAT contract。
+3. Initialization advertises Tools、Resources and the exact Skills extension subset；`tools/list` exposes exactly eight
+   unprefixed Tools：`meta_discover`、`query`、`open_entities`、`read_blocks`、`expand_entities`、`find_path`、
+   `resolver_methods`、`invoke_resolver_methods`，with no old-name aliases。
+4. Disable the Sink：the same authenticated route returns 404 while an ordinary DB-backed Core API remains usable。
+5. Re-enable it：a new independent MCP Client initializes and lists the eight Tools at the same URL with the same PAT。
+6. Shut down the active Core/Sink lifecycle：the externally contacted endpoint closes within a bounded wait，and ordinary
+   transport/Sink diagnostics report no shutdown errors。Observe this before fallback test cleanup can close resources。
 
 The journey observes endpoint presence and ordinary diagnostics；it does not inspect private running maps or session-manager
 flags。
@@ -42,7 +46,7 @@ flags。
 
 Using only the MCP surface：
 
-1. call lexical + semantic `inkcre_recall` for one query；confirm mode-local evidence is preserved，entities are deduplicated
+1. call `query` with explicit lexical + semantic modes for one nonblank text query；confirm mode-local evidence is preserved，entities are deduplicated
    and no fabricated cross-mode score/rank appears；
 2. open a mixed ordered batch of Block/Relation refs，including one missing ref；confirm natural payloads plus one correlated
    error atom without sibling cancellation；
@@ -98,8 +102,27 @@ This journey is recorded manually。Its exact Tool sequence，wording and model 
 This proves the cross-repository runtime correction through behavior。Do not add registry snapshot/restore unit tests or
 assertions tied to `sys.modules` implementation details。
 
+## Journey G — Metadata → Exact Query → Open → Read
+
+Through the mounted Streamable HTTP endpoint and PAT：
+
+1. Discover `resolvers`、`source_types`、`storage_types` and `storages` with `meta_discover`；Resolver identities come only
+   from this Peer's registry，and Storage `id/type/nullable nickname` identify a query key，not instance configuration。
+2. Use a discovered Storage ID in `query(filters.storage.eq)`；also exercise exact `resolver.eq` and AND combinations。
+   Without text，omit retrieval modes；use bounded `id ASC` pages and roundtrip cursors with unchanged filters。
+3. Confirm pages have no duplicate IDs，include an unindexed Block，and emit no fabricated relevance score/rank。
+4. Feed returned `block:<id>` refs to `open_entities`，then IDs to `read_blocks`，and read the producer's known content。
+5. Query a known historical Resolver ID absent from the catalog；persisted data remains discoverable without implying that
+   the local Peer can execute its Resolver methods。
+6. For lexical and semantic text queries，prepare more than K higher-ranked nonmatching Blocks and a high-score Relation。
+   Assert the filtered query still returns the expected matching Block IDs/count，proving predicates precede top-K。
+
+Use normal graph/Storage production and owning Manager maintenance paths；a deterministic graph-blind embedding dialect is
+allowed，but mocked retrieval Managers or direct SQL index fixtures do not establish this journey。Retain separate SQL
+whitelist/read-only/handler-isolation evidence；metadata and pure-condition reads do not load secrets or materialize content。
+
 ## Completion
 
-The unit passes only when Journeys A–D and F have deterministic evidence，Journey E has recorded manual product evidence，the
+The unit passes only when Journeys A–D、F and G have deterministic evidence，Journey E has recorded manual product evidence，the
 repository gates pass，and the relevant preview/deployment path is healthy。No automated ChatGPT assertion or literal/schema
 mirror test is required。

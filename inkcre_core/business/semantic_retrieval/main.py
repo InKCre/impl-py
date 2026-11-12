@@ -227,7 +227,7 @@ class SemanticRetrievalManager:
     payload = PeerProtocolRequest(
       body=typing.cast(
         typing.Any,
-        request.model_dump(mode="json"),
+        request.model_dump(mode="json", exclude_none=True),
       )
     )
     result = await PeerManager.delegate(
@@ -277,7 +277,9 @@ class SemanticRetrievalManager:
           BlockSemanticRetrievalMatch(entity=block, score=cls._score(distance))
           for block, distance in rows
         )
-      if "relation" in retrieval_options.entity_types:
+      if "relation" in retrieval_options.entity_types and not (
+        retrieval_options.filters is not None and retrieval_options.filters.has_conditions
+      ):
         rows = await repository.retrieve_relations(
           selected, query_vector, retrieval_options
         )
