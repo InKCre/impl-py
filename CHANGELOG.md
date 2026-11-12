@@ -4,6 +4,23 @@ Core release notes start from the current `0.1.1` baseline. Earlier repository h
 
 <!-- towncrier release notes start -->
 
+## 0.11.0 - 2026-11-12
+
+### Added
+
+- 新增可独立构建的 inkcre_core SDK，显式绑定数据库与 Peer 执行上下文；服务保留环境、HTTP、调度和安装装配，旧扩展导入继续兼容。 (#core-app-separation)
+- MCP Sink 新增四类只读 `meta_discover`（本 Peer Resolver identities、Source/Storage 类型目录和 Storage IDs）及双分支 `query`：支持文本检索前 exact resolver/storage AND 过滤，以及不依赖检索索引的有界 Block keyset 查询。统一八个工具名去掉 `inkcre_` 前缀、`recall` 改为 `query`，无旧名 alias；升级后需刷新 Client tools。新增 Storage/Block seek 索引迁移，大库需安排索引构建维护窗口。 (#mcp-discovery)
+- 统一可观测性记录与查询：默认写入内置信息库，可选择 Loki 双向后端；提供精确 Peer 查询/摄取能力、Job 生命周期和操作摘要，并明确外部故障、历史范围与资源关闭责任。 (#observability-unification)
+
+### Changed
+
+- 统一使用 App 表示应用、Peer 表示参与运行的实例；Web 部署和开发种子的默认展示名改为 web 与 web-development，保持 Peer UUID 与协议身份不变，并更新部署和扩展连接说明。 (#app-peer-naming)
+
+### Fixed
+
+- 修复远端开发镜像缺少 SDK 源码与 LICENSE 的构建输入，固定 PDM 安装器的兼容依赖；构建失败时保留两个输出流中的原因并遮盖凭据。 (#browser-collection-runtime)
+
+
 ## 0.10.0 - 2026-10-27
 
 ### Added
