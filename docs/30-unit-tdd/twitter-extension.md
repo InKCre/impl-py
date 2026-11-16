@@ -8,6 +8,23 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 
 一次 submit 使用一个 `graph_uow()`。Bookmark 先完成 provider 请求，再进入 `source_uow()`，锁定 Source，使用其 `graph` 合并新主帖及实际捕获的上下文，并在同一事务内推进 cursor。主帖顺序与展开上下文分开，因此引用帖不会成为下一次书签采集的 watermark；旧的数值 cursor 在比较边界转换为十进制字符串，不重置历史状态。
 
+## Bookmark 归属与历史证据
+
+`source_writer.py` 在原生 archive 之外写入两个独立事实，Relation content 使用字面值：
+
+```text
+Source anchor --collects--> captured Post / User / Media
+Source anchor --bookmarks--> selected primary Post
+```
+
+`SourceManager.ensure_block_async` 创建或刷新 `core.source.v1` lazy anchor。此 anchor、收入的原生记录和引用、两类 Source 关系及普通 watermark 在同一个事务内提交；backfill 逐页原子提交，Job 进度只报告已经提交的页面，不推进普通 watermark。重复捕获使用现有 Source 行锁及 Twitter 事务锁，按 anchor/target/content 去重，不删除其他 Source 的证据。删除 operational Source 保留历史 anchor 和关系。
+
+`collects` 的目标只来自 `_selected_batch` 实际收入的记录，包括捕获的 quote/repost/reply、作者与媒体。不能使用 reconciliation 的全部 `block_ids` 或 `changed`：前者还含仅 ID 和合并保留的引用根，后者不含未变化但本次确实观察到的记录。`bookmarks` 只来自本次选中的 primary IDs；跳过的主帖若作为上下文收入，只得到 `collects`。
+
+这两类边是 Source 范围的历史正向证据，不是远端当前状态的完整快照；`bookmarks` 表示曾在该 Source 的选中主收藏中观察到。没有该边是未知，不表示未收藏；单有 `collects` 只能说明通过此 Source 收入，不能据此断言该 Post 从未被收藏。部分页面、空响应、full/backfill 缺席或取消收藏都不会撤销已有证据，也不保存远端收藏动作时间。多个 Source 共用 Post 根但保留各自的边；Source 不是不可变的 X 账号身份，扩展切换账号的既有风险仍存在。
+
+既有 v1/v2 Resolver、原生 bookmark count、旧 `bookmarked for` 边和普通 archive submit 都不能证明 Source 或 Bookmark 归属。不执行猜测性数据迁移；历史未知保持未知，旧 note/用户关系不改写。显式 full/backfill 重新观察选中的主帖后可原地补证并保留 Block ID。普通增量只收入旧 marker 之前的主帖，marker 本身及之后的历史数据不会自动获得证据；不要重置 marker 来伪造回填。旧 `_organize()` 不恢复副作用。
+
 两条写入路径都先取得 `extensions.twitter.reconcile` 全局事务 advisory 锁，再批量重读原生身份。根内容和受管关系一起提交；异常让整批回滚，调用方可安全重放。该锁仅约束正常 Twitter 写入入口，不能替代所有 info-base 原始写入的约束。provider 和媒体网络访问都不能放进此事务。
 
 原生身份、Blocks 和引用边使用批量查询与创建。不要在每个媒体项内单独查询、创建和 flush：Core 与数据库跨网络部署时，这会把一次正常批次放大为数百次串行往返，并在持锁期间耗尽调用方的同步请求期限。
@@ -32,6 +49,8 @@ Python Twitter 在 `/twitter/x-monkey/account` 自托管连接页面。用户只
 
 连接不要求 Web 或 MF 分发。`setup.x_monkey_base_url` 继续供用户复制，Web Setup 只提供通向该 Core 账户页的普通链接，不持有此连接流程的密钥、JWT 签发或凭据传输逻辑。账户页显示 Peer 与到期时间，脚本通过会话检测确认连接。七天 Cookie 默认期限与协议续签仍由 Python Twitter 拥有。
 
-候选验证脚本与 fixture 放在 `scripts/tests/twitter`，默认 pytest 与 CI 不收集。离线合同与 HTTP 边界验证入口为 `pdm run python -m pytest -q scripts/tests/twitter/test_archive_contract.py scripts/tests/twitter/test_archive_http.py`；显式运行整个目录可用 `pdm run python -m pytest -q scripts/tests/twitter`。
+Bookmark 归属回归在 `tests/extensions/twitter/integration/test_bookmark_provenance.py`，通过生产 collect/backfill 入口与独立数据库会话读取，验证主收藏/上下文、多 Source、历史重观察、Source 删除及页事务回滚；由 `pdm run test:database` 在可丢弃 PostgreSQL 上执行。无显式数据库时默认 pytest 跳过这些集成场景。
+
+其他候选验证脚本与 fixture 放在 `scripts/tests/twitter`，默认 pytest 与 CI 不收集。离线合同与 HTTP 边界验证入口为 `pdm run python -m pytest -q scripts/tests/twitter/test_archive_contract.py scripts/tests/twitter/test_archive_http.py`；显式运行整个目录可用 `pdm run python -m pytest -q scripts/tests/twitter`。
 
 真实数据库场景要求显式提供 `INKCRE_TEST_DATABASE_URL`，使用已迁移的可丢弃 PostgreSQL runtime；测试只清理自己创建的精确 IDs，不重置开发库。原生 roundtrip 与真实 Twikit Bookmark 验证执行 `LexicalRetrievalManager.maintain` 的实际扫描、投影和检索链，在 HTTP Storage 字节边界断言零调用；同时检查归档不额外创建内容块、blob 或 Job。固定 fixture 同时用于原生 roundtrip 和独立上游合同验证，真实 userscript、HTTP 会话及 Web 消费仍需要各自的纵向验收。

@@ -11,6 +11,7 @@ case "${1:-}" in
       tests/info_base/integration tests/lexical_retrieval/integration \
       tests/organization/integration tests/peer/integration tests/semantic_retrieval/integration \
       tests/extensions/memos/integration tests/extensions/rss/integration/test_feed_collection.py \
+      tests/extensions/twitter/integration \
       tests/migrations/test_memos_attachment_v2_migration.py
     ;;
   release-intent)

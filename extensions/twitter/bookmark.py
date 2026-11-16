@@ -8,7 +8,7 @@ from app.persistence.source.uow import source_uow
 from app.schemas.job import JobModel
 from .api import TwitterAPI
 from .model import TwitterBatch
-from .reconcile import persist_twitter
+from .source_writer import persist_bookmarks
 
 
 class SourceConfig(sqlmodel.SQLModel):
@@ -107,10 +107,8 @@ class Source(
         if latest_id in primary_ids:
           selected = primary_ids[: primary_ids.index(latest_id)]
       if selected:
-        await persist_twitter(
-          _selected_batch(bookmarks_res.batch, selected),
-          uow.graph,
-          text_policy="supplement",
+        await persist_bookmarks(
+          _selected_batch(bookmarks_res.batch, selected), selected, source, uow
         )
       if not full and primary_ids:
         source.state = {
@@ -152,10 +150,8 @@ class Source(
           source = await uow.sources.get(self._id, lock=True)
           if source is None:
             raise ValueError("Twitter Source no longer exists")
-          await persist_twitter(
-            _selected_batch(response.batch, selected),
-            uow.graph,
-            text_policy="supplement",
+          await persist_bookmarks(
+            _selected_batch(response.batch, selected), selected, source, uow
           )
       seen.update(ids)
       scanned += len(ids)
