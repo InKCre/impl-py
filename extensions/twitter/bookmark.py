@@ -3,9 +3,9 @@
 import pydantic
 import sqlmodel
 import typing
-from app.business.source import SourceBase
-from app.persistence.source.uow import source_uow
-from app.schemas.job import JobModel
+from inkcre_core.business.source import SourceBase
+from inkcre_core.persistence.source.uow import source_uow
+from inkcre_core.schemas.job import JobModel
 from .api import TwitterAPI
 from .model import TwitterBatch
 from .source_writer import persist_bookmarks
@@ -95,6 +95,9 @@ class Source(
 
     api_client = await TwitterAPI.new()
     bookmarks_res = await api_client.get_bookmarks(page=page, max_results=result_limit)
+    actor_id = bookmarks_res.bookmark_user_id
+    if actor_id is None:
+      raise ValueError("Bookmark response is missing the authenticated Twitter User ID")
 
     async with source_uow() as uow:
       source = await uow.sources.get(self._id, lock=True)
@@ -108,7 +111,7 @@ class Source(
           selected = primary_ids[: primary_ids.index(latest_id)]
       if selected:
         await persist_bookmarks(
-          _selected_batch(bookmarks_res.batch, selected), selected, source, uow
+          _selected_batch(bookmarks_res.batch, selected), selected, actor_id, source, uow
         )
       if not full and primary_ids:
         source.state = {
@@ -137,6 +140,9 @@ class Source(
       response = await api_client.get_bookmarks(
         page=page, max_results=min(backfill.page_size, end - scanned)
       )
+      actor_id = response.bookmark_user_id
+      if actor_id is None:
+        raise ValueError("Bookmark response is missing the authenticated Twitter User ID")
       ids = response.primary_post_ids
       if seen.intersection(ids) or len(set(ids)) != len(ids):
         raise ValueError("Bookmark ordering changed during backfill; retry explicitly")
@@ -151,7 +157,7 @@ class Source(
           if source is None:
             raise ValueError("Twitter Source no longer exists")
           await persist_bookmarks(
-            _selected_batch(response.batch, selected), selected, source, uow
+            _selected_batch(response.batch, selected), selected, actor_id, source, uow
           )
       seen.update(ids)
       scanned += len(ids)

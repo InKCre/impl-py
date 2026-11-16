@@ -15,6 +15,7 @@ from extensions.twitter.model import TwitterBatch, TwitterPost
 
 def page(ids, next_page=None):
   return TwitterAPIResult(
+    bookmark_user_id="99",
     primary_post_ids=tuple(str(value) for value in ids),
     next_page=next_page,
     batch=TwitterBatch(
@@ -39,7 +40,7 @@ def capture(monkeypatch):
   async def uow():
     yield SimpleNamespace(sources=repository, graph=object())
 
-  async def persist(batch, primary_post_ids, source, uow):
+  async def persist(batch, primary_post_ids, actor_id, source, uow):
     saved.extend(primary_post_ids)
 
   monkeypatch.setattr(bookmark, "source_uow", uow)
@@ -105,10 +106,10 @@ def test_backfill_does_not_report_uncommitted_page_as_saved(capture, monkeypatch
   api.get_bookmarks.side_effect = [page([1, 2], "a"), page([3, 4], "b")]
   persist = bookmark.persist_bookmarks
 
-  async def fail_second_page(batch, primary_post_ids, source, uow):
+  async def fail_second_page(batch, primary_post_ids, actor_id, source, uow):
     if batch.posts[0].id == "3":
       raise RuntimeError("storage unavailable")
-    await persist(batch, primary_post_ids, source, uow)
+    await persist(batch, primary_post_ids, actor_id, source, uow)
 
   monkeypatch.setattr(bookmark, "persist_bookmarks", fail_second_page)
   job = JobModel(type="source.backfill", timeout_seconds=60)

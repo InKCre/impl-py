@@ -9,14 +9,15 @@ import typing
 
 import pydantic
 
-from app.persistence.info_base.uow import GraphUnitOfWork, graph_uow
-from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.info_base.relation import RelationCreateForm
+from inkcre_core.persistence.info_base.uow import GraphUnitOfWork, graph_uow
+from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
+from inkcre_core.schemas.info_base.relation import RelationCreateForm
 
 from .archive_merge import merge_archive_record
 from .model import (
   TextPolicy,
   TwitterBatch,
+  TwitterIdentity,
   TwitterMedia,
   TwitterPost,
   TwitterRecord,
@@ -128,11 +129,13 @@ async def persist_twitter(
   uow: GraphUnitOfWork,
   *,
   text_policy: TextPolicy = "replace",
+  user_identities: Collection[TwitterIdentity] = (),
 ) -> TwitterWriteResult:
   """Merge a complete batch without committing the caller's graph transaction.
 
   Supplement captures retain an already known body while adding other facts.
   Capture adapters choose that policy; persistence does not identify providers.
+  Explicit User identities reuse/create roots without inventing profile facts.
   """
   await uow.blocks.acquire_transaction_lock(TWITTER_WRITE_LOCK)
   incoming: dict[Identity, Record] = {}
@@ -142,7 +145,7 @@ async def persist_twitter(
       incoming[key] = merge_archive_record(
         incoming.get(key, {}), record.model_dump(mode="json", exclude_unset=True)
       )
-  identities = set(incoming)
+  identities = set(incoming) | {("users", user.id) for user in user_identities}
   for (kind, _), record in incoming.items():
     if kind == "posts":
       identities.update(target for _, target, _ in _references(record))

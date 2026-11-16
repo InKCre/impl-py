@@ -10,20 +10,24 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 
 ## Bookmark 归属与历史证据
 
-`source_writer.py` 在原生 archive 之外写入两个独立事实，Relation content 使用字面值：
+`source_writer.py` 在原生 archive 之外写入账号级事实，Relation content 使用字面值：
 
 ```text
-Source anchor --collects--> captured Post / User / Media
-Source anchor --bookmarks--> selected primary Post
+Source anchor --collects--> authenticated Twitter User
+authenticated Twitter User --bookmarks--> selected primary Post
 ```
 
-`SourceManager.ensure_block_async` 创建或刷新 `core.source.v1` lazy anchor。此 anchor、收入的原生记录和引用、两类 Source 关系及普通 watermark 在同一个事务内提交；backfill 逐页原子提交，Job 进度只报告已经提交的页面，不推进普通 watermark。重复捕获使用现有 Source 行锁及 Twitter 事务锁，按 anchor/target/content 去重，不删除其他 Source 的证据。删除 operational Source 保留历史 anchor 和关系。
+actor 必须由实际执行本次 Bookmark fetch 的 client 绑定到 `TwitterAPIResult.bookmark_user_id`。Official 使用本次请求 `/users/{id}/bookmarks` 的账号 ID；Twikit 登录后通过同一 client 的公共 `user_id()` 获取身份（cookie 登录不一定填充私有缓存）。缺少或无效身份显式失败，不能使用 Post 作者、Source 配置、用户名或提交时重新读取的全局账号。网络访问在数据库事务外完成。
 
-`collects` 的目标只来自 `_selected_batch` 实际收入的记录，包括捕获的 quote/repost/reply、作者与媒体。不能使用 reconciliation 的全部 `block_ids` 或 `changed`：前者还含仅 ID 和合并保留的引用根，后者不含未变化但本次确实观察到的记录。`bookmarks` 只来自本次选中的 primary IDs；跳过的主帖若作为上下文收入，只得到 `collects`。
+`SourceManager.ensure_block_async` 创建或刷新 `core.source.v1` lazy anchor，仅在有选中主帖时需要。账号使用 `extensions.twitter.user.v1` 原生根；`persist_twitter` 的显式 `user_identities` 在同一 advisory lock 下协调 identity-only `{id}`，不伪造 handle/name，不放宽完整 User 或 Resolver 合同。已有完整资料保留，后续普通 archive submit 可以原地补齐身份根。
 
-这两类边是 Source 范围的历史正向证据，不是远端当前状态的完整快照；`bookmarks` 表示曾在该 Source 的选中主收藏中观察到。没有该边是未知，不表示未收藏；单有 `collects` 只能说明通过此 Source 收入，不能据此断言该 Post 从未被收藏。部分页面、空响应、full/backfill 缺席或取消收藏都不会撤销已有证据，也不保存远端收藏动作时间。多个 Source 共用 Post 根但保留各自的边；Source 不是不可变的 X 账号身份，扩展切换账号的既有风险仍存在。
+anchor、账号根、收入的 Post/User/Media 与引用、Source→账号 `collects`、账号→主帖 `bookmarks` 及普通 watermark 在同一事务提交。backfill 逐页原子提交，Job 进度只报告已经提交的页面，不推进普通 watermark。重复捕获使用现有 Source 行锁及 Twitter 事务锁，按 `(from, content, to)` 去重，不删除其他账号或 Source 的证据。删除 operational Source 保留历史 anchor 和关系。
 
-既有 v1/v2 Resolver、原生 bookmark count、旧 `bookmarked for` 边和普通 archive submit 都不能证明 Source 或 Bookmark 归属。不执行猜测性数据迁移；历史未知保持未知，旧 note/用户关系不改写。显式 full/backfill 重新观察选中的主帖后可原地补证并保留 Block ID。普通增量只收入旧 marker 之前的主帖，marker 本身及之后的历史数据不会自动获得证据；不要重置 marker 来伪造回填。旧 `_organize()` 不恢复副作用。
+不写 Source→Post/User 作者/Media 的逐实体 `collects`，也不写 Source→Post `bookmarks`。`bookmarks` 只来自本次选中且实际捕获的 primary IDs；quote/repost/reply、其作者、媒体、ID-only 引用或未选中的主帖不会因此成为收藏。不能使用 reconciliation 的全部 `block_ids` 或 `changed` 推断收藏。不同 Sources 的同一账号复用一条账号→Post 边；不同账号保留各自边，共用原生 Post 根。
+
+两类边是历史正向证据，不是远端当前状态的完整快照，也不是收藏动作时间。没有 `bookmarks` 表示未知，不表示未收藏。部分页面、空响应、full/backfill 缺席或取消收藏不撤销已有证据。Source→账号仅表示曾通过该账号采集，不证明完整资料或全部书签覆盖，也不提供逐 Post 的 Source/Job 血缘。Source 切换账号后可关联多个历史 actor；既有共享授权、并发 fetch 与 watermark 风险独立存在。
+
+既有 v1/v2 Resolver、原生 bookmark count、旧 `bookmarked for`、旧 Source 范围关系和普通 archive submit 都不能证明账号 Bookmark 归属。不执行猜测性迁移或自动清理；历史未知保持未知，旧 note/用户关系不改写。显式 full/backfill 重新观察选中的主帖后可原地补证并保留 Block ID。普通增量只收入旧 marker 之前的主帖，marker 本身及之后的历史数据不会自动获得证据；不要重置 marker 来伪造回填。旧 `_organize()` 不恢复副作用。
 
 两条写入路径都先取得 `extensions.twitter.reconcile` 全局事务 advisory 锁，再批量重读原生身份。根内容和受管关系一起提交；异常让整批回滚，调用方可安全重放。该锁仅约束正常 Twitter 写入入口，不能替代所有 info-base 原始写入的约束。provider 和媒体网络访问都不能放进此事务。
 
@@ -49,7 +53,7 @@ Python Twitter 在 `/twitter/x-monkey/account` 自托管连接页面。用户只
 
 连接不要求 Web 或 MF 分发。`setup.x_monkey_base_url` 继续供用户复制，Web Setup 只提供通向该 Core 账户页的普通链接，不持有此连接流程的密钥、JWT 签发或凭据传输逻辑。账户页显示 Peer 与到期时间，脚本通过会话检测确认连接。七天 Cookie 默认期限与协议续签仍由 Python Twitter 拥有。
 
-Bookmark 归属回归在 `tests/extensions/twitter/integration/test_bookmark_provenance.py`，通过生产 collect/backfill 入口与独立数据库会话读取，验证主收藏/上下文、多 Source、历史重观察、Source 删除及页事务回滚；由 `pdm run test:database` 在可丢弃 PostgreSQL 上执行。无显式数据库时默认 pytest 跳过这些集成场景。
+Bookmark 归属回归在 `tests/extensions/twitter/integration/test_bookmark_provenance.py`，通过生产 collect/backfill 入口与独立数据库会话读取，验证账号/作者区分、主收藏/上下文、跨 Source 同账号去重与多账号共用 Post、身份根补齐、历史重观察、Source 删除及页事务回滚；由 `pdm run test:database` 在可丢弃 PostgreSQL 上执行。无显式数据库时默认 pytest 跳过这些集成场景。
 
 其他候选验证脚本与 fixture 放在 `scripts/tests/twitter`，默认 pytest 与 CI 不收集。离线合同与 HTTP 边界验证入口为 `pdm run python -m pytest -q scripts/tests/twitter/test_archive_contract.py scripts/tests/twitter/test_archive_http.py`；显式运行整个目录可用 `pdm run python -m pytest -q scripts/tests/twitter`。
 

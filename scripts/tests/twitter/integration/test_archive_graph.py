@@ -330,7 +330,9 @@ def test_bookmark_joins_legacy_and_native_identity_without_overwriting_text(
   provider = mock.Mock()
   provider.get_bookmarks = mock.AsyncMock(
     return_value=TwitterAPIResult(
-      batch=TwitterBatch.model_validate({"posts": [sparse]}), primary_post_ids=(post["id"],)
+      batch=TwitterBatch.model_validate({"posts": [sparse]}),
+      primary_post_ids=(post["id"],),
+      bookmark_user_id=post["authorId"],
     )
   )
   source = async_runner.run(
@@ -640,7 +642,9 @@ def test_twikit_bookmark_first_then_native_enrichment_keeps_one_root(
   source = async_runner.run(SourceManager.create(source_type, nickname="Twikit first"))
   provider = mock.Mock()
   provider.get_bookmarks = mock.AsyncMock(
-    return_value=TwitterAPIResult(batch=batch, primary_post_ids=(post["id"],))
+    return_value=TwitterAPIResult(
+      batch=batch, primary_post_ids=(post["id"],), bookmark_user_id=author.id
+    )
   )
   try:
     with (
