@@ -70,6 +70,7 @@ so one stable ID has one predictable address；the shard boundary does not imply
 | [D-611–D-620](D611-D620.md) | Agent Query Sink 实例、Job-backed REST → 基于 info-base 回答信息需求 |
 | [D-621–D-630](D621-D630.md) | Agent Query 回答与引用 → 结果交付设计 |
 | [D-631–D-640](D631-D640.md) | Durable doc authority 与本 unit 文档纠正 |
+| [D-651–D-660](D651-D660.md) | Source provenance 按领域价值选择；纠正 D-245 的强制 Collection 约束 |
 | [Withdrawn frames](withdrawn.md) | Explicitly rejected organizing frames and proposals |
 
 ## Register Rules
@@ -85,7 +86,7 @@ so one stable ID has one predictable address；the shard boundary does not imply
 
 ## Current Edge
 
-- Latest confirmed decision by registered ID: [D-631](D631-D640.md)。MCP sink retains D-381–D-420；Telegram extension retains
+- Latest confirmed decision by registered ID: [D-651](D651-D660.md)（D-245 Source provenance 约束修订）。MCP sink retains D-381–D-420；Telegram extension retains
   D-421–D-460；Organization Nowledge study retains D-461–D-570；CLI sink retains D-571–D-610；Agent Query Sink reserves D-611–D-650。
 - MCP、Telegram 和 [organization-nowledge-study](../units/organization-nowledge-study/packet.md) 均已关闭；Organization
   已完成 PR #100 / #101 合并及 Core 0.2.0 生产交付。[CLI sink](../units/cli-sink/packet.md) 已正式发布并关闭；当前
