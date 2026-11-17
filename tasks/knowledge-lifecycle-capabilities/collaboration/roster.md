@@ -10,6 +10,7 @@
 | `organization-nowledge-study` | current session | PR #100 / #101 merged；root worktree on main retains local task-control records | protected `main` `b3ccb00` | Closed / production delivered | D-461–D-570 | Core 0.2.0、production probes and stable admission complete under D-562；no active implementation ownership |
 | `cli-sink` | 当前 CLI session | `feat/cli-sink-closure` / root core-py worktree | production `4143abe`；关闭记录 PR #104 | Closed | D-571–D-610 | Sir 授权后依序合并；CLI 0.1.0 PyPI 安装与生产复验通过。无 active 源码 ownership；见 unit delivery.md |
 | `agent-query-sink` | 当前 session | PR #111 / #109 / Hub #29 merged；root worktree closing on main | production `5113490` | Closed / production delivered | D-611–D-650 | Core 0.5.0、CLI 0.2.0、production query 与 stable admission 完成；无 active 源码 ownership |
+| `source-provenance-boundary` | ChatGPT GitHub review (2026-11-17) | `docs/opt-in-source-provenance-20261117` / no local worktree | `main` at branch creation | Design correction PR; no runtime implementation | D-651–D-660 | Correct D-245's blanket Source-provenance requirement only; Twitter #184/#194 and any GitHub collector change remain separately owned. No schema、migration、shared Hub doc edits or active Unit overlap. |
 
 ## Shared-worktree coordination
 
