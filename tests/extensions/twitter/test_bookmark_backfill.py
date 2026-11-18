@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.schemas.job import JobModel
+from inkcre_core.schemas.job import JobModel
 from extensions.twitter import bookmark
 from extensions.twitter.api import TwitterAPIResult
 from extensions.twitter.model import TwitterBatch, TwitterPost
@@ -40,7 +40,7 @@ def capture(monkeypatch):
   async def uow():
     yield SimpleNamespace(sources=repository, graph=object())
 
-  async def persist(batch, primary_post_ids, actor_id, source, uow):
+  async def persist(batch, primary_post_ids, actor_id, uow):
     saved.extend(primary_post_ids)
 
   monkeypatch.setattr(bookmark, "source_uow", uow)
@@ -106,10 +106,10 @@ def test_backfill_does_not_report_uncommitted_page_as_saved(capture, monkeypatch
   api.get_bookmarks.side_effect = [page([1, 2], "a"), page([3, 4], "b")]
   persist = bookmark.persist_bookmarks
 
-  async def fail_second_page(batch, primary_post_ids, actor_id, source, uow):
+  async def fail_second_page(batch, primary_post_ids, actor_id, uow):
     if batch.posts[0].id == "3":
       raise RuntimeError("storage unavailable")
-    await persist(batch, primary_post_ids, actor_id, source, uow)
+    await persist(batch, primary_post_ids, actor_id, uow)
 
   monkeypatch.setattr(bookmark, "persist_bookmarks", fail_second_page)
   job = JobModel(type="source.backfill", timeout_seconds=60)

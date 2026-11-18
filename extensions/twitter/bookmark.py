@@ -111,7 +111,7 @@ class Source(
           selected = primary_ids[: primary_ids.index(latest_id)]
       if selected:
         await persist_bookmarks(
-          _selected_batch(bookmarks_res.batch, selected), selected, actor_id, source, uow
+          _selected_batch(bookmarks_res.batch, selected), selected, actor_id, uow
         )
       if not full and primary_ids:
         source.state = {
@@ -157,7 +157,7 @@ class Source(
           if source is None:
             raise ValueError("Twitter Source no longer exists")
           await persist_bookmarks(
-            _selected_batch(response.batch, selected), selected, actor_id, source, uow
+            _selected_batch(response.batch, selected), selected, actor_id, uow
           )
       seen.update(ids)
       scanned += len(ids)

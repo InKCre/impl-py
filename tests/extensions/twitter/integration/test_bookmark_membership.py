@@ -153,7 +153,19 @@ def evidence(origin):
     return result
 
 
-def test_sources_share_account_bookmarks_not_per_entity_provenance(async_runner, journey):
+def assert_no_source_graph(*source_ids):
+  with TestSession() as db:
+    for source_id in source_ids:
+      source = db.get(SourceModel, source_id)
+      assert source is not None and source.block is None
+    anchors = db.exec(
+      sqlmodel.select(BlockModel).where(BlockModel.resolver == "core.source.v1")
+    ).all()
+    # Also reject orphan anchors that were created without binding sources.block.
+    assert not any(json.loads(block.content)["id"] in source_ids for block in anchors)
+
+
+def test_sources_share_account_bookmarks_without_source_graph(async_runner, journey):
   native, post, page, create, collect, _, _ = journey
   first, second = create(), create()
   response = page(
@@ -169,11 +181,9 @@ def test_sources_share_account_bookmarks_not_per_entity_provenance(async_runner,
     media=[{"id": native(30), "type": "photo", "url": "https://example.org/p.jpg"}],
   )
   collect(first, response)
-  anchor = source_row(first).block
-  assert anchor is not None
+  assert_no_source_graph(first, second)
   actor = roots(USER_RESOLVER)[native(40)]
   assert json.loads(block_row(actor).content) == {"id": native(40)}
-  assert set(evidence(anchor)) == {(actor, "collects")}
   ids = roots()
   assert {native(number) for number in (1, 2, 3, 4, 5)} <= ids.keys()
   assert native(6) not in ids
@@ -184,10 +194,8 @@ def test_sources_share_account_bookmarks_not_per_entity_provenance(async_runner,
   # Same actor and Post through another Source retain one domain fact.
   before = evidence(actor)
   collect(second, response)
-  second_anchor = source_row(second).block
-  assert second_anchor is not None and second_anchor != anchor
-  assert set(evidence(second_anchor)) == {(actor, "collects")}
   collect(first, response, full=True)
+  assert_no_source_graph(first, second)
   assert evidence(actor) == before and roots() == ids
   # Ordinary archive submit enriches the identity-only actor but adds no Bookmarks.
   async_runner.run(write_twitter(response.batch))
@@ -209,14 +217,11 @@ def test_sources_share_account_bookmarks_not_per_entity_provenance(async_runner,
   async_runner.run(SourceManager.delete(first))
   with TestSession() as db:
     assert db.get(SourceModel, first) is None
-  assert set(evidence(anchor)) == {(actor, "collects")}
   assert len(evidence(actor)) == 2
-  assert block_row(anchor).resolver == "core.source.v1"
+  assert_no_source_graph(second)
 
 
-def test_distinct_accounts_share_post_and_source_keeps_historical_actors(
-  async_runner, journey
-):
+def test_distinct_accounts_share_post_and_keep_historical_bookmarks(async_runner, journey):
   native, post, page, create, collect, provider, _ = journey
   # Account A already has a full profile; account B already has an ID-only root.
   result = async_runner.run(
@@ -242,11 +247,7 @@ def test_distinct_accounts_share_post_and_source_keeps_historical_actors(
   provider.user_id = native(42)
   collect(first, page([1], [post(1)], actor=41), full=True)
   assert native(42) not in roots(USER_RESOLVER)
-  assert set(evidence(source_row(first).block)) == {
-    (actor_a, "collects"),
-    (actor_b.id, "collects"),
-  }
-  assert set(evidence(source_row(second).block)) == {(actor_b.id, "collects")}
+  assert_no_source_graph(first, second)
   assert set(evidence(actor_a)) == set(evidence(actor_b.id)) == {(target, "bookmarks")}
 
 
@@ -284,8 +285,7 @@ def test_concurrent_sources_converge_on_one_account_bookmark(async_runner, journ
   async_runner.run(asyncio.wait_for(exercise(), timeout=10))
   actor = roots(USER_RESOLVER)[native(40)]
   assert set(evidence(actor)) == {(roots()[native(1)], "bookmarks")}
-  assert set(evidence(source_row(first).block)) == {(actor, "collects")}
-  assert set(evidence(source_row(second).block)) == {(actor, "collects")}
+  assert_no_source_graph(first, second)
 
 
 def test_history_requires_selected_reobservation_and_preserves_marker(
@@ -312,16 +312,15 @@ def test_history_requires_selected_reobservation_and_preserves_marker(
   async_runner.run(
     bookmark.Source(source_id).set_state({"latest_tweet_id": int(native(1))})
   )
-  collect(source_id, page([1], [post(1)]))  # Nothing selected: still lazy.
-  assert source_row(source_id).block is None
+  collect(source_id, page([1], [post(1)]))  # Nothing selected: no graph changes.
+  assert_no_source_graph(source_id)
   assert native(40) not in roots(USER_RESOLVER)
   # Marker excluded; skipped primary 2 is captured only as context of primary 3.
   response = page([3, 1, 2], [post(3, quote={"postId": native(2)}), post(1), post(2)])
   collect(source_id, response)
-  anchor = source_row(source_id).block
+  assert_no_source_graph(source_id)
   actor = roots(USER_RESOLVER)[native(40)]
   ids = roots()
-  assert set(evidence(anchor)) == {(actor, "collects")}
   assert set(evidence(actor)) == {(ids[native(3)], "bookmarks")}
   before = evidence(actor)
   collect(source_id, response)
@@ -341,15 +340,78 @@ def test_history_requires_selected_reobservation_and_preserves_marker(
   collect(source_id, page([2], [post(2)]), full=True)
   assert (ids[native(2)], "bookmarks") in evidence(actor)
   assert source_row(source_id).state == {"latest_tweet_id": native(3)}
-  assert set(evidence(anchor)) == {(actor, "collects")}
+  assert_no_source_graph(source_id)
   with TestSession() as db:
     note = db.get(RelationModel, old_note.id)
     assert note is not None and note.content == "bookmarked for"
   assert block_row(ids[native(7)]).resolver == POST_RESOLVER
 
 
+@pytest.mark.parametrize("command", ["collect", "backfill"])
+def test_bookmark_commands_do_not_refresh_or_rewrite_historical_source_graph(
+  async_runner, journey, command
+):
+  native, post, page, create, collect, provider, _ = journey
+  history = async_runner.run(
+    write_twitter(TwitterBatch.model_validate({"posts": [post(9)]}))
+  )
+  source_id = create()
+  with TestSession() as db:
+    source = db.get(SourceModel, source_id)
+    assert source is not None
+    anchor = seed_block(
+      BlockForm(
+        resolver="core.source.v1",
+        content=json.dumps(
+          {"id": source_id, "type": source.type, "nickname": "Stale historical nickname"}
+        ),
+      ),
+      db,
+    )
+    old_actor = seed_block(
+      BlockForm(resolver=USER_RESOLVER, content=json.dumps({"id": native(41)})), db
+    )
+    assert anchor.id is not None and old_actor.id is not None
+    source.block = anchor.id
+    db.add(source)
+    seed_relation(anchor.id, history.block_ids["posts"][native(9)], "bookmarks", db)
+    seed_relation(anchor.id, history.block_ids["users"][native(20)], "collects", db)
+    seed_relation(anchor.id, old_actor.id, "collects", db)
+    db.commit()
+  before_anchor = block_row(anchor.id).model_dump()
+  before_relations = evidence(anchor.id)
+  response = page([1], [post(1)])
+  if command == "collect":
+    collect(source_id, response)
+  else:
+    provider.get_bookmarks.return_value = response
+    async_runner.run(
+      bookmark.Source(source_id).backfill(
+        JobModel(type="core.source.backfill.v1"), bookmark.BackfillConfig(limit=1)
+      )
+    )
+  actor = roots(USER_RESOLVER)[native(40)]
+  assert set(evidence(actor)) == {(roots()[native(1)], "bookmarks")}
+  # Historical Source edges prove no account membership.
+  assert evidence(old_actor.id) == {}
+  assert source_row(source_id).block == anchor.id
+  assert block_row(anchor.id).model_dump() == before_anchor
+  assert evidence(anchor.id) == before_relations
+  with TestSession() as db:
+    anchors = db.exec(
+      sqlmodel.select(BlockModel).where(BlockModel.resolver == "core.source.v1")
+    ).all()
+    assert [
+      block.id for block in anchors if json.loads(block.content)["id"] == source_id
+    ] == [anchor.id]
+  async_runner.run(SourceManager.delete(source_id))
+  assert block_row(anchor.id).model_dump() == before_anchor
+  assert evidence(anchor.id) == before_relations
+  assert set(evidence(actor)) == {(roots()[native(1)], "bookmarks")}
+
+
 @pytest.mark.parametrize("failure", ["relations", "marker"])
-def test_failed_collection_rolls_back_actor_anchor_archive_evidence_and_cursor(
+def test_failed_collection_rolls_back_actor_archive_evidence_and_cursor(
   async_runner, journey, failure
 ):
   native, post, page, create, collect, _, _ = journey
@@ -378,18 +440,21 @@ def test_failed_collection_rolls_back_actor_anchor_archive_evidence_and_cursor(
     with pytest.raises(RuntimeError, match="page commit failed"):
       collect(source_id, response)
   stored = source_row(source_id)
-  assert stored.block is None and not stored.state
+  assert_no_source_graph(source_id)
+  assert not stored.state
   assert native(1) not in roots() and native(2) not in roots()
   assert native(40) not in roots(USER_RESOLVER)
   collect(source_id, response)
   stored = source_row(source_id)
-  assert stored.block is not None and stored.state == {"latest_tweet_id": native(1)}
+  assert_no_source_graph(source_id)
+  assert stored.state == {"latest_tweet_id": native(1)}
   actor = roots(USER_RESOLVER)[native(40)]
-  assert set(evidence(stored.block)) == {(actor, "collects")}
   assert set(evidence(actor)) == {(roots()[native(1)], "bookmarks")}
 
 
-def test_backfill_failure_preserves_only_committed_pages(async_runner, journey):
+def test_backfill_page_commits_and_replay_after_failure_without_source_graph(
+  async_runner, journey
+):
   native, post, page, create, _, provider, _ = journey
   source_id = create()
   first = page([1], [post(1)])
@@ -414,12 +479,25 @@ def test_backfill_failure_preserves_only_committed_pages(async_runner, journey):
         bookmark.Source(source_id).backfill(job, bookmark.BackfillConfig(limit=2))
       )
   stored = source_row(source_id)
-  assert stored.block is not None and not stored.state
+  assert_no_source_graph(source_id)
+  assert not stored.state
   actor = roots(USER_RESOLVER)[native(40)]
-  assert set(evidence(stored.block)) == {(actor, "collects")}
   assert set(evidence(actor)) == {(roots()[native(1)], "bookmarks")}
   assert native(2) not in roots() and native(41) not in roots(USER_RESOLVER)
   assert job.state["saved"] == 1 and job.state["next_page"] == "second"
+  # An explicit retry traverses both pages, deduplicating the committed first page.
+  before = evidence(actor)
+  provider.get_bookmarks.side_effect = [first, page([2], [post(2)], actor=41)]
+  retry = JobModel(type="core.source.backfill.v1")
+  async_runner.run(
+    bookmark.Source(source_id).backfill(retry, bookmark.BackfillConfig(limit=2))
+  )
+  assert_no_source_graph(source_id)
+  assert not source_row(source_id).state
+  assert evidence(actor) == before
+  second_actor = roots(USER_RESOLVER)[native(41)]
+  assert set(evidence(second_actor)) == {(roots()[native(2)], "bookmarks")}
+  assert retry.state["saved"] == 2 and retry.state["exhausted"] is True
 
 
 @pytest.mark.parametrize("command", ["collect", "backfill"])
@@ -439,5 +517,6 @@ def test_unidentified_actor_fails_without_advancing_source(async_runner, journey
         )
       )
   stored = source_row(source_id)
-  assert stored.block is None and not stored.state
+  assert_no_source_graph(source_id)
+  assert not stored.state
   assert native(1) not in roots() and native(40) not in roots(USER_RESOLVER)
