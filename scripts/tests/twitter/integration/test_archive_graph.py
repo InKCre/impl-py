@@ -330,7 +330,9 @@ def test_bookmark_joins_legacy_and_native_identity_without_overwriting_text(
   provider = mock.Mock()
   provider.get_bookmarks = mock.AsyncMock(
     return_value=TwitterAPIResult(
-      batch=TwitterBatch.model_validate({"posts": [sparse]}), primary_post_ids=(post["id"],)
+      batch=TwitterBatch.model_validate({"posts": [sparse]}),
+      primary_post_ids=(post["id"],),
+      bookmark_user_id=post["authorId"],
     )
   )
   source = async_runner.run(
@@ -354,7 +356,11 @@ def test_bookmark_joins_legacy_and_native_identity_without_overwriting_text(
       assert persisted_source.state["latest_tweet_id"] == post["id"]
   finally:
     with TestSession() as db:
-      db.delete(db.get(SourceModel, source.id))
+      persisted_source = db.get(SourceModel, source.id)
+      assert persisted_source is not None
+      if persisted_source.block is not None:
+        tracked.add(persisted_source.block)
+      db.delete(persisted_source)
       db.commit()
 
 
@@ -636,7 +642,9 @@ def test_twikit_bookmark_first_then_native_enrichment_keeps_one_root(
   source = async_runner.run(SourceManager.create(source_type, nickname="Twikit first"))
   provider = mock.Mock()
   provider.get_bookmarks = mock.AsyncMock(
-    return_value=TwitterAPIResult(batch=batch, primary_post_ids=(post["id"],))
+    return_value=TwitterAPIResult(
+      batch=batch, primary_post_ids=(post["id"],), bookmark_user_id=author.id
+    )
   )
   try:
     with (
@@ -678,7 +686,11 @@ def test_twikit_bookmark_first_then_native_enrichment_keeps_one_root(
 
     async_runner.run(remember())
     with TestSession() as db:
-      db.delete(db.get(SourceModel, source.id))
+      persisted_source = db.get(SourceModel, source.id)
+      assert persisted_source is not None
+      if persisted_source.block is not None:
+        tracked.add(persisted_source.block)
+      db.delete(persisted_source)
       db.commit()
   enriched = async_runner.run(_write(ArchiveBatch.model_validate(native), tracked))
   assert enriched.block_ids["posts"][post["id"]] == root.id

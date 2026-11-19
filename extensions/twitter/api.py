@@ -17,7 +17,7 @@ import twikit
 import twikit.media
 from typing import Optional as Opt
 from utils.datetime_ import get_timestamp
-from .model import TwitterBatch
+from .model import TwitterBatch, TwitterID, TwitterIdentity
 from . import Extension
 
 
@@ -26,6 +26,9 @@ class TwitterAPIResult(sqlmodel.SQLModel):
   previous_page: Opt[str] = None
   batch: TwitterBatch = pydantic.Field(default_factory=TwitterBatch)
   primary_post_ids: tuple[str, ...] = ()
+  # Request-bound actor when required by the provider; otherwise resolved lazily
+  # on the same authenticated client after the collector selects primary Posts.
+  bookmark_user_id: TwitterID | None = None
 
 
 def _instant(value: str | datetime.datetime) -> str:
@@ -343,6 +346,10 @@ class TwitterAPI(abc.ABC):
   @abc.abstractmethod
   def user_id(self) -> str: ...
 
+  async def get_authenticated_user_id(self) -> str:
+    """Resolve this client's actor only when a selected Bookmark write needs it."""
+    return TwitterIdentity(id=self.user_id).id
+
   @abc.abstractmethod
   async def get_bookmarks(
     self, max_results: int = 20, page: Opt[str] = None
@@ -634,10 +641,11 @@ class OfficialAPI(TwitterAPI):
     }
     if page:
       bookmarks_query["pagination_token"] = page
+    actor_id = TwitterIdentity(id=self.user_id).id
     res = await self._request(
       "GET",
       "/users/{id}/bookmarks",
-      path_params={"id": self.__user_id},
+      path_params={"id": actor_id},
       query=bookmarks_query,
     )
     batch = self._resolve_tweets(res.get("data", []), res.get("includes", {}))
@@ -646,6 +654,7 @@ class OfficialAPI(TwitterAPI):
       previous_page=res.get("meta", {}).get("previous_token"),
       batch=batch,
       primary_post_ids=tuple(post["id"] for post in res.get("data", ())),
+      bookmark_user_id=actor_id,
     )
 
   async def get_tweets(
@@ -754,6 +763,11 @@ class TwikitAPI(TwitterAPI):
   @staticmethod
   def _resolve_tweets(result: typing.Iterable[twikit.Tweet]) -> TwitterBatch:
     return _twikit_archive(result, _observed_at())
+
+  async def get_authenticated_user_id(self) -> str:
+    # Cookie login need not populate _user_id. Resolve from this authenticated
+    # session, not from the configured username, and never log in again here.
+    return TwitterIdentity(id=await self._client.user_id()).id
 
   async def get_bookmarks(
     self, max_results: int = 20, page: str | None = None
