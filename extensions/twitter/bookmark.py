@@ -96,29 +96,33 @@ class Source(
     api_client = await TwitterAPI.new()
     bookmarks_res = await api_client.get_bookmarks(page=page, max_results=result_limit)
     actor_id = bookmarks_res.bookmark_user_id
-    if actor_id is None:
-      raise ValueError("Bookmark response is missing the authenticated Twitter User ID")
-
-    async with source_uow() as uow:
-      source = await uow.sources.get(self._id, lock=True)
-      if source is None:
-        raise ValueError("Twitter Source no longer exists")
-      primary_ids = bookmarks_res.primary_post_ids
-      selected = primary_ids
-      if not full:
-        latest_id = str((source.state or {}).get("latest_tweet_id", ""))
-        if latest_id in primary_ids:
-          selected = primary_ids[: primary_ids.index(latest_id)]
-      if selected:
-        await persist_bookmarks(
-          _selected_batch(bookmarks_res.batch, selected), selected, actor_id, uow.graph
-        )
-      if not full and primary_ids:
-        source.state = {
-          **(source.state or {}),
-          "latest_tweet_id": primary_ids[0],
-        }
-        await uow.sources.save(source)
+    while True:
+      async with source_uow() as uow:
+        source = await uow.sources.get(self._id, lock=True)
+        if source is None:
+          raise ValueError("Twitter Source no longer exists")
+        primary_ids = bookmarks_res.primary_post_ids
+        selected = primary_ids
+        if not full:
+          latest_id = str((source.state or {}).get("latest_tweet_id", ""))
+          if latest_id in primary_ids:
+            selected = primary_ids[: primary_ids.index(latest_id)]
+        if not selected or actor_id is not None:
+          if selected and actor_id is not None:
+            await persist_bookmarks(
+              _selected_batch(bookmarks_res.batch, selected), selected, actor_id, uow.graph
+            )
+          if not full and primary_ids:
+            source.state = {
+              **(source.state or {}),
+              "latest_tweet_id": primary_ids[0],
+            }
+            await uow.sources.save(source)
+          break
+      # A selected write needs identity. Release the row lock before provider
+      # I/O, then reselect under a fresh lock: another collect may advance it.
+      # This lookup happens at most once; the second pass can commit or no-op.
+      actor_id = await api_client.get_authenticated_user_id()
 
     # Update job state for next page if full and has next_page
     if full and bookmarks_res.next_page and bookmarks_res.next_page != page:
@@ -140,9 +144,6 @@ class Source(
       response = await api_client.get_bookmarks(
         page=page, max_results=min(backfill.page_size, end - scanned)
       )
-      actor_id = response.bookmark_user_id
-      if actor_id is None:
-        raise ValueError("Bookmark response is missing the authenticated Twitter User ID")
       ids = response.primary_post_ids
       if seen.intersection(ids) or len(set(ids)) != len(ids):
         raise ValueError("Bookmark ordering changed during backfill; retry explicitly")
@@ -152,6 +153,9 @@ class Source(
         raise ValueError("X returned an empty bookmark page with a continuation token")
       selected = ids[max(0, backfill.skip - scanned) : end - scanned]
       if selected:
+        actor_id = response.bookmark_user_id
+        if actor_id is None:
+          actor_id = await api_client.get_authenticated_user_id()
         async with source_uow() as uow:
           source = await uow.sources.get(self._id, lock=True)
           if source is None:

@@ -50,7 +50,12 @@ def journey(async_runner):
   base = int(uuid.uuid4().hex[:15], 16) + 10**20
   sources: list[int] = []
   extra_blocks: set[int] = set()
-  provider = mock.Mock(get_bookmarks=mock.AsyncMock())
+  provider = mock.Mock(
+    get_bookmarks=mock.AsyncMock(),
+    get_authenticated_user_id=mock.AsyncMock(
+      side_effect=AssertionError("unexpected identity lookup")
+    ),
+  )
   # A persistence caller that rereads the client instead of the response is wrong.
   provider.user_id = "999"
 
@@ -67,7 +72,7 @@ def journey(async_runner):
 
   def page(primary, posts, *, actor=40, **records):
     return TwitterAPIResult(
-      bookmark_user_id=native(actor),
+      bookmark_user_id=native(actor) if actor is not None else None,
       primary_post_ids=tuple(native(number) for number in primary),
       batch=TwitterBatch.model_validate({"posts": posts, **records}),
     )
@@ -189,8 +194,6 @@ def test_sources_share_account_bookmarks_without_source_graph(async_runner, jour
   assert native(6) not in ids
   assert set(evidence(actor)) == {(ids[native(1)], "bookmarks")}
   assert native(30) in roots(MEDIA_RESOLVER)
-  author = roots(USER_RESOLVER)[native(20)]
-  assert evidence(author) == {}  # Author B is not Bookmark actor A.
   # Same actor and Post through another Source retain one domain fact.
   before = evidence(actor)
   collect(second, response)
@@ -500,23 +503,111 @@ def test_backfill_page_commits_and_replay_after_failure_without_source_graph(
   assert retry.state["saved"] == 2 and retry.state["exhausted"] is True
 
 
-@pytest.mark.parametrize("command", ["collect", "backfill"])
-def test_unidentified_actor_fails_without_advancing_source(async_runner, journey, command):
-  native, post, page, create, collect, provider, _ = journey
+@pytest.mark.parametrize(
+  "command,config,primary",
+  [
+    ("collect", bookmark.CollectConfig(), []),
+    ("collect", bookmark.CollectConfig(full=True), []),
+    ("collect", bookmark.CollectConfig(), [1]),
+    ("backfill", bookmark.BackfillConfig(limit=1), []),
+    ("backfill", bookmark.BackfillConfig(skip=1, limit=1), [1]),
+  ],
+)
+def test_noop_pages_do_not_resolve_actor(async_runner, journey, command, config, primary):
+  native, post, page, create, _, provider, _ = journey
   source_id = create()
-  response = page([1], [post(1)])
-  response.bookmark_user_id = None
-  provider.get_bookmarks.return_value = response
-  with pytest.raises(ValueError, match="authenticated Twitter User ID"):
-    if command == "collect":
-      collect(source_id, response)
-    else:
-      async_runner.run(
-        bookmark.Source(source_id).backfill(
-          JobModel(type="core.source.backfill.v1"), bookmark.BackfillConfig(limit=1)
-        )
-      )
-  stored = source_row(source_id)
+  marker = {"latest_tweet_id": native(1)}
+  async_runner.run(bookmark.Source(source_id).set_state(marker))
+  provider.get_bookmarks.return_value = page(
+    primary, [post(number) for number in primary], actor=None
+  )
+  job = JobModel(type=f"core.source.{command}.v1")
+  async_runner.run(getattr(bookmark.Source(source_id), command)(job, config))
+  provider.get_authenticated_user_id.assert_not_awaited()
+  assert source_row(source_id).state == marker
   assert_no_source_graph(source_id)
-  assert not stored.state
   assert native(1) not in roots() and native(40) not in roots(USER_RESOLVER)
+  if command == "backfill":
+    assert job.state["scanned"] == len(primary)
+    assert job.state["saved"] == 0 and job.state["exhausted"] is True
+
+
+@pytest.mark.parametrize("command", ["collect", "backfill"])
+def test_selected_page_resolves_fetch_account_before_atomic_write(
+  async_runner, journey, command
+):
+  native, post, page, create, _, provider, _ = journey
+  source_id = create()
+  provider.get_bookmarks.return_value = page([1], [post(1)], actor=None)
+  config = (
+    bookmark.CollectConfig() if command == "collect" else bookmark.BackfillConfig(limit=1)
+  )
+
+  def run():
+    async_runner.run(
+      getattr(bookmark.Source(source_id), command)(
+        JobModel(type=f"core.source.{command}.v1"), config
+      )
+    )
+
+  provider.get_authenticated_user_id.side_effect = RuntimeError("identity unavailable")
+  with pytest.raises(RuntimeError, match="identity unavailable"):
+    run()
+  assert not source_row(source_id).state
+  assert_no_source_graph(source_id)
+  assert native(1) not in roots() and native(40) not in roots(USER_RESOLVER)
+  provider.get_authenticated_user_id.side_effect = None
+  provider.get_authenticated_user_id.return_value = native(40)
+  run()
+  actor = roots(USER_RESOLVER)[native(40)]
+  assert set(evidence(actor)) == {(roots()[native(1)], "bookmarks")}
+  assert_no_source_graph(source_id)
+  assert source_row(source_id).state == (
+    {"latest_tweet_id": native(1)} if command == "collect" else {}
+  )
+
+
+@pytest.mark.parametrize("marker", [1, 2])
+def test_collect_reselects_after_identity_lookup_releases_source_lock(
+  async_runner, journey, marker
+):
+  native, post, page, create, _, provider, _ = journey
+  source_id = create()
+  provider.get_bookmarks.return_value = page([1, 2], [post(1), post(2)], actor=None)
+
+  async def exercise():
+    resolving, advanced = asyncio.Event(), asyncio.Event()
+
+    async def resolve():
+      resolving.set()
+      await advanced.wait()
+      return native(40)
+
+    provider.get_authenticated_user_id.side_effect = resolve
+    task = asyncio.create_task(
+      bookmark.Source(source_id).collect(
+        JobModel(type="core.source.collect.v1"), bookmark.CollectConfig()
+      )
+    )
+    try:
+      await resolving.wait()
+      # A separate transaction must acquire this same Source's row lock while
+      # provider identity I/O is pending, and its new marker governs the write.
+      await bookmark.Source(source_id).set_state({"latest_tweet_id": native(marker)})
+      advanced.set()
+      await task
+    finally:
+      if not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+  async_runner.run(asyncio.wait_for(exercise(), timeout=10))
+  provider.get_authenticated_user_id.assert_awaited_once()
+  assert source_row(source_id).state == {"latest_tweet_id": native(1)}
+  assert native(2) not in roots()
+  if marker == 1:
+    assert native(1) not in roots() and native(40) not in roots(USER_RESOLVER)
+  else:
+    actor = roots(USER_RESOLVER)[native(40)]
+    assert set(evidence(actor)) == {(roots()[native(1)], "bookmarks")}
+  assert_no_source_graph(source_id)

@@ -16,7 +16,9 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 authenticated Twitter User --bookmarks--> selected primary Post
 ```
 
-actor 必须由实际执行本次 Bookmark fetch 的 client 绑定到 `TwitterAPIResult.bookmark_user_id`。Official 使用本次请求 `/users/{id}/bookmarks` 的账号 ID；Twikit 登录后通过同一 client 的公共 `user_id()` 获取身份（cookie 登录不一定填充私有缓存）。缺少或无效身份显式失败，不能使用 Post 作者、Source 配置、用户名或提交时重新读取的全局账号。网络访问在数据库事务外完成。
+actor 由实际执行本次 Bookmark fetch 的 client 提供。Official 的请求路径 `/users/{id}/bookmarks` 本身需要账号 ID，因此将该 ID 绑定到 `TwitterAPIResult.bookmark_user_id`；Twikit 先独立获取页面，只有选中主帖准备写入关系时，才通过同一 client 的 `get_authenticated_user_id()` 调用公共 `user_id()` 获取身份（cookie 登录不一定填充私有缓存）。空页、被普通 marker 完全截断或仅用于 backfill 跳过的页面不要求解析 actor。实际写入时身份获取失败则不提交该页，不能使用 Post 作者、Source 配置、用户名或重新读取的全局账号代替。网络访问在数据库事务外完成。
+
+普通 collect 在 Source 行锁内判断选择范围；若选中主帖但尚无 actor，先退出事务且不写 archive/marker，再解析身份，随后重新加锁并按最新 marker 重算范围。身份等待期间其他 collect 可以推进 marker；最终范围缩为空时不创建账号根或关系。一次页面最多执行一次身份解析。backfill 的 skip/limit 范围不依赖普通 marker，在进入页事务前确定是否需要身份解析。
 
 Bookmark collect/backfill 不调用 `SourceManager.ensure_block_async`，不创建或刷新 `core.source.v1` anchor，也不写任何 Source provenance 关系。新建的纯 Bookmark Source 成功采集后，`sources.block` 仍为 `NULL`；已有 anchor 和历史关系保持原样。SourceModel、Job、Source 行锁、cursor 和诊断继续承担运行职责，不自动成为知识关系。此取舍落实 [Issue #184](https://github.com/InKCre/impl-py/issues/184) 的 Twitter 合同；跨 Source 原则修订在 [Issue #196](https://github.com/InKCre/impl-py/issues/196) 待评审，不在这里改变 Mail、GitHub 或通用 lazy anchor 行为。
 

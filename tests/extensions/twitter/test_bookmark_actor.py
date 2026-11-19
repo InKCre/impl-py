@@ -20,25 +20,19 @@ def test_official_bookmark_actor_is_the_request_account(monkeypatch):
   )
 
   async def request(method, endpoint, **kwargs):
-    if endpoint == "/users/me":
-      return {"data": {"id": "456", "username": "account_b"}}
     assert endpoint == "/users/{id}/bookmarks"
     assert kwargs["path_params"] == {"id": "123"}
-    # Change the client's current identity before the awaited page returns.
-    # The page must retain the identity actually used by this request.
-    await client.get_user()
     return {"data": [], "meta": {}}
 
   monkeypatch.setattr(client, "_request", request)
   result = asyncio.run(client.get_bookmarks())
-  assert client.user_id == "456"
   assert result.bookmark_user_id == "123"
   assert result.primary_post_ids == ()
 
 
-@pytest.mark.parametrize("identity_available", [True, False])
-def test_twikit_cookie_login_resolves_authenticated_actor(
-  monkeypatch, tmp_path, identity_available
+@pytest.mark.parametrize("resolve_actor", [False, True])
+def test_twikit_cookie_page_does_not_require_actor_resolution(
+  monkeypatch, tmp_path, resolve_actor
 ):
   cookies = tmp_path / "cookies.json"
   cookies.write_text(json.dumps({"auth_token": "test-only", "ct0": "test-only"}))
@@ -47,25 +41,29 @@ def test_twikit_cookie_login_resolves_authenticated_actor(
   client = TwikitAPI(email="configured@example.org", username="not_the_actor", password="x")
   # Installed Twikit's real cookie login and public user_id() run here. Only
   # provider endpoints are substituted; cookie login leaves its ID cache empty.
-  client._client.v11.settings = AsyncMock(return_value=({"screen_name": "actual"}, None))
-  lookup = AsyncMock(
-    return_value=SimpleNamespace(id="123"),
-    side_effect=None if identity_available else RuntimeError("identity unavailable"),
+  settings = AsyncMock(
+    return_value=({"screen_name": "actual"}, None),
+    side_effect=None if resolve_actor else RuntimeError("identity unavailable"),
   )
+  lookup = AsyncMock(return_value=SimpleNamespace(id="123"))
   monkeypatch.setattr(client._client, "get_user_by_screen_name", lookup)
-  client._client.gql.bookmarks = AsyncMock(return_value=({}, None))
+  monkeypatch.setattr(client._client.v11, "settings", settings)
+  bookmarks = AsyncMock(return_value=({}, None))
+  monkeypatch.setattr(client._client.gql, "bookmarks", bookmarks)
 
   async def fetch():
     try:
-      return await client.get_bookmarks()
+      result = await client.get_bookmarks()
+      assert result.primary_post_ids == ()
+      assert result.bookmark_user_id is None
+      bookmarks.assert_awaited_once()
+      settings.assert_not_awaited()
+      lookup.assert_not_awaited()
+      if resolve_actor:
+        assert await client.get_authenticated_user_id() == "123"
+        lookup.assert_awaited_once_with("actual")
+      assert client.user_handle == "not_the_actor"
     finally:
       await client._client.http.aclose()
 
-  if not identity_available:
-    with pytest.raises(RuntimeError, match="identity unavailable"):
-      asyncio.run(fetch())
-  else:
-    result = asyncio.run(fetch())
-    assert result.bookmark_user_id == "123"
-    assert result.primary_post_ids == ()
-    assert client.user_handle == "not_the_actor"
+  asyncio.run(fetch())

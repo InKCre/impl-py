@@ -26,7 +26,8 @@ class TwitterAPIResult(sqlmodel.SQLModel):
   previous_page: Opt[str] = None
   batch: TwitterBatch = pydantic.Field(default_factory=TwitterBatch)
   primary_post_ids: tuple[str, ...] = ()
-  # Bound by the Bookmark adapter, never inferred by the persistence caller.
+  # Request-bound actor when required by the provider; otherwise resolved lazily
+  # on the same authenticated client after the collector selects primary Posts.
   bookmark_user_id: TwitterID | None = None
 
 
@@ -344,6 +345,10 @@ class TwitterAPI(abc.ABC):
   @property
   @abc.abstractmethod
   def user_id(self) -> str: ...
+
+  async def get_authenticated_user_id(self) -> str:
+    """Resolve this client's actor only when a selected Bookmark write needs it."""
+    return TwitterIdentity(id=self.user_id).id
 
   @abc.abstractmethod
   async def get_bookmarks(
@@ -759,21 +764,22 @@ class TwikitAPI(TwitterAPI):
   def _resolve_tweets(result: typing.Iterable[twikit.Tweet]) -> TwitterBatch:
     return _twikit_archive(result, _observed_at())
 
+  async def get_authenticated_user_id(self) -> str:
+    # Cookie login need not populate _user_id. Resolve from this authenticated
+    # session, not from the configured username, and never log in again here.
+    return TwitterIdentity(id=await self._client.user_id()).id
+
   async def get_bookmarks(
     self, max_results: int = 20, page: str | None = None
   ) -> TwitterAPIResult:
     if not self._client._user_id:
       await self._login()
-    # Cookie-based login need not populate _user_id. Resolve the authenticated
-    # identity on this client before fetching, not from configured username.
-    actor_id = TwitterIdentity(id=await self._client.user_id()).id
     res = await self._client.get_bookmarks(count=max_results, cursor=page)
     return TwitterAPIResult(
       next_page=res.next_cursor,
       previous_page=res.previous_cursor,
       batch=self._resolve_tweets(res),
       primary_post_ids=tuple(tweet.id for tweet in res),
-      bookmark_user_id=actor_id,
     )
 
   async def get_tweets(
