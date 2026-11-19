@@ -1,6 +1,6 @@
 """Account-centered Bookmark evidence, separate from the shared native archive."""
 
-from inkcre_core.persistence.source.uow import SourceUnitOfWork
+from inkcre_core.persistence.info_base.uow import GraphUnitOfWork
 from inkcre_core.schemas.info_base.relation import RelationCreateForm
 
 from .model import TwitterBatch, TwitterIdentity
@@ -11,9 +11,9 @@ async def persist_bookmarks(
   batch: TwitterBatch,
   primary_post_ids: tuple[str, ...],
   bookmark_user_id: str,
-  uow: SourceUnitOfWork,
+  graph: GraphUnitOfWork,
 ) -> None:
-  """Add positive history in the caller's locked Source transaction.
+  """Add positive history in the caller-owned graph transaction.
 
   The actor belongs to this fetch, not the Source's current authorization or a
   captured Post's author. Only selected, captured primary Posts are Bookmarks;
@@ -27,7 +27,7 @@ async def persist_bookmarks(
   if not primary_post_ids:
     return
   result = await persist_twitter(
-    batch, uow.graph, text_policy="supplement", user_identities=(actor,)
+    batch, graph, text_policy="supplement", user_identities=(actor,)
   )
   actor_id = result.block_ids["users"][actor.id]
   desired = {
@@ -36,11 +36,11 @@ async def persist_bookmarks(
   }
   existing = {
     (relation.from_, relation.to_, relation.content)
-    for relation in await uow.graph.relations.get_outgoing_many(
+    for relation in await graph.relations.get_outgoing_many(
       (actor_id,), to_ids={target for _, target, _ in desired}
     )
   }
-  await uow.graph.relations.create_many(
+  await graph.relations.create_many(
     RelationCreateForm(from_=origin, to_=target, content=content)
     for origin, target, content in sorted(desired - existing)
   )
