@@ -5229,6 +5229,17 @@
             ],
             "title": "Version"
           },
+          "source_repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Repository"
+          },
           "enabled": {
             "type": "boolean",
             "title": "Enabled"
@@ -6021,6 +6032,18 @@
             "type": "string",
             "pattern": "^(0|[1-9][0-9]*)[.](0|[1-9][0-9]*)[.](0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)([.](0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$",
             "title": "Version"
+          },
+          "source_repository": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Repository"
           }
         },
         "additionalProperties": false,

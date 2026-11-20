@@ -36,6 +36,7 @@ class ExtensionParticipation(pydantic.BaseModel):
   distribution: str | None
   version: str
   enabled: bool
+  source_repository: str | None = None
   config_schema: dict[str, typing.Any] | None = None
 
 
@@ -87,6 +88,8 @@ class ExtensionStore(typing.Protocol):
     name: str,
     distribution: str,
     version: str,
+    *,
+    source_repository: str | None = None,
   ) -> ExtensionParticipation: ...
 
   async def resolve_legacy_python_participation(
@@ -101,10 +104,7 @@ class ExtensionStore(typing.Protocol):
 
   async def update_participation_config_schema(
     self,
-    peer_id: uuid.UUID,
-    name: str,
-    distribution: str,
-    version: str,
+    selection: ExtensionParticipation,
     schema: dict[str, typing.Any],
   ) -> ExtensionParticipation: ...
 
@@ -131,6 +131,7 @@ class ExtensionStateService:
       distribution=model.distribution,
       version=model.version,
       enabled=model.enabled,
+      source_repository=model.source_repository,
       config_schema=(
         dict(model.config_schema) if model.config_schema is not None else None
       ),
@@ -253,6 +254,8 @@ class ExtensionStateService:
     name: str,
     distribution: str,
     version: str,
+    *,
+    source_repository: str | None = None,
   ) -> ExtensionParticipation:
     async with extension_uow() as repository:
       extension = await repository.get(name)
@@ -265,15 +268,21 @@ class ExtensionStateService:
           peer_id=peer_id,
           distribution=distribution,
           version=version,
+          source_repository=source_repository,
           enabled=False,
         )
-      elif row.enabled and (row.distribution, row.version) != (distribution, version):
+      elif row.enabled and (row.distribution, row.version, row.source_repository) != (
+        distribution,
+        version,
+        source_repository,
+      ):
         raise ExtensionStateConflictError(
           f"Cannot change {name} selection while it is enabled on this Peer"
         )
       else:
         row.distribution = distribution
         row.version = version
+        row.source_repository = source_repository
         row.config_schema = None
       await repository.save_participation(row)
       return self._participation(row)
@@ -284,9 +293,15 @@ class ExtensionStateService:
     """Resolve an enabled legacy pin after its exact Python release was verified."""
     async with extension_uow() as repository:
       row = await repository.get_participation(name, peer_id, lock=True)
-      if row is None or (row.distribution, row.version, row.enabled) != (
+      if row is None or (
+        row.distribution,
+        row.version,
+        row.source_repository,
+        row.enabled,
+      ) != (
         None,
         version,
+        None,
         True,
       ):
         raise ExtensionStateConflictError(
@@ -325,17 +340,18 @@ class ExtensionStateService:
 
   async def update_participation_config_schema(
     self,
-    peer_id: uuid.UUID,
-    name: str,
-    distribution: str,
-    version: str,
+    selection: ExtensionParticipation,
     schema: dict[str, typing.Any],
   ) -> ExtensionParticipation:
     async with extension_uow() as repository:
-      row = await repository.get_participation(name, peer_id, lock=True)
-      if row is None or (row.distribution, row.version) != (distribution, version):
+      row = await repository.get_participation(selection.name, selection.peer_id, lock=True)
+      if row is None or (row.distribution, row.version, row.source_repository) != (
+        selection.distribution,
+        selection.version,
+        selection.source_repository,
+      ):
         raise ExtensionStateConflictError(
-          f"{name} selection changed while its configuration schema was loading"
+          f"{selection.name} selection changed while its configuration schema was loading"
         )
       row.config_schema = schema
       await repository.save_participation(row)

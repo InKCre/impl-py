@@ -18,6 +18,9 @@ EXTENSION_SEMVER_PATTERN = (
   r"(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
   r"([.](0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$"
 )
+ExtensionSourceRepository = typing.Annotated[
+  str, pydantic.Field(pattern=r"^https://github[.]com/[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$")
+]
 
 
 class InstallExtensionCommand(pydantic.BaseModel):
@@ -35,6 +38,7 @@ class SelectExtensionCommand(pydantic.BaseModel):
   extension: ExtensionName
   distribution: NativeDistribution
   version: str = pydantic.Field(pattern=EXTENSION_SEMVER_PATTERN)
+  source_repository: ExtensionSourceRepository | None = None
 
 
 class ExtensionStatusCommand(pydantic.BaseModel):
@@ -80,6 +84,9 @@ class ExtensionPeerStatusRow(pydantic.BaseModel):
   peer_id: uuid.UUID
   distribution: NativeDistribution | None
   version: str | None
+  source_repository: str | None = pydantic.Field(
+    default=None, exclude_if=lambda value: value is None
+  )
   enabled: bool
   config_schema: dict[str, typing.Any] | None
   supported_distributions: tuple[NativeDistribution, ...]
@@ -103,6 +110,7 @@ class SelectExtensionInput(pydantic.BaseModel):
 
   distribution: NativeDistribution
   version: str = pydantic.Field(pattern=EXTENSION_SEMVER_PATTERN)
+  source_repository: ExtensionSourceRepository | None = None
 
 
 ExtensionManagementCommand: typing.TypeAlias = typing.Annotated[
@@ -200,6 +208,10 @@ class ExtensionPeerParticipationModel(sqlmodel.SQLModel, table=True):
   )
   version: str = sqlmodel.Field(
     sa_column=sqlalchemy.Column(sqlalchemy.Text, nullable=False)
+  )
+  source_repository: str | None = sqlmodel.Field(
+    default=None,
+    sa_column=sqlalchemy.Column(sqlalchemy.Text, nullable=True),
   )
   enabled: bool = sqlmodel.Field(
     default=False,
