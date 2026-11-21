@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import mimetypes
+from contextlib import nullcontext
+from functools import partial
 from urllib.parse import urlparse
 
 import trafilatura
@@ -249,6 +251,22 @@ def select_enclosure_resolver(
 class EnclosureMaterializationService:
   """Download one enclosure and create at most one semantic storage child."""
 
+  @staticmethod
+  async def _existing_content(
+    enclosure_block_id: int, uow: SourceUnitOfWork
+  ) -> MaterializationResult | None:
+    existing = await _one_outgoing_relation(enclosure_block_id, CONTENT_RELATION, uow)
+    if existing is None:
+      return None
+    child = await uow.graph.blocks.get(existing.to_)
+    if child is None:
+      raise FeedGraphIntegrityError(
+        f"enclosure {enclosure_block_id} content child is missing"
+      )
+    return MaterializationResult(
+      enclosure_block_id, existing.to_, "existing", child.resolver
+    )
+
   @classmethod
   async def materialize(
     cls,
@@ -261,24 +279,16 @@ class EnclosureMaterializationService:
       if enclosure_block is None or enclosure_block.resolver != ENCLOSURE_RESOLVER_ID:
         raise LookupError(f"enclosure block {enclosure_block_id} not found")
       enclosure = CanonicalEnclosure.model_validate_json(enclosure_block.content)
-      existing = await _one_outgoing_relation(
-        enclosure_block_id,
-        CONTENT_RELATION,
-        uow,
-      )
+      existing = await cls._existing_content(enclosure_block_id, uow)
       if existing is not None:
-        child = await uow.graph.blocks.get(existing.to_)
-        if child is None:
-          raise FeedGraphIntegrityError(
-            f"enclosure {enclosure_block_id} content child is missing"
-          )
-        return MaterializationResult(
-          enclosure_block_id,
-          existing.to_,
-          "existing",
-          child.resolver,
-        )
+        return existing
       source_config = await _source_config_for_enclosure(enclosure_block_id, uow)
+      record = await uow.graph.storage.get(target_storage_id)
+      if record is None:
+        raise LookupError(f"storage {target_storage_id} does not exist")
+      storage = StorageManager.from_record(record)
+      if not isinstance(storage, WritableStorage):
+        raise TypeError(f"storage {target_storage_id} is not writable")
 
     response = await fetch_http_bytes(
       enclosure.url,
@@ -294,37 +304,22 @@ class EnclosureMaterializationService:
       body=response.body,
     )
 
-    async with source_uow() as uow:
+    # Older Core releases write bytes in the graph's transaction.
+    write = (
+      storage.prepare_write(response.body)
+      if hasattr(storage, "prepare_write")
+      else nullcontext(partial(storage.create_content, response.body))
+    )
+    async with write as write_pointer, source_uow() as uow:
       locked = await uow.graph.blocks.get(enclosure_block_id, lock=True)
       if locked is None or locked.resolver != ENCLOSURE_RESOLVER_ID:
         raise FeedGraphIntegrityError(
           f"block {enclosure_block_id} no longer has its expected resolver"
         )
-      existing = await _one_outgoing_relation(
-        enclosure_block_id,
-        CONTENT_RELATION,
-        uow,
-      )
+      existing = await cls._existing_content(enclosure_block_id, uow)
       if existing is not None:
-        child = await uow.graph.blocks.get(existing.to_)
-        if child is None:
-          raise FeedGraphIntegrityError(
-            f"enclosure {enclosure_block_id} content child is missing"
-          )
-        return MaterializationResult(
-          enclosure_block_id,
-          existing.to_,
-          "existing",
-          child.resolver,
-        )
-
-      record = await uow.graph.storage.get(target_storage_id)
-      if record is None:
-        raise LookupError(f"storage {target_storage_id} does not exist")
-      storage = StorageManager.from_record(record)
-      if not isinstance(storage, WritableStorage):
-        raise TypeError(f"storage {target_storage_id} is not writable")
-      pointer = await storage.create_content(response.body, uow.graph.storage)
+        return existing
+      pointer = await write_pointer(uow.graph.storage)
       content_block = await uow.graph.blocks.create(
         BlockForm(
           resolver=resolver_id,

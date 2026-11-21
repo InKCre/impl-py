@@ -38,7 +38,7 @@ representation。Shared/domain prose 使用 `actual bytes` 与 `hydrated content
 - Built-in handler type 是短 ID，因此 `storage/__init__.py` 必须 import 当前 handlers；dynamic dotted-path fallback
   只服务真正使用 dotted class path 的 custom type。
 
-## Current Built-Ins
+## Default Storage Instances
 
 | Storage ID | Type | Capability |
 | --- | --- | --- |
@@ -64,7 +64,10 @@ Retired `-2/-3` catalog rows可能存在于历史数据库，但当前 code/prof
 
 - 新 storage 优先回答 pointer grammar、byte limit、read/write capability 和 deletion ownership；不要从 media kind
   派生 storage family。
-- S3/Nextcloud 等 future storage 复用同一 byte contract；source/application 只依赖 common create seam。
+- S3、WebDAV 和 SFTP 的 Source 用 `prepare_write()` 在图事务外上传外部对象，
+  再在事务内取得指针。PostgreSQL 通过同一入口在事务内写入字节。
+- SFTP 的对象目录以 UUID 为名。创建先写完临时目录再改名。更新原子替换目录里的 `data`，删除先移走
+  整个对象目录。两者的顺序由服务器的改名操作决定。
 
 ## 异步数据库边界
 

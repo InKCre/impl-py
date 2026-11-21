@@ -26,7 +26,7 @@ relation grammar、事务与 acceptance 边界。
 - 每个 source instance 配置一个 HTTP(S) `feed_url`。
 - full-text enrichment 默认开启；automatic enclosure download 默认关闭。
 - 提供手动 `POST /rss/enclosures/materialize` command。
-- 不提供 feed-reader UI、OPML、S3、所有 malformed feed 容错或 organization/retrieval 产品。
+- 不提供 feed-reader UI、OPML、所有 malformed feed 容错或 organization/retrieval 产品。
 
 ## Package Topology
 
@@ -161,10 +161,9 @@ Evidence order 属于 protocol adapter：
 每一项交给 `ResolverManager.match_media_type()` 做 exact core resolver match；全部失败显式 fallback
 `core.file.v1`。Manager 只拥有 common match，不拥有 RSS/Atom evidence ladder。
 
-Materialization 使用 configured `WritableStorage.create_raw_content()`：storage handler 把 actual bytes 写入并
-返回 opaque pointer string；application 不硬编码 PostgreSQL pointer grammar。写入结果是一个 exact semantic
-content block，enclosure metadata 通过唯一 `content` relation 指向它。Row lock 保证 concurrent materialization
-最多形成一个 child；重复 command 返回 existing。
+物化使用配置的 `WritableStorage.prepare_write()`。外部存储先上传 bytes，PostgreSQL 在图事务内写入 bytes。
+写入结果是一个 exact semantic content block，enclosure metadata 通过唯一 `content` relation 指向它。
+Row lock 保证并发物化最多形成一个 child，重复命令返回已存在的 child。
 
 Manual API 对每个 enclosure 返回独立 result/error，不把一个失败扩散成 batch-level rollback。
 

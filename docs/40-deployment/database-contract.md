@@ -85,6 +85,133 @@ C/R/U/D；browser peer通过 raw RPC + exact relation update/delete获得等价 
 Deleting a referenced `storages` catalog row is `RESTRICT`。Changing/deleting a blob does not query or rewrite blocks，
 所以 block timestamps、embedding 与其他 peer cache 不自动代表 storage bytes freshness。
 
+## S3 兼容存储和 WebDAV
+
+在部署上运行 `db reconcile-builtins` 登记 `s3` 和 `webdav` 两种可写类型。通过已认证的
+PostgREST 向 `/storages?select=id` 提交实例配置，网络请求使用 `Content-Profile: inkcre`
+和 `Prefer: return=representation`。升级所有需要读写该存储的 Python 或 TypeScript Peer 后再选用新实例。
+
+```json
+{
+  "type": "s3",
+  "nickname": "采集对象存储",
+  "config": {
+    "endpoint": "https://my-bucket.s3.us-west-2.amazonaws.com/inkcre/",
+    "region": "us-west-2",
+    "access_key_id": "<access key id>",
+    "secret_access_key": "<secret access key>"
+  }
+}
+```
+
+```json
+{
+  "type": "webdav",
+  "nickname": "采集文件目录",
+  "config": {
+    "endpoint": "https://dav.example.org/remote.php/dav/files/collector/InkCre/",
+    "username": "collector",
+    "password": "<app password>"
+  }
+}
+```
+
+- S3 的 `endpoint` 指向已建好的 bucket 或对象前缀。兼容服务也可以使用
+  `https://s3.example.org/my-bucket/inkcre/` 这样的路径式地址。凭据需要对象的 GET、HEAD、PUT、
+  DELETE 权限，服务需支持条件 PUT。临时凭据可加 `session_token`，到期前更新实例配置。
+  AWS S3 在缺少 `s3:ListBucket` 权限时可能用 403 表示对象不可访问，更新会返回权限错误。
+- WebDAV 的 `endpoint` 指向已建好的 collection，使用 HTTPS 和 Basic Auth。服务需支持
+  `If-None-Match: *` 创建和 `If-Match: *` 更新。
+- 两种配置都可设置 `timeout`（默认 30 秒）和 `max_bytes`（默认 64 MiB），后者同时限制读写。
+  `storages.config` 对部署内已认证 Peer 可见。凭据应限定在专用 bucket、前缀或目录。
+- 浏览器直连需要存储域允许 Web Peer origin 的跨域请求。允许 GET、HEAD、PUT、DELETE 以及
+  `Authorization`、`Content-Type`、`If-Match`、`If-None-Match` 请求头。S3 还需允许
+  `x-amz-*` 请求头，并向浏览器暴露 `ETag` 响应头。独立的存储域在 WebExtension
+  中也可通过显式主机权限访问。
+
+用创建返回的 ID 设置 Source 的 `storage`，或设置部署默认值
+`inkcre-cli config replace core.source --schema-id core.source.config.v1 --input-json '{"default_storage":123}'`。
+RSS 附件通过 `target_storage_id` 选择存储。WebExtension 的「PDF 可写存储 ID」也可以填写该 ID。
+
+Block 保存相对于实例地址的 UUID 指针。轮换凭据可编辑原实例配置，更换 bucket、前缀或目录时应创建
+新实例，以保留已有 Block 的读取路径。外部对象写入先于图提交。提交结果不明确或清理失败时，
+对象可能留在存储中。备份和恢复应覆盖 PostgreSQL 和所用的 bucket 或目录。
+
+## SFTP 存储
+
+运行 `db reconcile-builtins` 登记 `sftp`。用上文同一个 `/storages?select=id` 入口创建实例，并把
+返回的 ID 填入 Source 的存储配置。保存到此实例的 Block 由具备 SFTP 访问权限的 Python Peer 读取。
+
+```json
+{
+  "type": "sftp",
+  "nickname": "附件服务器",
+  "config": {
+    "host": "storage.example.org",
+    "port": 22,
+    "username": "inkcre",
+    "directory": "/srv/inkcre/objects",
+    "known_hosts": "storage.example.org ssh-ed25519 <trusted host public key>",
+    "private_key": "<OpenSSH private key text>"
+  }
+}
+```
+
+- `directory` 是该 SFTP 账户看到的绝对路径。预先创建专用目录，并授予该账户读写及改名权限。
+  更新对象要求服务器支持 OpenSSH 的 `posix-rename` 扩展。
+- `known_hosts` 保存通过可信渠道核实的 OpenSSH 主机密钥条目。非默认端口使用
+  `[storage.example.org]:2222` 这种主机写法。可以用 `password` 或 `private_key` 认证，
+  加密私钥另填 `private_key_passphrase`。
+- `timeout` 默认 30 秒，`max_bytes` 默认 64 MiB 并同时约束读写。存储目录中的 UUID 子目录供 InkCre
+  管理。连接中断可能留下 `.inkcre-stage-*` 或 `.inkcre-delete-*` 目录，确认对应传输结束后可清理。
+  备份需覆盖数据库和附件目录。
+
+## IPFS 归档和 Google Drive 存储
+
+运行 `db reconcile-builtins` 登记 `ipfs` 和 `google_drive`。通过 `/storages?select=id` 创建实例，
+再把返回的 ID 填入 Source 存储配置。Python Peer 需要可以访问配置的 Kubo RPC 或 Google Drive。
+两者的单次 HTTP 请求 `timeout` 默认 30 秒，`max_bytes` 默认 64 MiB。
+
+### IPFS
+
+```json
+{
+  "type": "ipfs",
+  "nickname": "私有 IPFS 归档",
+  "config": {
+    "endpoint": "http://127.0.0.1:5001"
+  }
+}
+```
+
+- `endpoint` 是私有 Kubo RPC 的根地址或反向代理挂载前缀，驱动会追加 `/api/v0`。受控代理
+  可选 `bearer_token`。运维应把 RPC 放在受控网络内，并备份持有内容的 Kubo 仓库。
+- 每次写入创建独立且递归固定的目录根。释放其中一次写入的 pin 时，共用底层数据的其它写入仍可读。
+  可用性取决于有在线节点保留数据。公开网络中的其它副本有独立的生命周期。
+- 支持创建、读取和释放本次写入的 pin。内容变更需要写入新对象并更新 Block 指针。对象原地更新会返回
+  不支持的错误。
+
+### Google Drive
+
+```json
+{
+  "type": "google_drive",
+  "nickname": "Google Drive 附件",
+  "config": {
+    "folder_id": "<authorized folder ID>",
+    "client_id": "<Google OAuth client ID>",
+    "client_secret": "<Google OAuth client secret>",
+    "refresh_token": "<offline Google OAuth refresh token>"
+  }
+}
+```
+
+- 使用同一个 OAuth 客户端和账号取得允许后台访问的 `drive.file` refresh token。目标文件夹需由该应用
+  创建或通过 Google Picker 等方式授权给该应用。填入文件夹 ID 本身不会授予权限。
+- 使用 Drive 文件 ID 读写文件。驱动核对文件的应用私有标记和目录归属，移动出配置目录会影响存储读取。
+  删除已管理文件需要该账号具备永久删除权限。凭据撤销后需重新授权并更新实例配置。
+- 更新保持 Drive 文件 ID。并发替换由 Drive 处理，应用层可以按稳定 ID 重新读取结果。
+
 ## Peer Discovery Protocol
 
 `peers` 持有 deployment Peer identity、应用版本、owner config/schema、完整 capability/inbound snapshot 与

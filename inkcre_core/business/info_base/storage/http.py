@@ -67,20 +67,21 @@ class HTTPStorage(
         allow_redirects=self._config.follow_redirects,
       ) as response:
         response.raise_for_status()
-        content_length = response.content_length
-        if content_length is not None and content_length > self._config.max_response_bytes:
-          raise StorageContentTooLargeError(
-            f"HTTP response declares {content_length} bytes; "
-            f"limit is {self._config.max_response_bytes}"
-          )
+        return await read_response_bytes(response, self._config.max_response_bytes)
 
-        chunks: list[bytes] = []
-        received = 0
-        async for chunk in response.content.iter_chunked(READ_CHUNK_BYTES):
-          received += len(chunk)
-          if received > self._config.max_response_bytes:
-            raise StorageContentTooLargeError(
-              f"HTTP response exceeded {self._config.max_response_bytes} bytes"
-            )
-          chunks.append(chunk)
-        return b"".join(chunks)
+
+async def read_response_bytes(response: aiohttp.ClientResponse, max_bytes: int) -> bytes:
+  content_length = response.content_length
+  if content_length is not None and content_length > max_bytes:
+    raise StorageContentTooLargeError(
+      f"HTTP response declares {content_length} bytes; limit is {max_bytes}"
+    )
+
+  chunks: list[bytes] = []
+  received = 0
+  async for chunk in response.content.iter_chunked(READ_CHUNK_BYTES):
+    received += len(chunk)
+    if received > max_bytes:
+      raise StorageContentTooLargeError(f"HTTP response exceeded {max_bytes} bytes")
+    chunks.append(chunk)
+  return b"".join(chunks)

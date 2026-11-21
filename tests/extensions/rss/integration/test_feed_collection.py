@@ -26,7 +26,7 @@ from inkcre_core.business.source import SOURCE_COLLECT_JOB_TYPE, SourceManager
 from tests.database import TestSession
 from inkcre_core.schemas.info_base.block import BlockModel
 from inkcre_core.schemas.info_base.relation import RelationModel
-from inkcre_core.schemas.info_base.storage import StorageBlobModel
+from inkcre_core.schemas.info_base.storage import StorageBlobModel, StorageModel
 from inkcre_core.schemas.job import JobModel, JobStatus
 from inkcre_core.schemas.source import SourceModel
 from extensions.rss import Extension
@@ -70,6 +70,8 @@ class FeedHTTPDouble:
     self.feed_requests = 0
     self.article_requests = 0
     self.enclosure_requests = 0
+    self.webdav_objects: dict[str, bytes] = {}
+    self._webdav_uploads_arrived = asyncio.Event()
     self._runner: web.AppRunner | None = None
 
   async def start(self) -> None:
@@ -80,6 +82,7 @@ class FeedHTTPDouble:
     app.router.add_get("/atom.xml", self._atom)
     app.router.add_get("/articles/{name}", self._article)
     app.router.add_get("/media/{name}", self._enclosure)
+    app.router.add_route("*", "/webdav/{key}", self._webdav)
     self._runner = web.AppRunner(app)
     await self._runner.setup()
     site = web.TCPSite(self._runner, "127.0.0.1", 0)
@@ -207,6 +210,20 @@ class FeedHTTPDouble:
       content_type=content_type,
     )
 
+  async def _webdav(self, request: web.Request) -> web.Response:
+    key = request.match_info["key"]
+    if request.method == "PUT":
+      self.webdav_objects[key] = await request.read()
+      # Both writes must reach storage before either request locks the enclosure.
+      if len(self.webdav_objects) == 2:
+        self._webdav_uploads_arrived.set()
+      await asyncio.wait_for(self._webdav_uploads_arrived.wait(), timeout=15)
+      return web.Response(status=201)
+    if request.method == "DELETE":
+      self.webdav_objects.pop(key, None)
+      return web.Response(status=204)
+    return web.Response(body=self.webdav_objects[key])
+
 
 def _create_source(source_type: str, config: FeedSourceConfig) -> int:
   with TestSession() as db_session:
@@ -332,6 +349,7 @@ async def _exercise_rss() -> None:
   server = FeedHTTPDouble()
   await server.start()
   source_ids: set[int] = set()
+  webdav_storage_id = None
   try:
     source_id = _create_source(
       "extensions.rss.rss.Source",
@@ -430,24 +448,36 @@ async def _exercise_rss() -> None:
     router = fastapi.APIRouter(prefix="/rss")
     register_api(router)
     api.include_router(router)
+    with TestSession() as db_session:
+      storage = StorageModel(
+        type="webdav",
+        config={
+          "endpoint": f"{server.base_url}/webdav",
+          "username": "fixture",
+          "password": "fixture",
+        },
+      )
+      db_session.add(storage)
+      db_session.commit()
+      webdav_storage_id = storage.id
+      assert webdav_storage_id is not None
+
     async with httpx.AsyncClient(
       transport=httpx.ASGITransport(app=api),
       base_url="http://test",
     ) as client:
-      concurrent = await asyncio.gather(
-        client.post(
-          "/rss/enclosures/materialize",
-          json={"enclosure_block_ids": [enclosure_ids["image.png"]]},
-        ),
-        client.post(
-          "/rss/enclosures/materialize",
-          json={"enclosure_block_ids": [enclosure_ids["image.png"]]},
-        ),
-      )
-      assert sorted(item.json()["results"][0]["status"] for item in concurrent) == [
-        "created",
-        "existing",
-      ]
+      for name, storage_id in (("image.png", -4), ("unknown.bin", webdav_storage_id)):
+        payload = {
+          "enclosure_block_ids": [enclosure_ids[name]],
+          "target_storage_id": storage_id,
+        }
+        first, second = await asyncio.gather(
+          client.post("/rss/enclosures/materialize", json=payload),
+          client.post("/rss/enclosures/materialize", json=payload),
+        )
+        results = (first.json()["results"][0], second.json()["results"][0])
+        assert {item["status"] for item in results} == {"created", "existing"}, results
+        assert results[0]["content_block_id"] == results[1]["content_block_id"]
       ordered_names = tuple(expected_resolvers)
       response = await client.post(
         "/rss/enclosures/materialize",
@@ -474,7 +504,11 @@ async def _exercise_rss() -> None:
       assert len(content_relations) == 1
       content_block = read_block(content_relations[0].to_)
       assert content_block is not None
-      assert await content_block.get_hydrated_content() == (ASSETS / name).read_bytes()
+      expected_bytes = (ASSETS / name).read_bytes()
+      assert await content_block.get_hydrated_content() == expected_bytes
+      if name == "unknown.bin":
+        assert content_block.storage == webdav_storage_id
+        assert server.webdav_objects == {content_block.content: expected_bytes}
       assert await ResolverManager.get(content_block).get_solved_content() is not None
 
     server.rss_etag = '"rss-v3"'
@@ -585,6 +619,10 @@ async def _exercise_rss() -> None:
     }
   finally:
     _cleanup(source_ids)
+    if webdav_storage_id is not None:
+      with TestSession() as db_session:
+        db_session.delete(db_session.get_one(StorageModel, webdav_storage_id))
+        db_session.commit()
     await server.close()
 
 

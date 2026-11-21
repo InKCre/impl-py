@@ -34,6 +34,9 @@ dependencies = [
     "opentelemetry-sdk==1.45.0",
     "opentelemetry-exporter-otlp-proto-http==1.45.0",
     "anyio<5,>=4",
+    "botocore<2,>=1.40",
+    "yarl<2,>=1.17",
+    "asyncssh[bcrypt]<3,>=2.24",
 ]
 
 [project.optional-dependencies]

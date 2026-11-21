@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import typing
+from contextlib import nullcontext
+from functools import partial
 
 from bs4 import BeautifulSoup
 
@@ -19,7 +21,6 @@ from app.business.info_base.resolver.inspection import detect_media_type
 from app.business.info_base.resolver.label import format_label
 from app.business.info_base.resolver.html import HTMLResolver
 from app.business.info_base.resolver.text import TextResolver
-from app.business.info_base.storage import WritableStorage
 from app.business.source.config import resolve_writable_storage_async
 from app.persistence.source.uow import source_uow
 from app.persistence.info_base.uow import graph_uow
@@ -474,22 +475,34 @@ class MailMimePartResolver(
         rendered = content.decode("utf-8", errors="replace")
       content = rendered.encode("utf-8")
 
+    source_id = source.id
     async with source_uow() as uow:
+      existing = await uow.graph.blocks.get_related(self.block_id, content="content")
+      if existing is not None:
+        return existing
+      if source_id is None:
+        raise MailMaterializationUnavailable("Mail Source has no identity")
+      live_source = await uow.sources.get(source_id)
+      if live_source is None:
+        raise MailMaterializationUnavailable("Mail Source no longer exists")
+      storage = await resolve_writable_storage_async(live_source, uow)
+
+    # Older Core releases write bytes in the graph's transaction.
+    write = (
+      storage.prepare_write(content)
+      if hasattr(storage, "prepare_write")
+      else nullcontext(partial(storage.create_content, content))
+    )
+    async with write as write_pointer, source_uow() as uow:
       metadata = await uow.graph.blocks.get(self.block_id, lock=True)
       if metadata is None:
         raise MailMaterializationUnavailable("MIME part no longer exists")
       existing = await uow.graph.blocks.get_related(self.block_id, content="content")
       if existing is not None:
         return existing
-      if source.id is None:
-        raise MailMaterializationUnavailable("Mail Source has no identity")
-      live_source = await uow.sources.get(source.id)
-      if live_source is None:
+      if await uow.sources.get(source_id) is None:
         raise MailMaterializationUnavailable("Mail Source no longer exists")
-      storage = await resolve_writable_storage_async(live_source, uow)
-      if not isinstance(storage, WritableStorage):  # registry/catalog invariant
-        raise TypeError("Resolved target Storage is not writable")
-      pointer = await storage.create_content(content, uow.graph.storage)
+      pointer = await write_pointer(uow.graph.storage)
       child = await uow.graph.blocks.create(
         BlockForm(
           storage=storage.storage_id,
