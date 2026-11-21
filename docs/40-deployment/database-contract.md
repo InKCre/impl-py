@@ -78,6 +78,87 @@ Participation writes use the authenticated peer role under the same JWT boundary
 PostgREST 14 对 raw byte response 需要 explicit response media-type domain；raw request 只依赖 single unnamed
 `bytea` argument。Readiness separately proves both signatures。
 
+## S3 兼容存储和 WebDAV
+
+在部署上运行 `db reconcile-builtins` 登记 `s3` 和 `webdav` 两种可写类型。通过已认证的
+PostgREST 向 `/storages?select=id` 提交实例配置，网络请求使用 `Content-Profile: inkcre`
+和 `Prefer: return=representation`。升级所有需要读写该存储的 Python 或 TypeScript Peer 后再选用新实例。
+
+```json
+{
+  "type": "s3",
+  "nickname": "采集对象存储",
+  "config": {
+    "endpoint": "https://my-bucket.s3.us-west-2.amazonaws.com/inkcre/",
+    "region": "us-west-2",
+    "access_key_id": "<access key id>",
+    "secret_access_key": "<secret access key>"
+  }
+}
+```
+
+```json
+{
+  "type": "webdav",
+  "nickname": "采集文件目录",
+  "config": {
+    "endpoint": "https://dav.example.org/remote.php/dav/files/collector/InkCre/",
+    "username": "collector",
+    "password": "<app password>"
+  }
+}
+```
+
+- S3 的 `endpoint` 指向已建好的 bucket 或对象前缀。兼容服务也可以使用
+  `https://s3.example.org/my-bucket/inkcre/` 这样的路径式地址。凭据需要对象的 GET、HEAD、PUT、
+  DELETE 权限，服务需支持条件 PUT。临时凭据可加 `session_token`，到期前更新实例配置。
+  AWS S3 在缺少 `s3:ListBucket` 权限时可能用 403 表示对象不可访问，更新会返回权限错误。
+- WebDAV 的 `endpoint` 指向已建好的 collection，使用 HTTPS 和 Basic Auth。服务需支持
+  `If-None-Match: *` 创建和 `If-Match: *` 更新。
+- 两种配置都可设置 `timeout`（默认 30 秒）和 `max_bytes`（默认 64 MiB），后者同时限制读写。
+  `storages.config` 对部署内已认证 Peer 可见。凭据应限定在专用 bucket、前缀或目录。
+- 浏览器直连需要存储域允许 Web Peer origin 的跨域请求。允许 GET、HEAD、PUT、DELETE 以及
+  `Authorization`、`Content-Type`、`If-Match`、`If-None-Match` 请求头。S3 还需允许
+  `x-amz-*` 请求头，并向浏览器暴露 `ETag` 响应头。独立的存储域在 WebExtension
+  中也可通过显式主机权限访问。
+
+用创建返回的 ID 设置 Source 的 `storage`，或设置部署默认值
+`inkcre-cli config replace core.source --schema-id core.source.config.v1 --input-json '{"default_storage":123}'`。
+RSS 附件通过 `target_storage_id` 选择存储。WebExtension 的「PDF 可写存储 ID」也可以填写该 ID。
+
+Block 保存相对于实例地址的 UUID 指针。轮换凭据可编辑原实例配置，更换 bucket、前缀或目录时应创建
+新实例，以保留已有 Block 的读取路径。外部对象写入先于图提交。提交结果不明确或清理失败时，
+对象可能留在存储中。备份和恢复应覆盖 PostgreSQL 和所用的 bucket 或目录。
+
+## SFTP 存储
+
+运行 `db reconcile-builtins` 登记 `sftp`。用上文同一个 `/storages?select=id` 入口创建实例，并把
+返回的 ID 填入 Source 的存储配置。保存到此实例的 Block 由具备 SFTP 访问权限的 Python Peer 读取。
+
+```json
+{
+  "type": "sftp",
+  "nickname": "附件服务器",
+  "config": {
+    "host": "storage.example.org",
+    "port": 22,
+    "username": "inkcre",
+    "directory": "/srv/inkcre/objects",
+    "known_hosts": "storage.example.org ssh-ed25519 <trusted host public key>",
+    "private_key": "<OpenSSH private key text>"
+  }
+}
+```
+
+- `directory` 是该 SFTP 账户看到的绝对路径。预先创建专用目录，并授予该账户读写及改名权限。
+  更新对象要求服务器支持 OpenSSH 的 `posix-rename` 扩展。
+- `known_hosts` 保存通过可信渠道核实的 OpenSSH 主机密钥条目。非默认端口使用
+  `[storage.example.org]:2222` 这种主机写法。可以用 `password` 或 `private_key` 认证，
+  加密私钥另填 `private_key_passphrase`。
+- `timeout` 默认 30 秒，`max_bytes` 默认 64 MiB 并同时约束读写。存储目录中的 UUID 子目录供 InkCre
+  管理。连接中断可能留下 `.inkcre-stage-*` 或 `.inkcre-delete-*` 目录，确认对应传输结束后可清理。
+  备份需覆盖数据库和附件目录。
+
 Storage pointer JSON belongs to the `postgresql_binary` handler。Peer/application只持有 opaque pointer string；
 bytes、MIME、filename 与 resolver semantics不复制到 pointer。Core native commands通过 GraphUnitOfWork 中的 StorageRepository 异步进行
 C/R/U/D；browser peer通过 raw RPC + exact relation update/delete获得等价 capability。

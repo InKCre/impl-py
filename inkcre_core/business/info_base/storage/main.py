@@ -4,6 +4,9 @@ __all__ = [
 ]
 
 import abc
+from collections.abc import AsyncGenerator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from functools import partial
 import importlib
 import sqlmodel
 import typing
@@ -175,6 +178,13 @@ class WritableStorage(Storage[ConfigTV, ContentTV], abc.ABC):
 
   async def create_content(self, content: ContentTV, storage: StorageRepository) -> str:
     return self.serialize_pointer(await self.write_content(content, storage))
+
+  @asynccontextmanager
+  async def prepare_write(
+    self, content: ContentTV
+  ) -> AsyncGenerator[Callable[[StorageRepository], Awaitable[str]], None]:
+    """Prepare bytes before a graph transaction, then get the pointer inside it."""
+    yield partial(self.create_content, content)
 
   @abc.abstractmethod
   async def read_content(

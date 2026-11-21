@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import mimetypes
+from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 
 import telegram
@@ -12,7 +14,7 @@ from app.business.info_base.resolver import Resolver, ResolverManager, TextProje
 from app.business.info_base.resolver.inspection import detect_media_type
 from app.business.info_base.resolver.label import format_label
 from app.business.source.config import resolve_writable_storage_async
-from app.persistence.source.uow import source_uow
+from app.persistence.source.uow import SourceUnitOfWork, source_uow
 from app.schemas.info_base.block import BlockForm, BlockModel
 from app.schemas.info_base.main import StarsGraphForm
 from app.schemas.source import SourceModel
@@ -160,6 +162,19 @@ class TelegramAttachmentResolver(
         )
       return sources[0]
 
+  async def _get_materialized_content(self, uow: SourceUnitOfWork) -> BlockModel | None:
+    relations = await uow.graph.relations.get(
+      self.block_id, include_in=False, content=CONTENT_RELATION
+    )
+    if len(relations) > 1:
+      raise RuntimeError("Telegram attachment has multiple content children")
+    if not relations:
+      return None
+    content = await uow.graph.blocks.get(relations[0].to_)
+    if content is None:
+      raise RuntimeError("Telegram attachment content child is missing")
+    return content
+
   async def materialize_content(self) -> BlockModel:
     existing = await self.get_solved_content(materialize_missing=False)
     if existing.content is not None:
@@ -200,28 +215,34 @@ class TelegramAttachmentResolver(
     }.get(root.kind)
     resolver_id = detected or declared or guessed or by_kind or "core.file.v1"
 
+    source_id = source.id
     async with source_uow() as uow:
-      metadata = await uow.graph.blocks.get(self.block_id, lock=True)
-      if metadata is None or metadata.resolver != ATTACHMENT_RESOLVER:
-        raise TelegramMaterializationUnavailable("Telegram attachment no longer exists")
-      relations = await uow.graph.relations.get(
-        self.block_id, include_in=False, content=CONTENT_RELATION
-      )
-      if len(relations) > 1:
-        raise RuntimeError("Telegram attachment has multiple content children")
-      existing_relation = relations[0] if relations else None
-      if existing_relation is not None:
-        existing = await uow.graph.blocks.get(existing_relation.to_)
-        if existing is None:
-          raise RuntimeError("Telegram attachment content child is missing")
+      existing = await self._get_materialized_content(uow)
+      if existing is not None:
         return existing
-      if source.id is None:
+      if source_id is None:
         raise TelegramMaterializationUnavailable("Telegram Source has no identity")
-      live_source = await uow.sources.get(source.id)
+      live_source = await uow.sources.get(source_id)
       if live_source is None:
         raise TelegramMaterializationUnavailable("Telegram Source no longer exists")
       storage = await resolve_writable_storage_async(live_source, uow)
-      pointer = await storage.create_content(body, uow.graph.storage)
+
+    # Older Core releases write bytes in the graph's transaction.
+    write = (
+      storage.prepare_write(body)
+      if hasattr(storage, "prepare_write")
+      else nullcontext(partial(storage.create_content, body))
+    )
+    async with write as write_pointer, source_uow() as uow:
+      metadata = await uow.graph.blocks.get(self.block_id, lock=True)
+      if metadata is None or metadata.resolver != ATTACHMENT_RESOLVER:
+        raise TelegramMaterializationUnavailable("Telegram attachment no longer exists")
+      existing = await self._get_materialized_content(uow)
+      if existing is not None:
+        return existing
+      if await uow.sources.get(source_id) is None:
+        raise TelegramMaterializationUnavailable("Telegram Source no longer exists")
+      pointer = await write_pointer(uow.graph.storage)
       child = await uow.graph.blocks.create(
         BlockForm(storage=storage.storage_id, resolver=resolver_id, content=pointer)
       )

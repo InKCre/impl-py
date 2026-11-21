@@ -200,7 +200,8 @@ singular `content` relation 返回任意 existing child；只有缺失且 `mater
 2. 验证 live Source binding；
 3. 通过 fresh adapter 读取 exact `part_id` 并 decode transfer encoding；
 4. 以 declared media type → byte signature → `core.file.v1` 选择 core Resolver；
-5. lock/recheck 后使用 Source effective writable Storage 写 bytes，并提交 child Block + single `content` Relation。
+5. 选定 Source 的有效 Storage。外部存储先上传 bytes，再加锁复查并提交 child Block 与唯一 `content`
+   Relation。使用 PostgreSQL 时，bytes 和图在同一事务内写入。
 
 Effective Storage 顺序是 `sources.storage` → deployment `core.source` default → built-in PostgreSQL binary `-4`。
 Catalog constraint 保证 explicit Source Storage 类型可写；runtime error 仍可以表达具体 instance unavailable。

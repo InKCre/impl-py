@@ -46,13 +46,18 @@ def _object_schema(
   title: str,
   description: str,
   properties: JsonObject,
+  *,
+  required: tuple[str, ...] = (),
 ) -> JsonObject:
-  return {
+  schema: JsonObject = {
     "description": description,
     "properties": properties,
     "title": title,
     "type": "object",
   }
+  if required:
+    schema.update(required=list(required), additionalProperties=False)
+  return schema
 
 
 def _positive_integer(default: int) -> JsonObject:
@@ -72,6 +77,65 @@ HTTP_STORAGE_SCHEMA = _object_schema(
     "timeout": _positive_integer(30),
   },
 )
+
+_NONEMPTY_STRING = {"type": "string", "minLength": 1}
+_SECRET_STRING = {**_NONEMPTY_STRING, "format": "password", "writeOnly": True}
+_REMOTE_STORAGE_PROPERTIES = {
+  "endpoint": {
+    **_NONEMPTY_STRING,
+    "description": "HTTP(S) collection URL including any object prefix.",
+    "format": "uri",
+  },
+  "timeout": _positive_integer(30),
+  "max_bytes": _positive_integer(64 * 1024 * 1024),
+}
+
+WEB_DAV_STORAGE_SCHEMA = _object_schema(
+  "WebDAVStorageConfig",
+  "An existing WebDAV collection and Basic authentication credentials.",
+  {
+    **_REMOTE_STORAGE_PROPERTIES,
+    "username": {**_NONEMPTY_STRING, "pattern": "^[^:]+$"},
+    "password": _SECRET_STRING,
+  },
+  required=("endpoint", "username", "password"),
+)
+S3_STORAGE_SCHEMA = _object_schema(
+  "S3StorageConfig",
+  "An S3 bucket or prefix endpoint and SigV4 signing credentials.",
+  {
+    **_REMOTE_STORAGE_PROPERTIES,
+    "region": _NONEMPTY_STRING,
+    "access_key_id": _NONEMPTY_STRING,
+    "secret_access_key": _SECRET_STRING,
+    "session_token": {"anyOf": [_SECRET_STRING, {"type": "null"}], "default": None},
+  },
+  required=("endpoint", "region", "access_key_id", "secret_access_key"),
+)
+SFTP_STORAGE_SCHEMA = _object_schema(
+  "SFTPStorageConfig",
+  "An existing SFTP directory, trusted OpenSSH host keys, and SSH credentials.",
+  {
+    "host": _NONEMPTY_STRING,
+    "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 22},
+    "username": _NONEMPTY_STRING,
+    "known_hosts": _NONEMPTY_STRING,
+    "directory": {**_NONEMPTY_STRING, "pattern": "^/"},
+    "password": {"anyOf": [_SECRET_STRING, {"type": "null"}], "default": None},
+    "private_key": {"anyOf": [_SECRET_STRING, {"type": "null"}], "default": None},
+    "private_key_passphrase": {
+      "anyOf": [_SECRET_STRING, {"type": "null"}],
+      "default": None,
+    },
+    "timeout": _positive_integer(30),
+    "max_bytes": _positive_integer(64 * 1024 * 1024),
+  },
+  required=("host", "username", "known_hosts", "directory"),
+)
+SFTP_STORAGE_SCHEMA["oneOf"] = [
+  {"required": [key], "properties": {key: _SECRET_STRING}}
+  for key in ("password", "private_key")
+]
 
 OPENAI_COMPATIBLE_DIALECT_SCHEMA = {
   "additionalProperties": False,
@@ -127,6 +191,24 @@ BUILTIN_STORAGE_TYPES += (
       "Configuration for PostgreSQL binary storage.",
       {},
     ),
+    True,
+  ),
+  StorageTypeProfile(
+    "s3",
+    "S3-compatible object storage for deployment-owned binary content.",
+    S3_STORAGE_SCHEMA,
+    True,
+  ),
+  StorageTypeProfile(
+    "sftp",
+    "SFTP directory for deployment-owned binary content.",
+    SFTP_STORAGE_SCHEMA,
+    True,
+  ),
+  StorageTypeProfile(
+    "webdav",
+    "WebDAV collection for deployment-owned binary content.",
+    WEB_DAV_STORAGE_SCHEMA,
     True,
   ),
 )
