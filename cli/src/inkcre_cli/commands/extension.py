@@ -54,17 +54,24 @@ def status(inv: Invocation, coordinate):
 @click.argument("coordinate")
 @click.option("--distribution", required=True, type=click.Choice(["python", "module_federation"]))
 @click.option("--version", required=True, help="准确的已发布版本，不解析 latest")
+@click.option("--source-repository", help="GitHub 发布者仓库地址")
+@click.option("--registry", is_flag=True, help="使用配置的 Registry 作为来源")
 @click.option("--peer", help="选择的目标 Peer；省略时为接入 Peer")
 @common
 @click.pass_obj
-def select(inv: Invocation, coordinate, distribution, version, peer):
+def select(inv: Invocation, coordinate, distribution, version, source_repository, registry, peer):
     """为目标 Peer 选择准确 Distribution/版本；不隐式启用。"""
+    if registry and source_repository is not None:
+        raise click.UsageError("--registry 与 --source-repository 只能使用其中一项")
+    body = {"distribution": distribution, "version": version}
+    if registry or source_repository is not None:
+        body["source_repository"] = source_repository
     inv.show(
         inv.send(
             "POST",
             route(coordinate) + "/selection",
             params={"route_to_peer": peer},
-            body={"distribution": distribution, "version": version},
+            body=body,
         )
     )
 

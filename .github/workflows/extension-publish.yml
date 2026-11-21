@@ -53,7 +53,7 @@ jobs:
     name: Capture ${{ matrix.extension }} candidate
     needs: discover
     if: >-
-      github.repository == 'InKCre/impl-py' &&
+      github.repository == 'InKCre/impl-py' && github.ref == 'refs/heads/main' &&
       needs.discover.result == 'success'
     runs-on: ubuntu-latest
     strategy:
@@ -61,8 +61,6 @@ jobs:
       matrix:
         extension: ${{ fromJSON(needs.discover.outputs.projects) }}
     env:
-      INKCRE_EXTENSION_REGISTRY_URL: >-
-        ${{ vars.INKCRE_EXTENSION_REGISTRY_URL || 'https://registry.inkcre.dev' }}
       SOURCE_DATE_EPOCH: "315532800"
       CANDIDATE_ROOT: ${{ github.workspace }}/extension-candidate
     steps:
@@ -147,21 +145,18 @@ jobs:
     name: Publish saved ${{ matrix.extension }} candidate
     needs: [capture, discover]
     if: >-
-      github.repository == 'InKCre/impl-py' &&
+      github.repository == 'InKCre/impl-py' && github.ref == 'refs/heads/main' &&
       needs.capture.result == 'success' && needs.discover.result == 'success'
     runs-on: ubuntu-latest
     environment: production
     permissions:
       actions: read
-      contents: read
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         extension: ${{ fromJSON(needs.discover.outputs.projects) }}
     env:
-      INKCRE_EXTENSION_REGISTRY_TOKEN: ${{ secrets.INKCRE_EXTENSION_REGISTRY_TOKEN }}
-      INKCRE_EXTENSION_REGISTRY_URL: >-
-        ${{ vars.INKCRE_EXTENSION_REGISTRY_URL || 'https://registry.inkcre.dev' }}
       CANDIDATE_ROOT: ${{ github.workspace }}/extension-candidate
       EXTENSION: ${{ matrix.extension }}
       ARTIFACT_NAME: extension-python-${{ github.run_id }}-${{ matrix.extension }}
@@ -192,41 +187,10 @@ jobs:
           EXTENSION: ${{ matrix.extension }}
         run: bash scripts/automation/extension_publication.sh restore-candidate
 
-      - name: Set up frozen publisher
-        if: steps.candidate.outputs.selected == 'true'
-        uses: pdm-project/setup-pdm@973541a5febeafcfdadf8a51211435be6ecfd90f # v4.5
-        with:
-          python-version-file: .python-version
-          version: 2.28.0
-          cache: true
-
-      - name: Install frozen publisher
-        if: steps.candidate.outputs.selected == 'true'
-        run: >-
-          pdm install --no-self --no-default --group extension-publisher --frozen-lockfile
-
-      - name: Prepare exact native Release association
+      - name: Publish and verify the exact GitHub Release and wheel
         if: steps.candidate.outputs.selected == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           METADATA: ${{ steps.candidate.outputs.metadata }}
-        run: bash scripts/automation/extension_publication.sh prepare
-
-      - name: Upload wheel through native PyPI protocol
-        if: steps.candidate.outputs.selected == 'true'
-        run: >-
-          pdm run uv publish
-          --publish-url "$INKCRE_EXTENSION_REGISTRY_URL/legacy/"
-          --token "$INKCRE_EXTENSION_REGISTRY_TOKEN"
-          "${{ steps.candidate.outputs.wheel }}"
-
-      - name: Publish exact Release
-        if: steps.candidate.outputs.selected == 'true'
-        env:
-          METADATA: ${{ steps.candidate.outputs.metadata }}
+          WHEEL: ${{ steps.candidate.outputs.wheel }}
         run: bash scripts/automation/extension_publication.sh publish
-
-      - name: Verify anonymous exact Release descriptor
-        if: steps.candidate.outputs.selected == 'true'
-        env:
-          METADATA: ${{ steps.candidate.outputs.metadata }}
-        run: bash scripts/automation/extension_publication.sh verify

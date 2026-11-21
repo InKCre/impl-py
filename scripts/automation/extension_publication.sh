@@ -34,30 +34,6 @@ case "${1:-}" in
         selected="$(python3 scripts/release.py version-changed \
           --project "$EXTENSION" --base "$before")"
       fi
-      if [ "$selected" = false ]; then
-        require_env INKCRE_EXTENSION_REGISTRY_URL
-        read -r coordinate version < <(
-          python3 - "$EXTENSION" <<'PY'
-import sys
-
-from scripts.release import project_by_key
-
-project = project_by_key(sys.argv[1])
-print(project.coordinate, project.version)
-PY
-        )
-        namespace="${coordinate%%/*}"
-        name="${coordinate#*/}"
-        status="$(curl --retry 2 --retry-delay 1 --retry-all-errors \
-          --connect-timeout 10 --max-time 30 \
-          --silent --output /dev/null --write-out '%{http_code}' \
-          "$INKCRE_EXTENSION_REGISTRY_URL/v2/extensions/$namespace/$name/distributions/python/releases/$version")"
-        case "$status" in
-          200) ;;
-          404) selected=true ;;
-          *) echo "registry release lookup returned HTTP $status" >&2; exit 1 ;;
-        esac
-      fi
     fi
     emit_output selected "$selected"
     ;;
@@ -181,53 +157,55 @@ PY
     python3 scripts/release.py verify-artifact-unchanged \
       --project "$EXTENSION" --from HEAD --to origin/main
     ;;
-  prepare)
-    for name in INKCRE_EXTENSION_REGISTRY_TOKEN INKCRE_EXTENSION_REGISTRY_URL METADATA; do
-      require_env "$name"
-    done
-    coordinate="$(jq -r '.coordinate' "$METADATA")"
-    distribution="$(jq -er '.distribution' "$METADATA")"
-    test "$distribution" = python
-    namespace="${coordinate%%/*}"
-    name="${coordinate#*/}"
-    curl --fail-with-body --silent --show-error --request POST \
-      --header "Authorization: Bearer $INKCRE_EXTENSION_REGISTRY_TOKEN" \
-      --header "Content-Type: application/json" --data "$(jq -c '.prepare' "$METADATA")" \
-      "$INKCRE_EXTENSION_REGISTRY_URL/v2/extensions/$namespace/$name/distributions/$distribution/releases"
+  release-body)
+    for name in EXTENSION METADATA; do require_env "$name"; done
+    printf '<!-- inkcre-release\n'
+    jq -ce --arg source_path "extensions/$EXTENSION" '
+      .prepare.python | {schema_version:1, $source_path, host_sdk, host_sdk_version}
+    ' "$METADATA"
+    printf '%s\n' '-->'
     ;;
   publish)
-    for name in INKCRE_EXTENSION_REGISTRY_TOKEN INKCRE_EXTENSION_REGISTRY_URL METADATA; do
+    for name in GH_TOKEN GITHUB_REPOSITORY GITHUB_SHA EXTENSION METADATA WHEEL; do
       require_env "$name"
     done
-    coordinate="$(jq -r '.coordinate' "$METADATA")"
-    version="$(jq -r '.version' "$METADATA")"
-    distribution="$(jq -er '.distribution' "$METADATA")"
-    test "$distribution" = python
-    namespace="${coordinate%%/*}"
-    name="${coordinate#*/}"
-    curl --fail-with-body --silent --show-error --request POST \
-      --header "Authorization: Bearer $INKCRE_EXTENSION_REGISTRY_TOKEN" \
-      "$INKCRE_EXTENSION_REGISTRY_URL/v2/extensions/$namespace/$name/distributions/$distribution/releases/$version/publish"
-    ;;
-  verify)
-    require_env INKCRE_EXTENSION_REGISTRY_URL
-    require_env METADATA
-    coordinate="$(jq -r '.coordinate' "$METADATA")"
-    version="$(jq -r '.version' "$METADATA")"
-    distribution="$(jq -er '.distribution' "$METADATA")"
-    project="$(jq -er '.project' "$METADATA")"
-    test "$distribution" = python
-    namespace="${coordinate%%/*}"
-    name="${coordinate#*/}"
-    curl --retry 2 --retry-delay 1 --retry-all-errors \
-      --connect-timeout 10 --max-time 30 --fail --silent --show-error \
-      "$INKCRE_EXTENSION_REGISTRY_URL/v2/extensions/$namespace/$name/distributions/$distribution/releases/$version" |
-      jq --exit-status --arg coordinate "$coordinate" --arg version "$version" \
-        --arg project "$project" \
-        '.name == $coordinate and .version == $version and
-         .distribution == "python" and .state == "published" and
-         .python.project == $project and .python.host_sdk == "core-py" and
-         .module_federation == null'
+    tag="$(jq -er '"inkcre-ext/" + .coordinate + "/python/v" + .version' "$METADATA")"
+    encoded_tag="$(jq -rn --arg tag "$tag" '$tag | @uri')"
+    existing_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$encoded_tag" |
+      jq -r --arg ref "refs/tags/$tag" '.[] | select(.ref == $ref) | .object.sha')"
+    test -z "$existing_sha" || test "$existing_sha" = "$GITHUB_SHA"
+    body="$(bash "$0" release-body)"
+    wheel_name="$(basename "$WHEEL")"
+    digest="sha256:$(shasum -a 256 "$WHEEL" | cut -d ' ' -f 1)"
+    releases="repos/$GITHUB_REPOSITORY/releases"
+    release="$(gh api "$releases?per_page=100" --paginate --slurp |
+      jq -c --arg tag "$tag" '.[][] | select(.tag_name == $tag)')"
+    if [ -z "$release" ]; then
+      release="$(gh api --method POST "$releases" -f tag_name="$tag" \
+        -f target_commitish="$GITHUB_SHA" -f name="$tag" -f body="$body" -F draft=true)"
+    fi
+    release_id="$(jq -er '.id' <<< "$release")"
+    test "$(jq -er '.body' <<< "$release")" = "$body"
+    if [ "$(jq -r '.draft' <<< "$release")" = true ]; then
+      test "$(jq -er '.target_commitish' <<< "$release")" = "$GITHUB_SHA"
+      if ! jq -e --arg name "$wheel_name" '.assets[] | select(.name == $name)' <<< "$release" >/dev/null; then
+        asset_name="$(jq -rn --arg name "$wheel_name" '$name | @uri')"
+        gh api --method POST \
+          "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$asset_name" \
+          -H 'Content-Type: application/octet-stream' --input "$WHEEL" >/dev/null
+        release="$(gh api "$releases/$release_id")"
+      fi
+      jq -e --arg name "$wheel_name" --arg digest "$digest" '
+        .assets[] | select(.name == $name and .digest == $digest)
+      ' <<< "$release" >/dev/null
+      gh api --method PATCH "$releases/$release_id" -F draft=false -f make_latest=false >/dev/null
+    fi
+    test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$encoded_tag" --jq '.object.sha')" = "$GITHUB_SHA"
+    gh api "$releases/tags/$encoded_tag" |
+      jq -e --arg name "$wheel_name" --arg digest "$digest" --arg body "$body" '
+        .draft == false and .body == $body and
+        any(.assets[]; .name == $name and .digest == $digest)
+      '
     ;;
   *) echo "unknown Extension publication command: ${1:-}" >&2; exit 2 ;;
 esac

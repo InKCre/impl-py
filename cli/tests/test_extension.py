@@ -59,6 +59,29 @@ class ExtensionSelectionTests(unittest.TestCase):
                 )
                 self.assertEqual(json.loads(result.output)["enabled"], False)
 
+    def test_select_preserves_explicit_repository_and_registry_sources(self):
+        repository = "https://github.com/InKCre/impl-py"
+        arguments = ["select", "inkcre/rss", "--distribution", "python", "--version", "1.2.3"]
+        for options, expected in (
+            (["--source-repository", repository], repository),
+            (["--registry"], None),
+        ):
+            with self.subTest(options=options):
+
+                def handle(request, expected=expected):
+                    self.assertEqual(
+                        json.loads(request.content),
+                        {
+                            "distribution": "python",
+                            "version": "1.2.3",
+                            "source_repository": expected,
+                        },
+                    )
+                    return httpx.Response(200, json={})
+
+                result = self.invoke([*arguments, *options], handle)
+                self.assertEqual(result.exit_code, 0, result.output)
+
     def test_unselect_preserves_status_receipt(self):
         receipt = {"peer_id": "web-peer", "extensions": [{"distribution": None, "enabled": False}]}
 

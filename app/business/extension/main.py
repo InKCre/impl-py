@@ -1,4 +1,4 @@
-"""One Core Extension Host over Registry-native Python Distributions."""
+"""One Core Extension Host over native Python Distributions."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import importlib.metadata
 from pathlib import Path
 import tempfile
+from types import EllipsisType
 import typing
 
 import fastapi
@@ -51,6 +52,11 @@ from .errors import (
   ExtensionRestartRequiredError,
   ExtensionRuntimeError,
   ExtensionStateConflictError,
+)
+from .github_release import (
+  installed_from_repository,
+  release_from_record,
+  stage_github_distribution,
 )
 from .release import (
   ExtensionReleaseDescriptor,
@@ -122,9 +128,7 @@ class _ActiveExtensionModel:
   name: str
   config: dict[str, typing.Any]
   store: ExtensionStore
-  peer_id: typing.Any
-  distribution: str
-  version: str
+  selection: ExtensionParticipation
 
   async def _refresh_async(self) -> _ActiveExtensionModel:
     self.config = await self.store.read_config(self.name)
@@ -140,9 +144,7 @@ class _ActiveExtensionModel:
   async def update_config_schema_async(
     self, schema: dict[str, typing.Any]
   ) -> _ActiveExtensionModel:
-    await self.store.update_participation_config_schema(
-      self.peer_id, self.name, self.distribution, self.version, schema
-    )
+    await self.store.update_participation_config_schema(self.selection, schema)
     return self
 
   async def read_state_async(self) -> dict[str, typing.Any]:
@@ -174,6 +176,15 @@ class RunningExtension:
   acquired: AcquiredDistribution
   extension_class: type[ExtensionBase]
   claim: ExtensionRuntimeClaim
+  source_repository: str | None = None
+
+
+@dataclass
+class _PreparedPython:
+  release: ExtensionReleaseDescriptor
+  association: PythonReleaseDescriptor
+  consumer: DistributionConsumer
+  wheel: Path | None
 
 
 class ExtensionHost:
@@ -255,6 +266,7 @@ class ExtensionHost:
           peer_id=peer_id,
           distribution=selected.distribution if selected else None,
           version=selected.version if selected else None,
+          source_repository=selected.source_repository if selected else None,
           enabled=selected.enabled if selected else False,
           config_schema=selected.config_schema if selected else None,
           supported_distributions=supported,
@@ -281,7 +293,7 @@ class ExtensionHost:
   ) -> ExtensionPeerStatus:
     if route_to_peer == PeerManager.get_current_peer_ref():
       return await self.manage_local(command)
-    request = PeerProtocolRequest(body=command.model_dump(mode="json"))
+    request = PeerProtocolRequest(body=command.model_dump(mode="json", exclude_unset=True))
     result = await PeerManager.delegate(
       EXTENSION_MANAGEMENT_CAPABILITY,
       typing.cast(typing.Any, request.model_dump(mode="json", exclude_unset=True)),
@@ -305,7 +317,15 @@ class ExtensionHost:
       return await self.status(peer_id, command.extension)
     if isinstance(command, SelectExtensionCommand):
       await self.select(
-        command.extension, command.distribution, command.version, peer_id=peer_id
+        command.extension,
+        command.distribution,
+        command.version,
+        peer_id=peer_id,
+        source_repository=(
+          command.source_repository
+          if "source_repository" in command.model_fields_set
+          else ...
+        ),
       )
     elif isinstance(command, EnableExtensionCommand):
       await self.enable(command.extension, peer_id=peer_id)
@@ -343,9 +363,12 @@ class ExtensionHost:
     version: str,
     *,
     peer_id: typing.Any,
+    source_repository: str | None | EllipsisType = ...,
   ) -> ExtensionParticipation:
     async with self._runtime_lock:
-      return await self._select_locked(name, distribution, version, peer_id=peer_id)
+      return await self._select_locked(
+        name, distribution, version, peer_id=peer_id, source_repository=source_repository
+      )
 
   async def _select_locked(
     self,
@@ -354,6 +377,7 @@ class ExtensionHost:
     version: str,
     *,
     peer_id: typing.Any,
+    source_repository: str | None | EllipsisType,
   ) -> ExtensionParticipation:
     if self._environment_application_pending:
       raise ExtensionStateConflictError(
@@ -364,61 +388,60 @@ class ExtensionHost:
       raise ExtensionCompatibilityError(
         "This Core Peer supports only Python Extension distributions"
       )
-    release_client, consumer = await self._operation_consumers()
-    release = await asyncio.to_thread(
-      self._resolve,
-      name,
-      version,
-      allow_yanked=False,
-      release_client=release_client,
-    )
-    association = require_python_association(release)
-    installed = await asyncio.to_thread(
-      AcquiredDistribution.discover, name, version, CORE_VERSION
-    )
-    install_required = installed is None
+    current = await self.store.get_participation(peer_id, name)
+    if isinstance(source_repository, EllipsisType):
+      source_repository = current.source_repository if current is not None else None
+    if (
+      current is not None
+      and current.enabled
+      and (current.distribution, current.version, current.source_repository)
+      != (distribution, version, source_repository)
+    ):
+      raise ExtensionStateConflictError(
+        f"Cannot change {name} selection while it is enabled on this Peer"
+      )
     loaded_version = self._loaded_versions.get(name)
     restart_required = loaded_version not in (None, version)
-    if installed is not None:
-      self._validate_installed_association(installed, association)
-    if install_required:
-      if self.pause_peer_execution is None:
-        raise ExtensionEnvironmentApplicationRequiredError(
-          f"{name}@{version} must be applied while the Peer is paused; "
-          "the process restart lifecycle is unavailable"
-        )
+    pin = ExtensionParticipation(
+      name=name,
+      peer_id=peer_id,
+      distribution=distribution,
+      version=version,
+      enabled=False,
+      source_repository=source_repository,
+    )
+    with tempfile.TemporaryDirectory(prefix="inkcre-extension-wheel-") as directory:
       try:
-        self._operations[name] = ("downloading", None)
-        with tempfile.TemporaryDirectory(prefix="inkcre-extension-wheel-") as directory:
-          extension_wheel = await asyncio.to_thread(
-            consumer.download,
-            release,
-            association,
-            CORE_VERSION,
-            Path(directory),
-          )
-          if self._environment_application_pending:
-            raise ExtensionStateConflictError(
-              "Another Extension operation is already applying a Python environment"
-            )
+        prepared = await self._prepare_python(pin, Path(directory), restore=False)
+      except Exception as error:
+        self._operations[name] = ("failed", str(error))
+        raise
+      install_required = prepared.wheel is not None
+      if prepared.wheel is not None:
+        assert self.pause_peer_execution is not None
+        try:
+          # Pip may partially modify the environment. Keep this Peer paused on failure.
           self._environment_application_pending = True
           self._operations[name] = ("applying", None)
           await self.pause_peer_execution()
           acquired = await asyncio.to_thread(
-            consumer.apply, extension_wheel, release, association, CORE_VERSION
+            prepared.consumer.apply,
+            prepared.wheel,
+            prepared.release,
+            prepared.association,
+            CORE_VERSION,
           )
-          self._validate_installed_association(acquired, association)
-      except Exception as error:
-        # Once application starts, package managers may partially change shared
-        # dependencies. Keep the Peer paused; never claim environment rollback.
-        self._operations[name] = ("failed", str(error))
-        raise ExtensionEnvironmentApplicationRequiredError(
-          f"Preparing or applying {name}@{version} failed; "
-          f"the Peer remains paused if application had started: {error}"
-        ) from error
+          self._validate_installed_association(acquired, prepared.association)
+        except Exception as error:
+          self._operations[name] = ("failed", str(error))
+          raise ExtensionEnvironmentApplicationRequiredError(
+            f"Applying {name}@{version} failed; the Peer remains paused: {error}"
+          ) from error
     try:
-      await self.store.ensure(name, release.nickname)
-      selected = await self.store.select_participation(peer_id, name, "python", version)
+      await self.store.ensure(name, prepared.release.nickname)
+      selected = await self.store.select_participation(
+        peer_id, name, "python", version, source_repository=source_repository
+      )
     except Exception as error:
       if install_required:
         self._operations[name] = ("failed", str(error))
@@ -476,7 +499,7 @@ class ExtensionHost:
       != (association.host_sdk, association.host_sdk_version)
     ):
       raise ExtensionCompatibilityError(
-        "Installed Distribution differs from the exact Registry association"
+        "Installed Distribution differs from the exact Release association"
       )
 
   async def uninstall(self, name: str, *, peer_id: typing.Any) -> None:
@@ -576,6 +599,69 @@ class ExtensionHost:
     consumer = self.distribution_consumer or PipDistributionConsumer(origin)
     return release_client, consumer
 
+  @staticmethod
+  async def _stage_github_pin(
+    pin: ExtensionParticipation,
+    installed: AcquiredDistribution | None,
+    wheel_dir: Path | None,
+    *,
+    restore: bool,
+  ) -> tuple[ExtensionReleaseDescriptor, Path | None]:
+    repository = pin.source_repository
+    assert repository is not None
+    if (
+      restore and installed is not None and installed_from_repository(installed, repository)
+    ):
+      return release_from_record(installed.record), None
+    return await asyncio.to_thread(
+      stage_github_distribution,
+      repository,
+      pin.name,
+      pin.version,
+      wheel_dir,
+      installed=installed,
+    )
+
+  async def _prepare_python(
+    self,
+    pin: ExtensionParticipation,
+    wheel_dir: Path,
+    *,
+    restore: bool,
+    registry: tuple[ReleaseResolver, DistributionConsumer] | None = None,
+  ) -> _PreparedPython:
+    name, version, source_repository = pin.name, pin.version, pin.source_repository
+    installed = await asyncio.to_thread(
+      AcquiredDistribution.discover, name, version, CORE_VERSION
+    )
+    if not restore and installed is None:
+      if self.pause_peer_execution is None:
+        raise ExtensionEnvironmentApplicationRequiredError(
+          f"{name}@{version} must be applied while the Peer is paused; "
+          "the process restart lifecycle is unavailable"
+        )
+      self._operations[name] = ("downloading", None)
+    if source_repository is not None:
+      consumer = self.distribution_consumer or PipDistributionConsumer(source_repository)
+      release, wheel = await self._stage_github_pin(
+        pin, installed, wheel_dir, restore=restore
+      )
+      return _PreparedPython(release, require_python_association(release), consumer, wheel)
+
+    release_client, consumer = registry or await self._operation_consumers()
+    release = await asyncio.to_thread(
+      self._resolve, name, version, allow_yanked=restore, release_client=release_client
+    )
+    association = require_python_association(release)
+    wheel = None
+    if installed is not None:
+      self._validate_installed_association(installed, association)
+    else:
+      wheel = await asyncio.to_thread(
+        consumer.download, release, association, CORE_VERSION, wheel_dir
+      )
+    return _PreparedPython(release, association, consumer, wheel)
+
   async def provision_enabled_distributions(self) -> None:
     """Apply missing exact enabled Python pins before this process starts serving."""
     peer_id = PeerManager.get_current_peer_ref()
@@ -596,76 +682,46 @@ class ExtensionHost:
         f"This Core process cannot restore enabled distributions: {identities}"
       )
 
-    release_client, consumer = await self._operation_consumers()
-    pending: list[
-      tuple[ExtensionParticipation, ExtensionReleaseDescriptor, PythonReleaseDescriptor]
-    ] = []
-    for selection in selections:
-      await self._require_current_enabled_selection(peer_id, selection)
-      release = await asyncio.to_thread(
-        self._resolve,
-        selection.name,
-        selection.version,
-        allow_yanked=True,
-        release_client=release_client,
-      )
-      association = require_python_association(release)
-      installed = await asyncio.to_thread(
-        AcquiredDistribution.discover,
-        selection.name,
-        selection.version,
-        CORE_VERSION,
-      )
-      if installed is not None:
-        self._validate_installed_association(installed, association)
-        continue
-      pending.append((selection, release, association))
-
-    if not pending:
-      current_selections = tuple(
-        row for row in await self.store.list_participations(peer_id) if row.enabled
-      )
-      if {(row.name, row.distribution, row.version) for row in current_selections} != {
-        (row.name, row.distribution, row.version) for row in selections
-      }:
-        raise ExtensionStateConflictError(
-          "Peer selections changed while enabled distributions were being restored; "
-          "restart startup against the current pins"
-        )
-      for selection in current_selections:
-        await self._require_current_enabled_selection(peer_id, selection)
-      return
+    registry = (
+      await self._operation_consumers()
+      if any(row.source_repository is None for row in selections)
+      else None
+    )
 
     # Download every exact wheel before pip can change the shared environment.
     # The process has not imported extension modules yet; it will be exec'd fresh
     # after all applications complete.
     with tempfile.TemporaryDirectory(prefix="inkcre-enabled-extensions-") as directory:
       wheel_dir = Path(directory)
-      wheels: list[
-        tuple[
-          ExtensionParticipation,
-          ExtensionReleaseDescriptor,
-          PythonReleaseDescriptor,
-          Path,
-        ]
-      ] = []
-      for index, (selection, release, association) in enumerate(pending):
+      plan: list[tuple[ExtensionParticipation, _PreparedPython]] = []
+      for index, selection in enumerate(selections):
         await self._require_current_enabled_selection(peer_id, selection)
         selection_wheel_dir = wheel_dir / str(index)
         selection_wheel_dir.mkdir()
-        wheel = await asyncio.to_thread(
-          consumer.download, release, association, CORE_VERSION, selection_wheel_dir
+        prepared = await self._prepare_python(
+          selection,
+          selection_wheel_dir,
+          restore=True,
+          registry=registry,
         )
-        wheels.append((selection, release, association, wheel))
+        plan.append((selection, prepared))
 
-      for selection, release, association, wheel in wheels:
+      for selection, prepared in plan:
+        if prepared.wheel is None:
+          continue
         await self._require_current_enabled_selection(peer_id, selection)
         environment_before = self._environment_package_versions()
         acquired = await asyncio.to_thread(
-          consumer.apply, wheel, release, association, CORE_VERSION
+          prepared.consumer.apply,
+          prepared.wheel,
+          prepared.release,
+          prepared.association,
+          CORE_VERSION,
         )
-        self._assert_environment_packages_preserved(environment_before, association.project)
-        self._validate_installed_association(acquired, association)
+        self._assert_environment_packages_preserved(
+          environment_before, prepared.association.project
+        )
+        self._validate_installed_association(acquired, prepared.association)
         await self._require_current_enabled_selection(peer_id, selection)
         LOGGER.info(
           "Restored enabled Extension distribution %s@%s before process startup",
@@ -677,9 +733,7 @@ class ExtensionHost:
     current_selections = tuple(
       row for row in await self.store.list_participations(peer_id) if row.enabled
     )
-    if {(row.name, row.distribution, row.version) for row in current_selections} != {
-      (row.name, row.distribution, row.version) for row in selections
-    }:
+    if {row.name for row in current_selections} != {row.name for row in selections}:
       raise ExtensionStateConflictError(
         "Peer selections changed while enabled distributions were being restored; "
         "restart startup against the current pins"
@@ -687,16 +741,11 @@ class ExtensionHost:
 
     # Later installs may alter shared dependencies, so verify every selected
     # project again after the complete plan has been applied.
-    for selection in current_selections:
+    applied = any(prepared.wheel is not None for _, prepared in plan)
+    for selection, prepared in plan:
       await self._require_current_enabled_selection(peer_id, selection)
-      release = await asyncio.to_thread(
-        self._resolve,
-        selection.name,
-        selection.version,
-        allow_yanked=True,
-        release_client=release_client,
-      )
-      association = require_python_association(release)
+      if not applied:
+        continue
       acquired = await asyncio.to_thread(
         AcquiredDistribution.discover,
         selection.name,
@@ -708,6 +757,16 @@ class ExtensionHost:
           f"Applying the enabled pin {selection.name}@{selection.version} did not "
           "leave its exact distribution installed"
         )
+      association = prepared.association
+      if selection.source_repository is None and registry is not None:
+        release = await asyncio.to_thread(
+          self._resolve,
+          selection.name,
+          selection.version,
+          allow_yanked=True,
+          release_client=registry[0],
+        )
+        association = require_python_association(release)
       self._validate_installed_association(acquired, association)
 
   async def _require_current_enabled_selection(
@@ -728,15 +787,6 @@ class ExtensionHost:
       raise ExtensionCompatibilityError(
         f"{state.name} is selected for an unsupported Distribution"
       )
-    release_client, _consumer = await self._operation_consumers()
-    release = await asyncio.to_thread(
-      self._resolve,
-      state.name,
-      selection.version,
-      allow_yanked=True,
-      release_client=release_client,
-    )
-    association = require_python_association(release)
     loaded_version = self._loaded_versions.get(state.name)
     if loaded_version is not None and loaded_version != selection.version:
       raise ExtensionRestartRequiredError(
@@ -752,6 +802,18 @@ class ExtensionHost:
         "Peer’s Python environment; "
         "apply the exact distribution while this Peer is paused, then start a new process"
       )
+    if selection.source_repository is not None:
+      release, _ = await self._stage_github_pin(selection, acquired, None, restore=True)
+    else:
+      release_client, _consumer = await self._operation_consumers()
+      release = await asyncio.to_thread(
+        self._resolve,
+        state.name,
+        selection.version,
+        allow_yanked=True,
+        release_client=release_client,
+      )
+    association = require_python_association(release)
     self._validate_installed_association(acquired, association)
     return association, acquired
 
@@ -763,9 +825,12 @@ class ExtensionHost:
   ) -> RunningExtension:
     existing = self.running.get(state.name)
     if existing is not None:
-      if existing.version != selection.version:
+      if (existing.version, existing.source_repository) != (
+        selection.version,
+        selection.source_repository,
+      ):
         raise ExtensionRestartRequiredError(
-          f"A different Release of {state.name} is already running"
+          f"A different selection of {state.name} is already running"
         )
       return existing
     association, acquired = await self._acquire(state, selection)
@@ -800,9 +865,7 @@ class ExtensionHost:
           name=state.name,
           config=dict(state.config),
           store=self.store,
-          peer_id=selection.peer_id,
-          distribution=typing.cast(str, selection.distribution),
-          version=selection.version,
+          selection=selection,
         )
       )
       await extension_class.on_start_async(app)
@@ -826,6 +889,7 @@ class ExtensionHost:
       acquired=acquired,
       extension_class=extension_class,
       claim=claim,
+      source_repository=selection.source_repository,
     )
     self.running[state.name] = running
     self._loaded_versions[state.name] = selection.version
@@ -840,8 +904,9 @@ class ExtensionHost:
     if current is None or (
       current.distribution,
       current.version,
+      current.source_repository,
       current.enabled,
-    ) != (selection.distribution, selection.version, True):
+    ) != (selection.distribution, selection.version, selection.source_repository, True):
       return None
     return current
 

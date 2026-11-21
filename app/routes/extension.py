@@ -77,11 +77,17 @@ async def select_extension(
   route_to_peer: PeerRef | None = None,
 ) -> ExtensionPeerStatus:
   try:
+    source = (
+      {"source_repository": body.source_repository}
+      if "source_repository" in body.model_fields_set
+      else {}
+    )
     command = SelectExtensionCommand(
       action="select",
       extension=_coordinate(namespace, name),
       distribution=body.distribution,
       version=body.version,
+      **source,
     )
     return await EXTENSION_HOST.manage(
       command, route_to_peer=route_to_peer or PeerManager.get_current_peer_ref()
