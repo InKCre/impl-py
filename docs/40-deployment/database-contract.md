@@ -78,6 +78,13 @@ Participation writes use the authenticated peer role under the same JWT boundary
 PostgREST 14 对 raw byte response 需要 explicit response media-type domain；raw request 只依赖 single unnamed
 `bytea` argument。Readiness separately proves both signatures。
 
+Storage pointer JSON belongs to the `postgresql_binary` handler。Peer/application只持有 opaque pointer string；
+bytes、MIME、filename 与 resolver semantics不复制到 pointer。Core native commands通过 GraphUnitOfWork 中的 StorageRepository 异步进行
+C/R/U/D；browser peer通过 raw RPC + exact relation update/delete获得等价 capability。
+
+Deleting a referenced `storages` catalog row is `RESTRICT`。Changing/deleting a blob does not query or rewrite blocks，
+所以 block timestamps、embedding 与其他 peer cache 不自动代表 storage bytes freshness。
+
 ## S3 兼容存储和 WebDAV
 
 在部署上运行 `db reconcile-builtins` 登记 `s3` 和 `webdav` 两种可写类型。通过已认证的
@@ -159,12 +166,51 @@ Block 保存相对于实例地址的 UUID 指针。轮换凭据可编辑原实�
   管理。连接中断可能留下 `.inkcre-stage-*` 或 `.inkcre-delete-*` 目录，确认对应传输结束后可清理。
   备份需覆盖数据库和附件目录。
 
-Storage pointer JSON belongs to the `postgresql_binary` handler。Peer/application只持有 opaque pointer string；
-bytes、MIME、filename 与 resolver semantics不复制到 pointer。Core native commands通过 GraphUnitOfWork 中的 StorageRepository 异步进行
-C/R/U/D；browser peer通过 raw RPC + exact relation update/delete获得等价 capability。
+## IPFS 归档和 Google Drive 存储
 
-Deleting a referenced `storages` catalog row is `RESTRICT`。Changing/deleting a blob does not query or rewrite blocks，
-所以 block timestamps、embedding 与其他 peer cache 不自动代表 storage bytes freshness。
+运行 `db reconcile-builtins` 登记 `ipfs` 和 `google_drive`。通过 `/storages?select=id` 创建实例，
+再把返回的 ID 填入 Source 存储配置。Python Peer 需要可以访问配置的 Kubo RPC 或 Google Drive。
+两者的单次 HTTP 请求 `timeout` 默认 30 秒，`max_bytes` 默认 64 MiB。
+
+### IPFS
+
+```json
+{
+  "type": "ipfs",
+  "nickname": "私有 IPFS 归档",
+  "config": {
+    "endpoint": "http://127.0.0.1:5001"
+  }
+}
+```
+
+- `endpoint` 是私有 Kubo RPC 的根地址或反向代理挂载前缀，驱动会追加 `/api/v0`。受控代理
+  可选 `bearer_token`。运维应把 RPC 放在受控网络内，并备份持有内容的 Kubo 仓库。
+- 每次写入创建独立且递归固定的目录根。释放其中一次写入的 pin 时，共用底层数据的其它写入仍可读。
+  可用性取决于有在线节点保留数据。公开网络中的其它副本有独立的生命周期。
+- 支持创建、读取和释放本次写入的 pin。内容变更需要写入新对象并更新 Block 指针。对象原地更新会返回
+  不支持的错误。
+
+### Google Drive
+
+```json
+{
+  "type": "google_drive",
+  "nickname": "Google Drive 附件",
+  "config": {
+    "folder_id": "<authorized folder ID>",
+    "client_id": "<Google OAuth client ID>",
+    "client_secret": "<Google OAuth client secret>",
+    "refresh_token": "<offline Google OAuth refresh token>"
+  }
+}
+```
+
+- 使用同一个 OAuth 客户端和账号取得允许后台访问的 `drive.file` refresh token。目标文件夹需由该应用
+  创建或通过 Google Picker 等方式授权给该应用。填入文件夹 ID 本身不会授予权限。
+- 使用 Drive 文件 ID 读写文件。驱动核对文件的应用私有标记和目录归属，移动出配置目录会影响存储读取。
+  删除已管理文件需要该账号具备永久删除权限。凭据撤销后需重新授权并更新实例配置。
+- 更新保持 Drive 文件 ID。并发替换由 Drive 处理，应用层可以按稳定 ID 重新读取结果。
 
 ## Peer Discovery Protocol
 

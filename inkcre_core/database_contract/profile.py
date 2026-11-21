@@ -137,6 +137,38 @@ SFTP_STORAGE_SCHEMA["oneOf"] = [
   for key in ("password", "private_key")
 ]
 
+IPFS_STORAGE_SCHEMA = _object_schema(
+  "IPFSStorageConfig",
+  "Private Kubo RPC endpoint and optional proxy credential.",
+  {
+    **_REMOTE_STORAGE_PROPERTIES,
+    "endpoint": {
+      **_NONEMPTY_STRING,
+      "description": "Kubo RPC base URL before /api/v0.",
+      "format": "uri",
+    },
+    "bearer_token": {"anyOf": [_SECRET_STRING, {"type": "null"}], "default": None},
+  },
+  required=("endpoint",),
+)
+GOOGLE_DRIVE_STORAGE_SCHEMA = _object_schema(
+  "GoogleDriveStorageConfig",
+  "A Drive folder and OAuth credentials with offline access.",
+  {
+    "folder_id": {
+      **_NONEMPTY_STRING,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "not": {"const": "root"},
+    },
+    "client_id": _NONEMPTY_STRING,
+    "client_secret": _SECRET_STRING,
+    "refresh_token": _SECRET_STRING,
+    "timeout": _positive_integer(30),
+    "max_bytes": _positive_integer(64 * 1024 * 1024),
+  },
+  required=("folder_id", "client_id", "client_secret", "refresh_token"),
+)
+
 OPENAI_COMPATIBLE_DIALECT_SCHEMA = {
   "additionalProperties": False,
   "description": "Connection values for one OpenAI-compatible provider instance.",
@@ -191,6 +223,18 @@ BUILTIN_STORAGE_TYPES += (
       "Configuration for PostgreSQL binary storage.",
       {},
     ),
+    True,
+  ),
+  StorageTypeProfile(
+    "google_drive",
+    "Google Drive folder for deployment-owned binary content.",
+    GOOGLE_DRIVE_STORAGE_SCHEMA,
+    True,
+  ),
+  StorageTypeProfile(
+    "ipfs",
+    "Immutable binary content retained by a private IPFS node.",
+    IPFS_STORAGE_SCHEMA,
     True,
   ),
   StorageTypeProfile(
