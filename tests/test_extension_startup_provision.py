@@ -1,4 +1,6 @@
+import json
 from pathlib import Path
+from types import SimpleNamespace
 import typing
 import uuid
 
@@ -8,6 +10,7 @@ from inkcre_extension_runtime_core_py.generated.registry import (
   NativeReleaseRecord,
   State,
 )
+from inkcre_extension_runtime_core_py.contracts import InstalledExtensionRecord
 
 from app.business.extension import main as extension_main
 from app.business.extension.errors import ExtensionCompatibilityError
@@ -195,6 +198,72 @@ def test_startup_provisions_only_enabled_exact_python_selections(
   assert consumer.downloads == [("inkcre/mail", "0.3.3")]
   assert consumer.applications == [("inkcre/mail", "0.3.3")]
   assert store.selections == [selected, disabled]
+
+
+@pytest.mark.parametrize("installed_by_selected_repository", [True, False])
+def test_installed_github_pin_requires_repository_proof_before_offline_reuse(
+  async_runner, monkeypatch: pytest.MonkeyPatch, installed_by_selected_repository: bool
+) -> None:
+  selected = participation("inkcre/mail", "0.4.0", enabled=True).model_copy(
+    update={"source_repository": "https://github.com/InKCre/impl-py"}
+  )
+  descriptor = release(selected.name, selected.version)
+  assert descriptor.python is not None
+  record = InstalledExtensionRecord.model_validate(
+    {
+      "schema_version": 1,
+      "name": selected.name,
+      "version": selected.version,
+      "host_sdk": {"name": "core-py", "version": descriptor.python.host_sdk_version},
+      "python": {
+        "project": descriptor.python.project,
+        "project_version": selected.version,
+        "entry_point": descriptor.python.entry_point.model_dump(),
+      },
+    }
+  )
+  owner = "InKCre" if installed_by_selected_repository else "other"
+  direct_url = {
+    "url": (
+      f"file:///stage/inkcre-github-release/{owner}/impl-py/"
+      "inkcre_ext_mail-0.4.0-py3-none-any.whl"
+    ),
+    "archive_info": {"hashes": {"sha256": "0" * 64}},
+  }
+  acquired = typing.cast(
+    extension_main.AcquiredDistribution,
+    SimpleNamespace(
+      record=record,
+      distribution=SimpleNamespace(read_text=lambda _: json.dumps(direct_url)),
+    ),
+  )
+  monkeypatch.setattr(extension_main.AcquiredDistribution, "discover", lambda *_: acquired)
+
+  async def unexpected_registry():
+    raise AssertionError("a repository-backed pin must not consult the Registry")
+
+  github_lookups = []
+
+  def verify_github(repository, name, version, _directory, *, installed):
+    github_lookups.append((repository, name, version))
+    assert installed is acquired
+    return extension_main.release_from_record(record), None
+
+  monkeypatch.setattr(extension_main, "stage_github_distribution", verify_github)
+  host = ExtensionHost(
+    store=typing.cast(ExtensionStore, SelectionStore(selected)),
+    registry_origin_resolver=unexpected_registry,
+  )
+  async_runner.run(host.provision_enabled_distributions())
+  association, result = async_runner.run(
+    host._acquire(InstalledExtension(name=selected.name), selected)
+  )
+  assert association.project == "inkcre-ext-mail"
+  assert result is acquired
+  expected = (selected.source_repository, selected.name, selected.version)
+  assert github_lookups == (
+    [] if installed_by_selected_repository else [expected, expected]
+  )
 
 
 @pytest.mark.parametrize("change_during", ["download", "apply"])

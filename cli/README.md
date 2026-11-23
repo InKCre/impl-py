@@ -49,6 +49,9 @@ inkcre-cli config schemas --json
 
 Extension management v2 uses `extension select COORDINATE --distribution python --version VERSION`
 to select an exact version for the connected Peer, then `extension enable COORDINATE` to enable it.
+Add `--source-repository https://github.com/OWNER/REPO` for a GitHub Release.
+Omitting the source preserves the existing selection's source. Pass `--registry` to select from
+the configured Registry.
 Both commands accept `--peer PEER_ID` to target another Peer. A Web Peer's Distribution is
 `module_federation`; it cannot run as a Python package on Core. Disable the Extension before
 `extension unselect COORDINATE` to remove that Peer's selection. Shared configuration and collected

@@ -3,20 +3,28 @@
 Core stores one shared Extension identity in `inkcre.extensions`: `name`, `nickname`, `config`,
 and producer-owned `state`. Each Peer stores its exact native selection and enabled intent in
 `inkcre.extension_peer_participations`, keyed by `(name, peer_id)`. A participation includes the
-distribution, exact version, enabled intent, and the config schema published by that exact release.
+distribution, exact version, optional `source_repository`, enabled intent, and the config schema
+published by that exact release.
 Selection, enablement, and actual process runtime remain distinct states. No first-party rows are
 seeded or synchronized.
 
-For a new install or version change, Core requires an exact published Registry Release. Enabling
-or cold-restoring an already-selected exact Release may consume a yanked Release, but missing or
-blocked bytes leave that Peer’s enabled intent unchanged.
+Select a repository-backed release with
+`inkcre-cli extension select COORDINATE --distribution python --version VERSION --source-repository https://github.com/OWNER/REPO`.
+Core reads the exact GitHub Release, chooses a compatible wheel, and verifies its SHA-256 from the
+Release attachment. The wheel's native installed record supplies its project and entry point.
+The shared tag and release description are defined in
+[Extension Release and Installation](../_shared/20-product-tdd/extension-release-and-installation.md).
 
-Python acquisition uses the Release's same-origin `/simple/<normalized-project>/` association.
-Every enable or cold restore first reads the exact Registry Release, checks its lifecycle state and
-Host SDK association, then discovers the exact record already installed in the Core interpreter.
-Core reuses that Distribution only when its Project, entry point and Host SDK match the current
-Registry association. A damaged or conflicting installed record fails; it is not silently replaced.
-A missing record enters the independently released Runtime SDK acquisition path.
+On enable or cold restore, Core can reuse a wheel after checking the repository recorded by pip
+in its installed archive metadata. If the metadata does not establish the repository, Core
+reads the exact GitHub Release and checks the installed archive SHA-256 against its attachment.
+A conflicting wheel prevents the selection from running.
+
+A participation with a null source uses the configured Registry and its same-origin
+`/simple/<normalized-project>/` association. This path checks the exact Registry Release during
+enable and cold restore. An already-selected yanked Release retains its existing warning and
+admission behavior. Omit `source_repository` when selecting a version to keep the current source,
+or send null to select from the configured Registry.
 
 When the exact Distribution is absent, Core first downloads and validates its wheel without changing
 the interpreter. It then closes Peer execution, drains jobs and scheduled callbacks, closes running
@@ -24,13 +32,12 @@ extensions, and applies the wheel with ordinary `sys.executable -m pip install` 
 environment. Pip may resolve dependencies from its configured package index and may change packages
 used by other Extensions. After apply, Core replaces the process with a fresh one so Python imports
 cannot continue using modules loaded before the environment change. An apply failure is reported and
-leaves the Peer paused; Core does not claim package rollback. Exact installed-record reuse avoids
-this lifecycle only when the installed project, entry point, and Host SDK match the Registry record.
+leaves the Peer paused with the installation error. An installed wheel that matches the selection
+skips this lifecycle.
 The standard `inkcre.core.extensions` entry point is discovered globally and every loaded Extension
 module is verified against the installed wheel file record. There is no per-Extension target
-directory, custom ZIP loader or module search-path rewrite. Registry failure or a blocked Release
-still prevents restoration even when its Distribution is installed; installed yanked Releases retain
-their existing warning and admission behavior.
+directory, custom ZIP loader or module search-path rewrite. The production image excludes the
+first-party producer source trees so the installed wheel owns its modules.
 
 Peers may select different versions of the same shared Extension. Changing one Peer’s exact
 selection is rejected while that Peer has the Extension enabled; other Peers’ selections do not
@@ -46,9 +53,8 @@ distribution. Cold restore resolves only that exact Registry version and never s
 latest release. Failed resolution preserves the old intent and reports the error.
 
 The first-party Extensions are independent PEP 420 wheels with the standard entry-point group
-and producer metadata in their `pyproject.toml`. That project version is the Python association's
-Release authority and must equal the Extension Release Version shared by its Distribution
-associations. Feature pull requests carry project-local Towncrier fragments and leave versions and
+and producer metadata in their `pyproject.toml`. That project version determines the Python
+Distribution's Release version. Feature pull requests carry project-local Towncrier fragments and leave versions and
 changelogs unchanged. After checked `main`, one generated Release PR consumes pending fragments,
 applies each project's independent SemVer bump, and renders its changelog without publishing.
 Repository orchestration owns project impact and next-version calculation；Towncrier owns fragment
@@ -75,59 +81,23 @@ passes the deterministic PR alias to Core without downloading every published fi
 bytes, bypassing caches, or waiting for edge convergence. Consumer acceptance remains a separate
 manual or black-box activity and does not block the Heroku preview from starting.
 
-`.github/workflows/extension-publish.yml` prepares the exact Python Distribution Release at
-`/v2/extensions/{namespace}/{name}/distributions/python/releases` with source provenance,
-finalizes the newly built wheel using the pinned Toolkit's `python wheel finalize` command,
-uploads through `/legacy/`, and publishes that Python Release. Automatic runs obtain `before_sha`
-from the protected-main push and select only new projects or changed project versions;
-unchanged matrix entries are explicit no-ops. The matrix and repository wheel checks consume the
-same discovery result rather than separate project lists. An unprovable lineage or immutable
-prepare conflict fails the job.
+[Python wheel 正式发布](../../.github/workflows/extension-publish.yml)在受保护的 `main` 上发现
+producer。自动运行比较该次 push 的前后版本，只选择新项目和升版项目。它使用冻结的工具链生成 wheel，
+再通过 Toolkit 的 `python wheel finalize` 写入原生 `.dist-info/inkcre-extension.json` 并校验 wheel。
+预览也使用同一个 finalize 步骤。
 
-Preview and production both finalize before delivering the wheel. The installed runtime manifest belongs inside
-`.dist-info/inkcre-extension.json`; Registry association metadata is not a replacement. The raw build output remains separate
-from the finalized upload. Repairing a published wheel requires a new project version, not overwriting an old Release.
+正式发布前，capture 再次检查提交仍属于 `main`、该插件的构建输入未变，然后保存 wheel、源提交、
+元数据和 SHA-256。publish 在 `production` 环境恢复并校验原候选，用其标签创建或恢复 GitHub Release
+草稿。只有附件摘要与保存的 wheel 一致时才公开，随后从 GitHub 读回标签、正文和附件摘要。
+跨仓格式见[扩展发行与安装](../_shared/20-product-tdd/extension-release-and-installation.md)。
 
-A checked commit may be older than current `main` only while it remains an ancestor. Before saving a
-candidate, the capture job fetches `main` again and requires that Extension's artifact-input surface
-to be unchanged across `HEAD..origin/main`. A generated changelog-only or different-Extension commit
-therefore does not discard a valid build; a later change to the same artifact input stops the older
-job before it records bytes for publication. Once capture succeeds, Registry retries use the saved
-wheel, prepare metadata, source revision, and digest without consulting moving `main` again.
+切换时，维护者可用 `workflow_dispatch` 的 `INITIAL_ONLY` 为一个 producer 补上首个仓库 Release。
+后续更新按普通升版流程发布。失败时使用原 run 的 **Re-run failed jobs** 恢复保存的 wheel，候选保留 90 天。
+仓库 Release 公开后的修订需要项目升版。
 
-`workflow_dispatch` selects one exact discovered producer and is an `INITIAL_ONLY` lane for a
-version that does not yet exist. Because public descriptors intentionally omit private producer
-provenance, a new workflow run cannot safely resume an existing version: recovery must rerun the
-original Extension publication run so its stable `github.run_id` build identity is preserved. The
-capture job stores the complete candidate before the publisher receives Registry credentials.
-Recovery reruns only the failed publish job, which locates and restores that run's unique artifact;
-the artifact's source revision and wheel digest are checked before any Registry call. A full-workflow
-rerun enters capture and fails explicitly at `Reject candidate reconstruction`, while publish is
-skipped because capture did not succeed. This prevents a green run that silently does no work. If the
-artifact is missing or expired, recovery stops and requires investigation rather than rebuilding
-different bytes under the same version. Candidate artifacts are retained for 90 days.
-
-First-party global and Python documentation are static publication artifacts for the same exact
-Release, not Core HTTP routes or wheel contents. Producer tooling obtains documentation addresses
-from Registry and must not construct snapshot hosts from the Registry origin. The public deployment
-currently routes a broad `*.inkcre.dev` wildcard to Registry so Heroku ACM's wildcard certificate can
-serve `registry-docs-{snapshot}.inkcre.dev`; Registry then enforces the exact Host template and
-returns 421 for other wildcard matches. Core deployment and Extension packages must not encode that
-production DNS compromise or treat DNS/TLS success as proof that a documentation set exists.
-
-`.github/workflows/extension-documentation-publish.yml` is the protected manual publication lane
-for first-party producer documentation. The operator selects the producer, native Distribution and
-exact published version; a Module Federation version is never inferred from the Python producer.
-Python publication builds every scope under the selected producer; Module Federation publication
-builds only the shared `global` scope. The pinned shared VitePress toolchain reads the selected
-native Release's scope ETags and saves
-complete Toolkit candidates before any Registry write. The publish job restores those exact
-candidates, revalidates their source against current `main`, publishes them, and checks their public
-snapshot origins.
-Each native Release owns its documentation records. A shared guide must be published for both
-native coordinates to be discoverable from either participation's Extension card.
-Recovery reruns only the failed publish job; rerunning all jobs is rejected because it would create
-new snapshot identities. Candidate artifacts are retained for 90 days.
+新发行的用户文档放在 producer 的 `docs/user`，随该 Release 标签对应的源码浏览。
+已有 Registry 发行可以沿原地址恢复。历史发行的用户文档也继续由其已有记录提供；
+[手动文档工作流](../../.github/workflows/extension-documentation-publish.yml)仅供维护历史 Registry 发行。
 
 Official production publication and deployment jobs require
 `github.repository == 'InKCre/impl-py'`. A fork may build and test normally, but it cannot enter the
@@ -144,8 +114,8 @@ app/persistence/extension owns SQL and session creation. Row locks serialize sta
 participation row owns only one Peer’s exact selection, enabled intent, and version-scoped config
 schema; shared Extension config and state remain deployment-wide.
 
-Registry-origin database reads finish before Registry HTTP and wheel acquisition. The existing
-blocking artifact clients run in a worker without a database session. Startup failure or cancellation
+Selection and Registry-origin database reads finish before release HTTP and wheel acquisition.
+Blocking artifact clients run in a worker without a database session. Startup failure or cancellation
 withdraws the current publication and releases its runtime claim.
 
 Core Host SDK 0.3 adds `app.http.get_public_http_base_url()` without changing the async lifecycle

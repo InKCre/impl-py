@@ -19,6 +19,7 @@ import sqlalchemy.exc
 import sqlmodel
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from inkcre_core import Core
 from inkcre_core.business.cron import CronManager
 from app.business.extension.errors import ExtensionStateConflictError
 from app.business.extension.state import ExtensionStateService
@@ -401,17 +402,19 @@ def test_peer_can_persist_its_own_distribution_format(setup_domain_engine, monke
     asyncio.run(engine.dispose())
 
 
+@pytest.mark.parametrize(
+  ("version", "source_repository"),
+  [("2.0.0", None), ("1.0.0", "https://github.com/InKCre/impl-py")],
+)
 def test_selection_change_clears_schema_and_rejects_late_old_callback(
-  setup_domain_engine, monkeypatch
+  setup_domain_engine, version, source_repository
 ):
-  import asyncio
-  from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
   peer_id = uuid.uuid4()
   name = f"inkcre/schema-{peer_id.hex}"
   with sqlmodel.Session(setup_domain_engine) as session:
     session.add(PeerModel(id=peer_id, name="schema-cas-test"))
     session.add(ExtensionModel(name=name))
+    session.flush()
     session.add(
       ExtensionPeerParticipationModel(
         name=name,
@@ -425,11 +428,15 @@ def test_selection_change_clears_schema_and_rejects_late_old_callback(
     session.commit()
 
   engine = create_async_engine(setup_domain_engine.url)
-  monkeypatch.setattr(extension_uow, "AsyncSessionFactory", async_sessionmaker(engine))
+  core = Core(engine)
   store = ExtensionStateService()
 
   async def scenario():
-    selected = await store.select_participation(peer_id, name, "python", "2.0.0")
+    old_selection = await store.get_participation(peer_id, name)
+    assert old_selection is not None
+    selected = await store.select_participation(
+      peer_id, name, "python", version, source_repository=source_repository
+    )
     assert selected.config_schema is None
     with setup_domain_engine.connect() as connection:
       assert connection.exec_driver_sql(
@@ -440,18 +447,24 @@ def test_selection_change_clears_schema_and_rejects_late_old_callback(
       ).scalar_one()
     with pytest.raises(ExtensionStateConflictError, match="selection changed"):
       await store.update_participation_config_schema(
-        peer_id, name, "python", "1.0.0", {"title": "late old schema"}
+        old_selection, {"title": "late old schema"}
       )
     current = await store.get_participation(peer_id, name)
     assert current is not None
-    assert (current.distribution, current.version, current.config_schema) == (
+    assert (
+      current.distribution,
+      current.version,
+      current.source_repository,
+      current.config_schema,
+    ) == (
       "python",
-      "2.0.0",
+      version,
+      source_repository,
       None,
     )
 
   try:
-    with asyncio.Runner() as runner:
+    with core.bind(), asyncio.Runner() as runner:
       runner.run(scenario())
   finally:
     asyncio.run(engine.dispose())
