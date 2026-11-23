@@ -18,13 +18,21 @@ from app.business.extension.errors import ExtensionAcquisitionError
 REPOSITORY = "https://github.com/publisher/extensions"
 TAG = "inkcre-ext/publisher/sample/python/v1.2.3"
 FILENAME = "inkcre_ext_sample-1.2.3-py3-none-any.whl"
-ASSET_URL = f"{REPOSITORY}/releases/download/{TAG}/{FILENAME}"
 
 
-@pytest.mark.parametrize("valid_digest", [True, False])
+@pytest.mark.parametrize(
+  ("scheme", "valid_digest", "error"),
+  [("https", True, None), ("https", False, "SHA-256"), ("http", True, "HTTPS")],
+)
 def test_stage_release_checks_exact_wheel_and_github_digest(
-  monkeypatch: pytest.MonkeyPatch, tmp_path, valid_digest: bool
+  monkeypatch: pytest.MonkeyPatch,
+  tmp_path,
+  scheme: str,
+  valid_digest: bool,
+  error: str | None,
 ) -> None:
+  # GitHub can return the attachment under the repository's current name.
+  asset_url = f"{scheme}://github.com/publisher/renamed/releases/download/{TAG}/{FILENAME}"
   record = {
     "schema_version": 1,
     "name": "publisher/sample",
@@ -58,8 +66,9 @@ def test_stage_release_checks_exact_wheel_and_github_digest(
   def handle(request: httpx.Request) -> httpx.Response:
     requests.append(str(request.url))
     if request.url.host == "api.github.com":
-      assert request.url.raw_path.endswith(
-        b"/releases/tags/inkcre-ext%2Fpublisher%2Fsample%2Fpython%2Fv1.2.3"
+      assert request.url.raw_path == (
+        b"/repos/publisher/extensions/releases/tags/"
+        b"inkcre-ext%2Fpublisher%2Fsample%2Fpython%2Fv1.2.3"
       )
       return httpx.Response(
         json={
@@ -67,17 +76,17 @@ def test_stage_release_checks_exact_wheel_and_github_digest(
           "body": f"Release notes\n\n<!-- inkcre-release\n{json.dumps(manifest)}\n-->",
           "draft": False,
           "assets": [
-            {"name": "legacy-manifest.json", "browser_download_url": f"{ASSET_URL}.json"},
+            {"name": "legacy-manifest.json", "browser_download_url": f"{asset_url}.json"},
             {
               "name": FILENAME,
-              "browser_download_url": ASSET_URL,
+              "browser_download_url": asset_url,
               "digest": f"sha256:{digest}",
             },
           ],
         },
         status_code=200,
       )
-    assert str(request.url) == ASSET_URL
+    assert str(request.url) == asset_url
     return httpx.Response(200, content=wheel_bytes)
 
   monkeypatch.setattr(
@@ -85,7 +94,7 @@ def test_stage_release_checks_exact_wheel_and_github_digest(
     "Client",
     partial(httpx.Client, transport=httpx.MockTransport(handle)),
   )
-  if valid_digest:
+  if error is None:
     descriptor, wheel = github_release.stage_github_distribution(
       REPOSITORY, "publisher/sample", "1.2.3", tmp_path, installed=None
     )
@@ -107,8 +116,8 @@ def test_stage_release_checks_exact_wheel_and_github_digest(
       installed, "https://github.com/other/extensions"
     )
   else:
-    with pytest.raises(ExtensionAcquisitionError, match="SHA-256"):
+    with pytest.raises(ExtensionAcquisitionError, match=error):
       github_release.stage_github_distribution(
         REPOSITORY, "publisher/sample", "1.2.3", tmp_path, installed=None
       )
-  assert len(requests) == 2
+  assert len(requests) == (2 if scheme == "https" else 1)

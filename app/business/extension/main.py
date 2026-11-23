@@ -804,15 +804,16 @@ class ExtensionHost:
       )
     if selection.source_repository is not None:
       release, _ = await self._stage_github_pin(selection, acquired, None, restore=True)
-    else:
-      release_client, _consumer = await self._operation_consumers()
-      release = await asyncio.to_thread(
-        self._resolve,
-        state.name,
-        selection.version,
-        allow_yanked=True,
-        release_client=release_client,
-      )
+      return require_python_association(release), acquired
+
+    release_client, _consumer = await self._operation_consumers()
+    release = await asyncio.to_thread(
+      self._resolve,
+      state.name,
+      selection.version,
+      allow_yanked=True,
+      release_client=release_client,
+    )
     association = require_python_association(release)
     self._validate_installed_association(acquired, association)
     return association, acquired

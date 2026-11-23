@@ -19,7 +19,7 @@ from app.settings import settings
 
 from .distribution import AcquiredDistribution
 from .errors import ExtensionAcquisitionError
-from .release import ExtensionReleaseDescriptor, require_python_association
+from .release import ExtensionReleaseDescriptor
 
 
 class _ReleaseManifest(BaseModel):
@@ -191,14 +191,8 @@ def stage_github_distribution(
       else:
         assert wheel_dir is not None
         asset_url = urlsplit(asset.browser_download_url)
-        prefix = f"/{slug}/releases/download/".lower()
-        if (asset_url.scheme, asset_url.netloc) != (
-          "https",
-          "github.com",
-        ) or not asset_url.path.lower().startswith(prefix):
-          raise ExtensionAcquisitionError(
-            "Python wheel attachment is outside the publisher Release"
-          )
+        if asset_url.scheme != "https" or not asset_url.hostname:
+          raise ExtensionAcquisitionError("Python wheel attachment requires an HTTPS URL")
         path = wheel_dir / _ARCHIVE_DIRECTORY / owner / repo / asset.name
         path.parent.mkdir(parents=True)
         checksum = hashlib.sha256()
@@ -227,9 +221,7 @@ def stage_github_distribution(
       raise ExtensionAcquisitionError(
         "Wheel metadata differs from the selected GitHub Release"
       )
-    descriptor = release_from_record(record)
-    require_python_association(descriptor)
-    return descriptor, path
+    return release_from_record(record), path
   except (httpx.HTTPError, BadZipFile, OSError, ValueError) as error:
     raise ExtensionAcquisitionError(
       f"Could not resolve GitHub wheel for {name}@{version}"
