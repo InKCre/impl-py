@@ -115,6 +115,15 @@ def verify(base_url: str, secret: str, wrong_secret: str) -> dict[str, object]:
     raise RuntimeError("authenticated write returned an unexpected record")
 
   escaped_extension = parse.quote(PROBE_EXTENSION_NAME, safe="")
+  # A previous failed probe may have left its own non-empty shared state.
+  checks["extension_prepare"], _ = _call(
+    base_url,
+    f"extensions?name=eq.{escaped_extension}",
+    method="PATCH",
+    token=valid_token,
+    document={"state": {}},
+  )
+  _expect(checks["extension_prepare"], 200, "probe state preparation")
   _call(
     base_url,
     f"extensions?name=eq.{escaped_extension}",
@@ -234,6 +243,30 @@ def verify(base_url: str, secret: str, wrong_secret: str) -> dict[str, object]:
     token=valid_token,
   )
   _expect(checks["participation_cleanup"], 204, "participation cleanup")
+  checks["non_empty_state_delete_rejected"], rejected_body = _call(
+    base_url,
+    f"extensions?name=eq.{escaped_extension}",
+    method="DELETE",
+    token=valid_token,
+  )
+  _expect(checks["non_empty_state_delete_rejected"], 400, "non-empty state delete")
+  rejected = json.loads(rejected_body)
+  if (
+    rejected.get("code") != "23514"
+    or rejected.get("message") != "cannot delete Extension while state is not empty"
+  ):
+    raise RuntimeError("non-empty state delete failed for an unexpected reason")
+  checks["shared_state_cleanup"], cleared_body = _call(
+    base_url,
+    f"extensions?name=eq.{escaped_extension}",
+    method="PATCH",
+    token=valid_token,
+    document={"state": {}},
+  )
+  _expect(checks["shared_state_cleanup"], 200, "probe state cleanup")
+  cleared_rows = json.loads(cleared_body)
+  if len(cleared_rows) != 1 or cleared_rows[0].get("state") != {}:
+    raise RuntimeError("rejected delete did not preserve the probe Extension")
   checks["extension_cleanup"], _ = _call(
     base_url,
     f"extensions?name=eq.{escaped_extension}",

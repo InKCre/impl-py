@@ -29,7 +29,10 @@
 | 独立 CLI | 9 passed；最终子范围3.863s | 真实命令子进程、连接重开、JWT、错误通道、部分结果、独立MIME fixture、搬移导出、慢HTTP观察预算 |
 | 发布恢复／App／镜像 | 11 passed，3.68s | 实际保存与恢复候选字节、篡改拒绝；外部CLI替身不证明真实Heroku/Neon联通 |
 | 静态和治理检查 | foundation、format、lint、database boundaries、Pyrefly、actionlint、migration integrity、diff check通过 | Pyrefly 0 diagnostics，101项既有suppression未增加；原依赖版本未升级 |
-| 构建与完整 CI | 待 PR 的 exact-head CI | 本机 `agent-build` 共享队列等待后已取消本任务尚未启动的两个排队命令，不把未执行写为通过；不干扰其他任务构建 |
+| 首轮 CI：core、CLI、所有第一方扩展 wheel 和仓库检查 | 通过；默认 229 passed / 88 skipped / 6 deselected，数据库 88 passed / 0 skipped / 1 deselected，CLI 9 passed | [运行 45998528255](https://github.com/InKCre/impl-py/actions/runs/45998528255)，实现提交 d60bc6c；默认另有 PostgreSQL preflight 在 CI 提供环境后执行 |
+| 首轮镜像 CI 与后续补证 | 镜像构建、重复初始化通过；PostgREST 探针清理因恢复的 state guard 失败，已修正 | 详见 delivery ledger；本地真实 PostgREST 两次完整通过，禁用 trigger 的控制准确失败，恢复后再次通过。完整镜像、reset 和导出恢复以 [PR #201 当前检查](https://github.com/InKCre/impl-py/pull/201/checks) 为准 |
+
+本机 `agent-build` 共享队列等待后，已取消本任务尚未启动的两个排队命令，不把未执行写为通过；不干扰其他任务构建。core/CLI/扩展构建证据来自上述实际 CI。
 
 原始运行日志、JUnit 和一次性 mutation 脚本留在本任务目录；这些临时材料及外部材料副本不进入提交。逐声明决定、keeper 与失败模式在六个 `*-ledger.md`；它们是本次审计记录，不是新的长期产品权威。
 

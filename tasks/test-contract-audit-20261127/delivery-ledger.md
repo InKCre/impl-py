@@ -60,3 +60,11 @@ Shell外部I/O替身保护组装和失败控制，真实镜像/PostgREST/恢复�
 - 发布恢复的旧测试没有证明保存文件恢复。改为按 YAML 的可执行命令识别 capture/publish/discover，保留平台调度条件和下载唯一 artifact 的独立静态契约，允许 job/step/id 重命名。新增实际 save→复制→删除原始输入→restore 的 release/no-op 两分支；独立 SHA-256 oracle、篡改拒绝与还原通过。删掉校验语句的 control 因目标篡改被接受而失败。无网络或真正发布。
 - PyYAML 原本随 dev pre-commit 安装，现显式声明为该静态边界的开发依赖并补类型 stub。原依赖版本无变化。
 - 发布／App／镜像三个文件最终 11 passed；更晚的 YAML discover 条件保留经完整默认 gate 验证。默认入口 228 passed、89 DB/环境 skips、6 explicit acceptance deselected；数据库 gate 86 passed、0 skipped、1 credentialed deselected。后续 Peer HTTP 2 个新 case 的证据归 execution ledger，整合检查状态归 verification.md。
+
+## 首轮镜像验收发现的清理缺陷
+
+PR #201 的首轮 CI（`45998528255`，实现提交 `d60bc6c`）通过仓库、core/CLI/第一方扩展 wheel 和数据库 keeper，但 artifact 的 PostgREST 探针失败。`scripts/verify_postgrest_contract.py::verify` 写入非空 state 后直接 DELETE 作为清理，与恢复的数据库约束冲突。此处先前保留判断遗漏了探针与新契约的关联；不能通过撤下 trigger 或忽略 DELETE 失败解决。
+
+修正该既有验收 owner：验证非空 state DELETE 返回 HTTP 400 且 SQLSTATE 为 `23514`、错误消息对应 state guard；再清空探针自己创建的 state，确认被拒删记录仍存在，最后允许 DELETE。探针开始时也只清空固定探针身份的遗留 state，允许失败后重新运行。
+
+本任务一次性 PG17 + pinned PostgREST v14.15 上，旧探针确实报 `Extension cleanup returned HTTP 400, expected 204`。新探针先从该遗留现场恢复，再完整运行第二次，均通过全部 HTTP checks。临时禁用本任务数据库的 trigger 后，新探针准确失败于 `non-empty state delete returned HTTP 204, expected 400`；finally 恢复 trigger 后再次通过。格式、lint 和类型检查通过。后续完整镜像运行以 PR 的当前 CI 为准，未以这一直接 HTTP 证明替代镜像、reset 和导出恢复。
