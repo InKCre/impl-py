@@ -68,3 +68,5 @@ PR #201 的首轮 CI（`45998528255`，实现提交 `d60bc6c`）通过仓库、c
 修正该既有验收 owner：验证非空 state DELETE 返回 HTTP 400 且 SQLSTATE 为 `23514`、错误消息对应 state guard；再清空探针自己创建的 state，确认被拒删记录仍存在，最后允许 DELETE。探针开始时也只清空固定探针身份的遗留 state，允许失败后重新运行。
 
 本任务一次性 PG17 + pinned PostgREST v14.15 上，旧探针确实报 `Extension cleanup returned HTTP 400, expected 204`。新探针先从该遗留现场恢复，再完整运行第二次，均通过全部 HTTP checks。临时禁用本任务数据库的 trigger 后，新探针准确失败于 `non-empty state delete returned HTTP 204, expected 400`；finally 恢复 trigger 后再次通过。格式、lint 和类型检查通过。后续完整镜像运行以 PR 的当前 CI 为准，未以这一直接 HTTP 证明替代镜像、reset 和导出恢复。
+
+修订提交 `2922000` 的运行 `45999523367` 已完整通过：仓库/core/CLI/扩展构建、PostgREST 状态删除约束与清理、两次 reset、Web ready，以及新库导出恢复。独立只读复核无阻塞问题；固定探针身份不能并发复用这一既有边界未变化。

@@ -31,6 +31,7 @@
 | 静态和治理检查 | foundation、format、lint、database boundaries、Pyrefly、actionlint、migration integrity、diff check通过 | Pyrefly 0 diagnostics，101项既有suppression未增加；原依赖版本未升级 |
 | 首轮 CI：core、CLI、所有第一方扩展 wheel 和仓库检查 | 通过；默认 229 passed / 88 skipped / 6 deselected，数据库 88 passed / 0 skipped / 1 deselected，CLI 9 passed | [运行 45998528255](https://github.com/InKCre/impl-py/actions/runs/45998528255)，实现提交 d60bc6c；默认另有 PostgreSQL preflight 在 CI 提供环境后执行 |
 | 首轮镜像 CI 与后续补证 | 镜像构建、重复初始化通过；PostgREST 探针清理因恢复的 state guard 失败，已修正 | 详见 delivery ledger；本地真实 PostgREST 两次完整通过，禁用 trigger 的控制准确失败，恢复后再次通过。完整镜像、reset 和导出恢复以 [PR #201 当前检查](https://github.com/InKCre/impl-py/pull/201/checks) 为准 |
+| 修订实现的完整 CI | `impl-py checks`、`inkcre-cli checks`、`impl-py e2e tests` 全部通过 | [运行 45999523367](https://github.com/InKCre/impl-py/actions/runs/45999523367)，实现提交 `2922000`；真实镜像/PostgREST、两次 reset、Web ready、导出及新库恢复均成功，恢复后 migration head 为 `c7f2a6d9e410` |
 
 本机 `agent-build` 共享队列等待后，已取消本任务尚未启动的两个排队命令，不把未执行写为通过；不干扰其他任务构建。core/CLI/扩展构建证据来自上述实际 CI。
 
@@ -52,6 +53,8 @@
 
 ## 剩余边界与风险
 
-真实 AI 质量/人工评价、Dovecot IMAP、真实 X/userscript、移动 CalDAV/Memos 客户端和真实 Heroku/Neon/Loki 未重新验收。Capture Python读取、Telegram确认/offset、GitHub完整快照关系替换和CLI动态schema/混合recall没有在本次建立新的自动化，后续改变各owner时应取得对应证据；本轮未改这些产品路径。
+真实 AI 质量/人工评价、Dovecot IMAP、真实 X/userscript、移动 CalDAV/Memos 客户端和生产 Heroku/Neon/Loki 业务路径未重新验收。PR 自动 Preview 的部署与探针状态由 PR 记录，不能替代这些功能验收。Capture Python读取、Telegram确认/offset、GitHub完整快照关系替换和CLI动态schema/混合recall没有在本次建立新的自动化，后续改变各owner时应取得对应证据；本轮未改这些产品路径。
 
 图路径现在扫描完整关系页，高重数图会比旧错误实现多读页；Block与跳数预算保持原意。Memos追加在同一Memo行上串行化，换取不丢附件。新增迁移可单独downgrade撤下trigger，不改写数据，但会重新暴露原有状态保护缺陷；其他修复可逐提交回退。迁移验证调用真实 `provision_roles`，会写集群级角色配置，必须复用初始化密码并仅针对一次性集群，fixture本身不构成共享环境防误用保障。
+
+本任务一次性 PostgreSQL/PostgREST 容器与两个 SSH 转发均已关闭；开放 PR 的分支与 worktree 保留供评审，旧取消审计现场未修改。后续仅更新证据记录的提交不改变上述实现；最终提交与 Preview 的实时结论见 PR。
