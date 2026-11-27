@@ -65,6 +65,8 @@ participations for the old enabled peers. Their config schema remains only in th
 until a Host resolves the exact Distribution and version. The old `set_extension_peer_enabled` RPC
 and global Extension version/enable/schema columns are removed. Both native `inkcre_core` and
 authenticated PostgREST Peers can read and update the shared state object; anonymous callers cannot.
+
+`extensions.state` 在创建 identity 时必须为空；仍有状态的 identity 不能被删除，必须先由拥有该状态的扩展完成清理。数据库 trigger 对原生与 PostgREST 写入执行同一约束。迁移 `c7f2a6d9e410` 重新挂载 Peer participation 切换时遗漏的 trigger，不修改已有行或改写历史 revision；回退该迁移会撤销这项数据库保护。
 Participation writes use the authenticated peer role under the same JWT boundary.
 
 ## PostgreSQL Binary Storage Protocol

@@ -21,6 +21,7 @@
     "c0d1e2f3a4b5_adopt_peer_capability_delegation.py": "7474fcda0b55fe2ce2047f761579459385aac9f43e7359ced881b8eb1fc6c265",
     "c4e8a7b6d5f0_converge_production_schema.py": "fb5687ad523c64297fe101d109918af2501bec26219de78353944a762eadfe4e",
     "c6d7e8f9a0b1_add_extension_setup_state.py": "5aab0d1dda6932fbac53f5a6adf4b504f994e8c860833b64fc21fb9cb8d8fc3e",
+    "c7f2a6d9e410_restore_extension_state_guard.py": "e4511fa9ee57d4dc27bb7fcc937c65351a335ce516d144398a11a363c9c17604",
     "c9d2e3f4a5b6_move_trigger_helper_internal.py": "6fab826c66cef1b16540142ae3d17ff953dc2ca49c79a4cffea95d4520701e6e",
     "d0e3f4a5b6c7_add_octet_stream_handler.py": "0d7127d340b878243d894e27f8b97d5982aa01c757703528d3982eb89ae9219e",
     "d41cc84db0c5_add_job_abort_request.py": "fc1fe04942e95c7b8c5f43dbcf369bb88479cb83f8e7dc58528f08caf7a536d2",
