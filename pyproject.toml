@@ -76,6 +76,8 @@ extension-publisher = [
 dev = [
     "build>=1.3.0,<2.0.0",
     "pytest>=9.0.2",
+    "PyYAML>=6.0.3,<7",
+    "types-PyYAML>=6.0.12,<7",
     "python-dotenv>=1.2.2",
     "pre-commit>=4.4.0",
     "ruff>=0.14.10",
@@ -94,7 +96,7 @@ lint = "ruff check --no-cache ."
 format = "ruff format ."
 "format:check" = "ruff format --check ."
 typecheck = "pyrefly check --min-severity=warn --output-format=min-text --progress-bar=no"
-test = "python -m pytest -q"
+test = "python -m pytest -q -m 'not acceptance'"
 "test:database" = "bash scripts/automation/repository_check.sh database-tests"
 "test:acceptance" = "python -m pytest -q -m acceptance tests/semantic_retrieval/acceptance"
 "test:organization-acceptance" = "python -m pytest -q -s tests/organization/acceptance/test_black_box.py"
@@ -151,7 +153,8 @@ search-path = [".", "scripts"]
 python-version = "3.12"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "scripts/tests", "deploy/integrations/chatgpt/tests"]
+addopts = "--strict-markers"
 pythonpath = ["."]
 filterwarnings = [
     "ignore:co_lnotab is deprecated, use co_lines instead\\.:DeprecationWarning:js2py_\\.utils\\.injector",

@@ -382,6 +382,16 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
             assert [row["entity"] for row in opened["results"]] == refs
             read = await call("read_blocks", blocks=sorted(target_ids), content="solved")
             assert {row["content"] for row in read["results"]} == set(contents)
+            path = await call(
+              "find_path", from_block=mapping[-3], to_block=mapping[-4], direction="out"
+            )
+            assert path["status"] == "found"
+            assert path["block_path"] == [mapping[-3], mapping[-4]]
+            expanded = await call("expand_entities", entities=[f"block:{mapping[-3]}"])
+            assert {row["id"] for row in expanded["results"][0]["graph"]["blocks"]} == {
+              mapping[-3],
+              mapping[-4],
+            }
             for mode in ("lexical", "semantic"):
               unfiltered = await call("query", query=NEEDLE, modes=[mode], limit=2)
               assert unfiltered["mode_errors"] == []
@@ -419,18 +429,28 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
               {"query": NEEDLE},
               {"query": NEEDLE, "modes": []},
               {"query": NEEDLE, "modes": ["lexical"], "limit": 21},
-              {"filters": {"storage": {"eq": True}}},
-              {"filters": {"storage": {"eq": "-1"}}},
-              {"filters": {"storage": {"eq": None}}},
-              {"filters": {"storage": {"eq": 2**31}}},
-              {"filters": {"resolver": {"ne": "core.text.v1"}}},
-              {"filters": {"content": {"eq": "secret"}}},
             ):
-              assert (await client.call_tool("query", arguments)).is_error
+              failed = await client.call_tool("query", arguments)
+              assert failed.is_error
+              assert failed.structured_content["error"]["code"] == "invalid_arguments"
+            for filters, error_type in (
+              ({"storage": {"eq": True}}, "int_type"),
+              ({"storage": {"eq": "-1"}}, "int_type"),
+              ({"storage": {"eq": None}}, "int_type"),
+              ({"storage": {"eq": 2**31}}, "less_than_equal"),
+              ({"resolver": {"ne": "core.text.v1"}}, "extra_forbidden"),
+              ({"content": {"eq": "secret"}}, "extra_forbidden"),
+            ):
+              failed = await client.call_tool("query", {"filters": filters})
+              assert failed.is_error
+              diagnostic = failed.content[0].model_dump()["text"]
+              assert "validation error" in diagnostic
+              assert f"[type={error_type}," in diagnostic
             for collection in ("sources", "blocks"):
-              assert (
-                await client.call_tool("meta_discover", {"collection": collection})
-              ).is_error
+              failed = await client.call_tool("meta_discover", {"collection": collection})
+              assert failed.is_error
+              diagnostic = failed.content[0].model_dump()["text"]
+              assert "collection" in diagnostic and "[type=literal_error," in diagnostic
 
         # Exact SDK request JSON, ordinary routes and non-delegating inbounds retain
         # each single filter as well as AND; null predicate serialization would fail.

@@ -5,7 +5,7 @@
 groups = ["default", "app", "dev", "extension-preview", "extension-publisher"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:e8bc9b47fa7a1e15463f9582dbbbd990776ba38bb6a34ca59f0601ca130f17cf"
+content_hash = "sha256:71ad33c90db1f0e2d46194d34561dac899be3eaba058c106fb1dffd464fa775c"
 
 [[metadata.targets]]
 requires_python = ">=3.12,<3.13"
@@ -2521,6 +2521,17 @@ dependencies = [
 files = [
     {file = "typer-0.21.2-py3-none-any.whl", hash = "sha256:c3d8de54d00347ef90b82131ca946274f017cffb46683ae3883c360fa958f55c"},
     {file = "typer-0.21.2.tar.gz", hash = "sha256:1abd95a3b675e17ff61b0838ac637fe9478d446d62ad17fa4bb81ea57cc54028"},
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20261122"
+requires_python = ">=3.10"
+summary = "Typing stubs for PyYAML"
+groups = ["dev"]
+files = [
+    {file = "types_pyyaml-6.0.12.20261122-py3-none-any.whl", hash = "sha256:689fbbe883b60471166dede9dba6ac0dbdbcf0ea98062d7ec195430f5bbdb009"},
+    {file = "types_pyyaml-6.0.12.20261122.tar.gz", hash = "sha256:7fa577c893a1db255cbb02320884ffcb97b7a219fe515bec6c5f15d5d3af41ed"},
 ]
 
 [[package]]

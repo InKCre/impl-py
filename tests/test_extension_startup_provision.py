@@ -164,13 +164,18 @@ def current_peer(monkeypatch: pytest.MonkeyPatch) -> None:
   )
 
 
-@pytest.mark.parametrize("distribution", ["python", None])
+@pytest.mark.parametrize("selection_case", ["python", "legacy", "disabled", "empty"])
 def test_startup_provisions_only_enabled_exact_python_selections(
   async_runner,
   monkeypatch: pytest.MonkeyPatch,
-  distribution: typing.Literal["python"] | None,
+  selection_case: str,
 ) -> None:
-  selected = participation("inkcre/mail", "0.3.3", enabled=True, distribution=distribution)
+  selected = participation(
+    "inkcre/mail",
+    "0.3.3",
+    enabled=selection_case != "disabled",
+    distribution=None if selection_case == "legacy" else "python",
+  )
   disabled = participation("inkcre/rss", "0.2.2", enabled=False)
   resolver = ReleaseReader(
     {
@@ -178,7 +183,8 @@ def test_startup_provisions_only_enabled_exact_python_selections(
     }
   )
   consumer = DistributionConsumer()
-  store = SelectionStore(selected, disabled)
+  selections = [] if selection_case == "empty" else [selected, disabled]
+  store = SelectionStore(*selections)
   host = ExtensionHost(
     store=typing.cast(ExtensionStore, store),
     release_client=typing.cast(typing.Any, resolver),
@@ -191,10 +197,11 @@ def test_startup_provisions_only_enabled_exact_python_selections(
   monkeypatch.setattr(extension_main.AcquiredDistribution, "discover", discover)
   async_runner.run(host.provision_enabled_distributions())
 
-  assert resolver.lookups == [("inkcre/mail", "0.3.3"), ("inkcre/mail", "0.3.3")]
-  assert consumer.downloads == [("inkcre/mail", "0.3.3")]
-  assert consumer.applications == [("inkcre/mail", "0.3.3")]
-  assert store.selections == [selected, disabled]
+  expected = [] if selection_case in {"empty", "disabled"} else [("inkcre/mail", "0.3.3")]
+  assert set(resolver.lookups) == set(expected)
+  assert consumer.downloads == expected
+  assert consumer.applications == expected
+  assert store.selections == selections
 
 
 @pytest.mark.parametrize("change_during", ["download", "apply"])
@@ -318,7 +325,7 @@ def test_startup_downloads_multiple_pins_into_isolated_directories(
   assert consumer.applications == consumer.downloads
 
 
-def test_container_web_provisions_before_exec_and_keeps_ready_read_only(
+def test_container_web_checks_readiness_and_provisions_before_exec(
   monkeypatch: pytest.MonkeyPatch,
 ) -> None:
   import app.database_contract.readiness as readiness
@@ -353,12 +360,7 @@ def test_container_web_provisions_before_exec_and_keeps_ready_read_only(
   assert events == ["ready", "provision", "exec"]
 
 
-def test_startup_provision_does_not_touch_database_when_no_pins(async_runner) -> None:
-  host = ExtensionHost(store=typing.cast(ExtensionStore, SelectionStore()))
-  async_runner.run(host.provision_enabled_distributions())
-
-
-def test_environment_application_rejects_core_runtime_or_base_downgrade(
+def test_environment_application_rejects_runtime_dependency_downgrade(
   monkeypatch: pytest.MonkeyPatch,
 ) -> None:
   snapshots = iter(

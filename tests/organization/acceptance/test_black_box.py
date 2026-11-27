@@ -99,6 +99,16 @@ from .corpus import CorpusManifest, load_manifest, read_artifact
 
 pytestmark = [pytest.mark.integration, pytest.mark.acceptance]
 
+
+@pytest.fixture(autouse=True)
+def job_execution(async_runner):
+  JobManager.start()
+  try:
+    yield
+  finally:
+    async_runner.run(JobManager.shutdown())
+
+
 _REQUIRED_ENVIRONMENT = (
   "INKCRE_TEST_DATABASE_URL",
   "INKCRE_ORGANIZATION_ACCEPTANCE_AI_API_KEY",

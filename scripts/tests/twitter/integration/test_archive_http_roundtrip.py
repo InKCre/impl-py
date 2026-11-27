@@ -156,6 +156,18 @@ def test_real_http_submit_query_preserves_native_wire_payload(monkeypatch):
     with published.client as client:
       client.cookies.set(SESSION_COOKIE_NAME, token)
       headers = {"Origin": "https://x.com", "X-Tweet-DB-Client": "x-monkey"}
+      empty = client.post(
+        "/twitter/x-monkey/api/v1/archive/submit",
+        json={"posts": []},
+        headers={**headers, "Origin": "chrome-extension://abcdefghijklmnop"},
+      )
+      assert empty.status_code == 200, empty.text
+      assert empty.json() == {
+        "summary": {"accepted": 0, "unchanged": 0, "partial": 0, "failed": 0, "total": 0},
+        "users": [],
+        "posts": [],
+        "media": [],
+      }
       simple_post = {
         "id": simple_post_id,
         "authorId": shared_author_id,

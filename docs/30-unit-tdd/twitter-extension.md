@@ -32,6 +32,6 @@ Python Twitter 在 `/twitter/x-monkey/account` 自托管连接页面。用户只
 
 连接不要求 Web 或 MF 分发。`setup.x_monkey_base_url` 继续供用户复制，Web Setup 只提供通向该 Core 账户页的普通链接，不持有此连接流程的密钥、JWT 签发或凭据传输逻辑。账户页显示 Peer 与到期时间，脚本通过会话检测确认连接。七天 Cookie 默认期限与协议续签仍由 Python Twitter 拥有。
 
-候选验证脚本与 fixture 放在 `scripts/tests/twitter`，默认 pytest 与 CI 不收集。离线合同与 HTTP 边界验证入口为 `pdm run python -m pytest -q scripts/tests/twitter/test_archive_contract.py scripts/tests/twitter/test_archive_http.py`；显式运行整个目录可用 `pdm run python -m pytest -q scripts/tests/twitter`。
+协议回归与 fixture 放在 `scripts/tests/twitter`，默认测试执行固定 wire、稀疏合并和无数据库的 HTTP/session 契约；`pdm run test:database` 和 CI 的一次性 PostgreSQL 入口执行图与发布后 HTTP 场景。聚焦离线验证入口为 `pdm run python -m pytest -q scripts/tests/twitter/test_archive_contract.py scripts/tests/twitter/test_archive_http.py`；显式运行整个目录可用 `pdm run python -m pytest -q scripts/tests/twitter`。
 
-真实数据库场景要求显式提供 `INKCRE_TEST_DATABASE_URL`，使用已迁移的可丢弃 PostgreSQL runtime；测试只清理自己创建的精确 IDs，不重置开发库。原生 roundtrip 与真实 Twikit Bookmark 验证执行 `LexicalRetrievalManager.maintain` 的实际扫描、投影和检索链，在 HTTP Storage 字节边界断言零调用；同时检查归档不额外创建内容块、blob 或 Job。固定 fixture 同时用于原生 roundtrip 和独立上游合同验证，真实 userscript、HTTP 会话及 Web 消费仍需要各自的纵向验收。
+真实数据库场景要求显式提供 `INKCRE_TEST_DATABASE_URL`，使用已迁移的可丢弃 PostgreSQL runtime；测试只清理自己创建的精确 IDs，不重置开发库，缺少数据库时跳过不算通过。原生 roundtrip 与真实 Twikit Bookmark 验证执行 `LexicalRetrievalManager.maintain` 的实际扫描、投影和检索链，在 HTTP Storage 字节边界断言零调用；同时检查归档不额外创建内容块、blob 或 Job。backfill 的分页和请求预算由离线测试保护，第二页提交失败后首段保留、失败段回滚及进度不前移由真实 PostgreSQL 场景保护。固定 fixture 保护已知 wire 与 provider 输入映射；账户页 CSP 检查不证明浏览器 JavaScript 已完成连接，真实 userscript、OAuth、浏览器会话及 Web 消费仍需要各自的纵向验收。

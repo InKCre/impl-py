@@ -9,7 +9,6 @@ import fastapi
 from fastapi.testclient import TestClient
 import httpx
 import pytest
-from sqlalchemy.dialects import postgresql
 
 from inkcre_core import Core
 from inkcre_core.libs.obsrv.backends import (
@@ -30,13 +29,13 @@ NOW = datetime(2026, 11, 4, 1, 2, 3, 123456, tzinfo=timezone.utc)
 
 
 def test_record_and_query_reject_unbounded_or_ambiguous_input():
-  with pytest.raises(ValueError):
+  with pytest.raises(ValueError, match="scalar values or scalar arrays"):
     ObservationRecord(body="x", attributes={"nested": {"content": "x"}})
-  with pytest.raises(ValueError):
+  with pytest.raises(ValueError, match="since must precede until"):
     ObservationQuery(since=NOW, until=NOW - timedelta(seconds=1))
-  with pytest.raises(ValueError):
+  with pytest.raises(ValueError, match="query window cannot exceed 31 days"):
     ObservationQuery(since=NOW, until=NOW + timedelta(days=32))
-  with pytest.raises(ValueError):
+  with pytest.raises(ValueError, match="query is required only for the query action"):
     ObservationRequest(
       action="ingest", query=ObservationQuery(since=NOW, until=NOW + timedelta(seconds=1))
     )
@@ -45,6 +44,7 @@ def test_record_and_query_reject_unbounded_or_ambiguous_input():
 def test_loki_roundtrip_encodes_filters_and_does_not_leak_auth(async_runner):
   requests = []
   record = ObservationRecord(
+    id="record-12",
     timestamp=NOW,
     kind="event",
     event_name="job.closed",
@@ -52,18 +52,40 @@ def test_loki_roundtrip_encodes_filters_and_does_not_leak_auth(async_runner):
     trace_id="job.12",
     attributes={"inkcre.job.id": 12},
   )
-  line = None
+  stored_record = {
+    "id": "record-12",
+    "timestamp": "2026-11-04T01:02:03.123456Z",
+    "kind": "event",
+    "event_name": "job.closed",
+    "body": "job.closed",
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "trace_id": "job.12",
+    "span_id": None,
+    "attributes": {"inkcre.job.id": 12},
+  }
+  stored_line = json.dumps({"record": stored_record})
 
   def handle(request):
-    nonlocal line
     requests.append(request)
+    assert request.headers["authorization"] == "Bearer test-only-secret"
+    assert "test-only-secret" not in str(request.url)
+    assert b"test-only-secret" not in request.content
     if request.method == "POST":
       stream = json.loads(request.content)["streams"][0]
       assert stream["stream"] == {"service_name": "inkcre", "deployment_id": "deployment"}
       assert stream["values"][0][0] == "1793754123123456000"
-      line = stream["values"][0][1]
+      assert json.loads(stream["values"][0][1]) == {
+        "record": stored_record,
+        "kind": "event",
+        "severity": 9,
+        "trace": "job.12",
+        "peer": "",
+        "job": "12",
+        "operation": "",
+        "body": "job.closed",
+      }
       return httpx.Response(204)
-    assert line is not None
     query = request.url.params["query"]
     assert 'job = "12" or trace = "job.12"' in query
     assert "severity >= 9" in query
@@ -78,14 +100,22 @@ def test_loki_roundtrip_encodes_filters_and_does_not_leak_auth(async_runner):
         "data": {
           "resultType": "streams",
           "result": [
-            {"values": [["1793754123123456000", line], ["1793754123123456000", line]]}
+            {
+              "values": [
+                ["1793754123123456000", stored_line],
+                ["1793754123123456000", stored_line],
+              ]
+            }
           ],
         },
       },
     )
 
   async def scenario():
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+    async with httpx.AsyncClient(
+      transport=httpx.MockTransport(handle),
+      headers={"Authorization": "Bearer test-only-secret"},
+    ) as client:
       backend = LokiBackend(
         url="https://logs.example", deployment_id="deployment", client=client
       )
@@ -107,6 +137,10 @@ def test_loki_roundtrip_encodes_filters_and_does_not_leak_auth(async_runner):
       assert not client.is_closed  # Borrowed client remains owned by its caller.
 
   async_runner.run(scenario())
+  assert [(request.method, request.url.path) for request in requests] == [
+    ("POST", "/loki/api/v1/push"),
+    ("GET", "/loki/api/v1/query_range"),
+  ]
 
 
 def test_external_failure_is_not_empty_or_a_database_fallback(async_runner):
@@ -175,48 +209,6 @@ def test_metadata_and_instance_lifetimes_do_not_need_otlp(async_runner, monkeypa
     assert second.observability.status().recording
     await second.aclose()
     assert backends[1].write.call_args.args[0][0].attributes["inkcre.job.id"] == 24
-
-  async_runner.run(scenario())
-
-
-def test_postgresql_preserves_legacy_job_association_and_filters_before_limit(async_runner):
-  session = MagicMock()
-  session.execute = AsyncMock(return_value=MagicMock())
-  session.execute.return_value.scalars.return_value.all.return_value = [
-    SimpleNamespace(
-      id=8,
-      timestamp=NOW,
-      severity_number=17,
-      severity_text="ERROR",
-      body="historical body",
-      trace_id="job.12",
-      span_id=None,
-      attributes={"legacy": {"nested": True}},
-    )
-  ]
-  sessions = MagicMock()
-  sessions.return_value.__aenter__.return_value = session
-
-  async def scenario():
-    backend = PostgreSQLBackend(sessions)
-    page = await backend.query(
-      ObservationQuery(
-        since=NOW - timedelta(seconds=1),
-        until=NOW + timedelta(seconds=1),
-        job_id=12,
-        text="100%",
-        severity_min=13,
-        limit=1,
-      )
-    )
-    statement = session.execute.call_args.args[0]
-    compiled = statement.compile(dialect=postgresql.dialect())
-    assert "job.12" in compiled.params.values()
-    assert "%100\\%%" in compiled.params.values()
-    assert str(compiled).index("WHERE") < str(compiled).index("LIMIT")
-    assert page.records[0].id == "pg.8"
-    assert page.records[0].kind == "log" and page.records[0].event_name is None
-    assert page.records[0].attributes == {"legacy": {"nested": True}}
 
   async_runner.run(scenario())
 
@@ -349,24 +341,46 @@ def test_capability_bounds_slow_body_and_concurrent_requests(async_runner, monke
   runtime = ObservationRuntime(None, selected="postgresql", peer_id="peer")
   core.observability = runtime
   original_timeout = asyncio.timeout
-  monkeypatch.setattr(
-    observability, "asyncio", SimpleNamespace(timeout=lambda _: original_timeout(0.001))
-  )
-
-  async def receive():
-    await asyncio.Event().wait()
-    return {"type": "http.request", "body": b"", "more_body": False}
 
   async def scenario():
+    entered = asyncio.Event()
+    bodies = 0
+
+    async def receive():
+      nonlocal bodies
+      bodies += 1
+      if bodies == 4:
+        entered.set()
+      await asyncio.Event().wait()
+      return {"type": "http.request", "body": b"", "more_body": False}
+
     with core.bind():
-      request = fastapi.Request({"type": "http"}, receive=receive)
-      runtime.requests_in_flight = 4
-      with pytest.raises(fastapi.HTTPException) as capacity:
-        await observability.observability(request)
-      assert capacity.value.status_code == 429
-      runtime.requests_in_flight = 0
+      requests = [
+        asyncio.create_task(
+          observability.observability(fastapi.Request({"type": "http"}, receive=receive))
+        )
+        for _ in range(4)
+      ]
+      try:
+        async with asyncio.timeout(10):
+          await entered.wait()
+        with pytest.raises(fastapi.HTTPException) as capacity:
+          await observability.observability(
+            fastapi.Request({"type": "http"}, receive=receive)
+          )
+        assert capacity.value.status_code == 429
+      finally:
+        for task in requests:
+          task.cancel()
+        await asyncio.gather(*requests, return_exceptions=True)
+      assert runtime.requests_in_flight == 0
+      monkeypatch.setattr(
+        observability, "asyncio", SimpleNamespace(timeout=lambda _: original_timeout(0.001))
+      )
       with pytest.raises(fastapi.HTTPException) as timeout:
-        await observability.observability(request)
+        await observability.observability(
+          fastapi.Request({"type": "http"}, receive=receive)
+        )
       assert timeout.value.status_code == 408
       assert runtime.requests_in_flight == 0
     await core.aclose()

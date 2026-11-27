@@ -227,7 +227,6 @@ def test_imap_fetch_preserves_list_identity_original_content_and_alternatives(mo
     for index, body in enumerate(fact.bodies)
   )
   assert [body.relation.part_id for body in reading_bodies(bodies)] == ["1.2", "2"]
-  assert len(_walk_body_structure(structure)) == 3
 
 
 def test_body_resolver_indexes_clean_text_and_keeps_original(async_runner):

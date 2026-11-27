@@ -14,6 +14,7 @@ import uuid
 import pytest
 import sqlalchemy
 from sqlalchemy import event
+from sqlalchemy.orm import Session
 import sqlmodel
 import twikit
 
@@ -46,7 +47,7 @@ from extensions.twitter.x_monkey import (
   query_archive,
   submit_archive,
 )
-from extensions.twitter.bookmark import CollectConfig, Source
+from extensions.twitter.bookmark import BackfillConfig, CollectConfig, Source
 from extensions.twitter.reconcile import (
   MEDIA_RESOLVER,
   POST_RESOLVER,
@@ -428,6 +429,89 @@ def test_real_transaction_lock_preserves_concurrent_supplements_and_rollback(
     ].status == "found"
 
   async_runner.run(exercise())
+
+
+def test_backfill_preserves_committed_page_when_next_commit_fails(
+  async_runner, native, tracked
+):
+  source_type = f"{Source.__module__}.{Source.__qualname__}"
+  async_runner.run(SourceManager.sync_source_types_async({source_type: Source}))
+  source = async_runner.run(
+    SourceManager.create(source_type, nickname="Backfill commit failure")
+  )
+  first_id = native["posts"][0]["id"]
+  second_id = str(int(first_id) + 1000)
+  author_id = native["posts"][0]["authorId"]
+  with TestSession() as db:
+    persisted_source = db.get(SourceModel, source.id)
+    assert persisted_source is not None
+    persisted_source.state = {"latest_tweet_id": "42"}
+    db.add(persisted_source)
+    db.commit()
+
+  def page(post_id, cursor):
+    return TwitterAPIResult(
+      primary_post_ids=(post_id,),
+      next_page=cursor,
+      batch=TwitterBatch.model_validate(
+        {"posts": [{**_minimal(native["posts"][0]), "id": post_id}]}
+      ),
+    )
+
+  provider = SimpleNamespace(
+    get_bookmarks=mock.AsyncMock(side_effect=[page(first_id, "a"), page(second_id, "b")])
+  )
+  flushed, commit_attempted = [], []
+
+  def remember_second_page(session, _context):
+    for row in session.new:
+      if isinstance(row, BlockModel) and json.loads(row.content).get("id") == second_id:
+        session.info["backfill_second_page"] = True
+        flushed.append(row.id)
+
+  def fail_second_commit(session):
+    if session.info.get("backfill_second_page"):
+      commit_attempted.append(True)
+      raise RuntimeError("injected second-page commit failure")
+
+  job = JobModel(type="core.source.backfill.v1", timeout_seconds=60)
+  event.listen(Session, "after_flush", remember_second_page)
+  event.listen(Session, "before_commit", fail_second_commit)
+  try:
+    with mock.patch.object(TwitterAPI, "new", mock.AsyncMock(return_value=provider)):
+      with pytest.raises(RuntimeError, match="injected second-page commit failure"):
+        async_runner.run(
+          Source(source.id).backfill(job, BackfillConfig(limit=2, page_size=1))
+        )
+  finally:
+    event.remove(Session, "after_flush", remember_second_page)
+    event.remove(Session, "before_commit", fail_second_commit)
+
+    async def remember():
+      async with graph_uow() as uow:
+        roots = await uow.blocks.find_json_field_many(
+          (POST_RESOLVER, USER_RESOLVER), "id", (first_id, second_id, author_id)
+        )
+        tracked.update(row.id for row in roots)
+
+    async_runner.run(remember())
+    with TestSession() as db:
+      current = db.get(SourceModel, source.id)
+      assert current is not None
+      marker = current.state
+      db.delete(current)
+      db.commit()
+  assert flushed and commit_attempted
+  response = async_runner.run(query_archive(ArchiveQuery(posts=[first_id, second_id])))
+  assert [item.status for item in response.posts] == ["found", "missing"]
+  assert marker == {"latest_tweet_id": "42"}
+  assert job.state == {
+    "scanned": 1,
+    "saved": 1,
+    "pages": 1,
+    "exhausted": False,
+    "next_page": "a",
+  }
 
 
 def test_batch_lookup_tolerates_non_json_and_reports_locatable_corruption(

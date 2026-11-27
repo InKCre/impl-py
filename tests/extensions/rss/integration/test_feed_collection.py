@@ -605,6 +605,7 @@ async def _exercise_atom_and_failures() -> None:
 
     wrong_family_job = await _run_job(source_id)
     assert wrong_family_job.status == JobStatus.FAILED
+    assert wrong_family_job.state["error"] == "expected atom, parsed rss feed family"
     with TestSession() as db_session:
       source = db_session.get_one(SourceModel, source_id)
       assert source.state == {}

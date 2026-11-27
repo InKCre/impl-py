@@ -33,6 +33,7 @@ async def _fetch_and_parse(url: str, family: FeedFamily):
 
 
 @pytest.mark.integration
+@pytest.mark.acceptance
 @pytest.mark.parametrize(
   ("family", "environment_name"),
   (

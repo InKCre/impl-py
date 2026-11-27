@@ -19,7 +19,6 @@ from extensions.bilibili.schema import (
   VIDEO_RESOLVER,
 )
 from inkcre_core.business.info_base.resolver import ResolverManager, UnknownResolverError
-from inkcre_core.business.lexical_retrieval.main import LexicalRetrievalManager
 from inkcre_core.schemas.info_base.block import BlockModel
 
 
@@ -86,8 +85,6 @@ def test_web_records_project_without_browser(
   reader = resolver_cls(value)
   assert async_runner.run(reader.get_label()) == label
   assert async_runner.run(reader.get_text(context="lexical")) == text
-  projection = async_runner.run(LexicalRetrievalManager._project(value))
-  assert (projection.block, projection.label, projection.text) == (41, label, text)
 
 
 @pytest.mark.parametrize(
@@ -102,10 +99,9 @@ def test_web_records_project_without_browser(
 def test_sparse_identity_has_a_readable_fallback(
   async_runner, resolver_id, content, expected
 ):
-  projection = async_runner.run(
-    LexicalRetrievalManager._project(block(resolver_id, content))
-  )
-  assert projection.label == projection.text == expected
+  reader = ResolverManager.get(block(resolver_id, content))
+  assert async_runner.run(reader.get_label()) == expected
+  assert async_runner.run(reader.get_text(context="lexical")) == expected
 
 
 @pytest.mark.parametrize(

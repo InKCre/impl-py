@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 
+from bs4 import BeautifulSoup
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import jwt
@@ -15,7 +16,7 @@ from inkcre_core.database_contract.constants import JWT_ALGORITHM
 from app.middleware import create_peer_jwt
 from app.settings import Settings, settings
 from extensions.twitter import archive_http, archive_session
-from extensions.twitter.archive_schema import QueryResponse, SubmitResponse, SubmitSummary
+from extensions.twitter.archive_schema import QueryResponse
 from tests.extensions.runtime_support import publish_extension
 
 
@@ -31,8 +32,12 @@ def archive_client(monkeypatch):
   return TestClient(app, base_url="https://core.example")
 
 
-def _session_cookie() -> str:
+def _session_cookie(*, expires_at: int | None = None) -> str:
   token, _ = archive_session._issue_session_token()
+  if expires_at is not None:
+    claims = jwt.decode(token, options={"verify_signature": False})
+    claims["exp"] = expires_at
+    token = jwt.encode(claims, settings.jwt_secret, algorithm=JWT_ALGORITHM)
   return token
 
 
@@ -80,6 +85,11 @@ def test_connect_exchanges_same_origin_bearer_for_scoped_cookie(archive_client):
 
 def test_session_exchange_rejects_non_peer_or_cross_origin_credentials(archive_client):
   session_cookie = _session_cookie()
+  valid_session = archive_client.get(
+    "/twitter/x-monkey/api/v1/session",
+    headers={"Cookie": f"{archive_session.SESSION_COOKIE_NAME}={session_cookie}"},
+  )
+  assert valid_session.json()["authenticated"] is True
   missing_bearer = archive_client.post(
     "/twitter/x-monkey/session",
     json={},
@@ -99,6 +109,7 @@ def test_session_exchange_rejects_non_peer_or_cross_origin_credentials(archive_c
     },
   )
   assert session_as_bearer.status_code == 401
+  assert session_as_bearer.json() == {"error": "ordinary Peer credential required"}
 
   foreign_origin = archive_client.post(
     "/twitter/x-monkey/session",
@@ -109,32 +120,29 @@ def test_session_exchange_rejects_non_peer_or_cross_origin_credentials(archive_c
     },
   )
   assert foreign_origin.status_code == 403
+  assert foreign_origin.json() == {"error": "same-origin request required"}
 
 
-def test_account_page_uses_nonce_csp_and_only_same_origin_webcrypto(archive_client):
+def test_account_page_scopes_scripts_and_connections_with_nonce_csp(archive_client):
   response = archive_client.get("/twitter/x-monkey/account")
   assert response.status_code == 200
-  assert 'id="jwt-secret" type="password"' in response.text
-  assert "JWT_SECRET" in response.text
-  assert '<p id="connection-status" role="status">尚未连接。</p>' in response.text
-  assert "status.textContent = 'Connected'" in response.text
-  assert "crypto.subtle" in response.text
-  assert "exp: now + 60" in response.text
-  assert "fetch('./session'" in response.text
-  assert "fetch('./api/v1/session'" in response.text
-  assert "localStorage" not in response.text and "sessionStorage" not in response.text
+  page = BeautifulSoup(response.text, "html.parser")
+  assert page.find("input", type="password") is not None
+  assert "尚未连接。" in page.get_text()
   csp = response.headers["content-security-policy"]
-  nonce = response.text.split('<script nonce="', 1)[1].split('"', 1)[0]
-  assert f"script-src 'nonce-{nonce}'" in csp
+  scripts = page.find_all("script")
+  assert scripts
+  for script in scripts:
+    assert not script.has_attr("src")
+    nonce = script.get("nonce")
+    assert nonce and f"script-src 'nonce-{nonce}'" in csp
   assert "connect-src 'self'" in csp
   assert "unsafe-inline" not in csp
-  assert "<script src=" not in response.text
 
 
 def test_account_page_shows_peer_and_expiry_for_an_existing_session(archive_client):
-  token = _session_cookie()
-  claims = archive_session._decode_peer_token(token)
-  assert claims is not None
+  # Independent fixed wire oracle: 2099-01-02 03:04:05 UTC.
+  token = _session_cookie(expires_at=4071006245)
   response = archive_client.get(
     "/twitter/x-monkey/account",
     headers={"Cookie": f"{archive_session.SESSION_COOKIE_NAME}={token}"},
@@ -143,7 +151,7 @@ def test_account_page_shows_peer_and_expiry_for_an_existing_session(archive_clie
   assert response.status_code == 200
   assert '<p id="connection-status" role="status">Connected</p>' in response.text
   assert f"InKCre Peer: {settings.peer_name}" in response.text
-  assert archive_session._format_expiry(claims["exp"]) in response.text
+  assert "2099-01-02T03:04:05Z" in response.text
 
 
 def test_session_get_needs_no_json_or_client_header_and_accepts_extension_origin(
@@ -265,40 +273,27 @@ def test_query_requires_client_headers_and_session_cookie(archive_client, monkey
   assert no_client_header.status_code == 400
 
 
-def test_submit_passes_validated_batch_to_native_protocol(archive_client, monkeypatch):
-  async def submit(batch):
-    assert batch.model_dump(exclude_unset=True) == {"posts": []}
-    return SubmitResponse(
-      summary=SubmitSummary(accepted=0, unchanged=0, partial=0, failed=0, total=0),
-      users=[],
-      posts=[],
-      media=[],
-    )
-
-  monkeypatch.setattr(archive_http, "submit_archive", submit)
-  response = archive_client.post(
-    "/twitter/x-monkey/api/v1/archive/submit",
-    json={"posts": []},
-    headers={
-      "X-Tweet-DB-Client": "x-monkey",
-      "Cookie": f"{archive_session.SESSION_COOKIE_NAME}={_session_cookie()}",
-      "Origin": "chrome-extension://abcdefghijklmnop",
-    },
-  )
-  assert response.status_code == 200
-  assert response.json()["summary"]["total"] == 0
-
-
 def test_session_does_not_renew_for_no_cors_subresource(archive_client):
+  token = _session_cookie(expires_at=int(time.time()) + 60)
   response = archive_client.get(
     "/twitter/x-monkey/api/v1/session",
     headers={
-      "Cookie": f"{archive_session.SESSION_COOKIE_NAME}={_session_cookie()}",
+      "Cookie": f"{archive_session.SESSION_COOKIE_NAME}={token}",
       "Sec-Fetch-Mode": "no-cors",
     },
   )
   assert response.status_code == 403
+  assert response.json() == {"error": "request source is not allowed"}
   assert "set-cookie" not in response.headers
+  allowed = archive_client.get(
+    "/twitter/x-monkey/api/v1/session",
+    headers={
+      "Cookie": f"{archive_session.SESSION_COOKIE_NAME}={token}",
+      "Sec-Fetch-Mode": "cors",
+    },
+  )
+  assert allowed.status_code == 200
+  assert "set-cookie" in allowed.headers
 
 
 def test_extension_publishes_claimed_archive_routes(monkeypatch):

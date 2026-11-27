@@ -87,7 +87,7 @@ from .corpus import (
 )
 
 
-pytestmark = [pytest.mark.integration, pytest.mark.acceptance]
+pytestmark = pytest.mark.integration
 
 PAT = "memos_pat_" + "A" * 32
 TINY_PNG = base64.b64decode(
@@ -98,6 +98,15 @@ PROVIDER_ENVIRONMENT = (
   "INKCRE_ACCEPTANCE_EMBEDDING_MODEL",
   "INKCRE_ACCEPTANCE_CHAT_MODEL",
 )
+
+
+@pytest.fixture(autouse=True)
+def job_execution(async_runner):
+  JobManager.start()
+  try:
+    yield
+  finally:
+    async_runner.run(JobManager.shutdown())
 
 
 @dataclass
@@ -502,26 +511,6 @@ def _assert_ingested_graph(run: CorpusRun) -> None:
   not os.getenv("INKCRE_TEST_DATABASE_URL"),
   reason="requires an explicitly selected migrated PostgreSQL runtime",
 )
-def test_real_producers_create_the_authoritative_corpus_graph(
-  async_runner,
-):
-  manifest = load_manifest()
-  verify_document_digests(manifest)
-
-  async def journey() -> None:
-    run = await _ingest_corpus(manifest)
-    try:
-      _assert_ingested_graph(run)
-    finally:
-      await _close_corpus(run)
-
-  async_runner.run(journey())
-
-
-@pytest.mark.skipif(
-  not os.getenv("INKCRE_TEST_DATABASE_URL"),
-  reason="requires an explicitly selected migrated PostgreSQL runtime",
-)
 def test_real_producer_corpus_supports_exact_and_chinese_lexical_recall(
   async_runner,
 ):
@@ -531,6 +520,7 @@ def test_real_producer_corpus_supports_exact_and_chinese_lexical_recall(
   async def journey() -> None:
     run = await _ingest_corpus(manifest)
     try:
+      _assert_ingested_graph(run)
       target = await asyncio.to_thread(
         _ingest_text_memo,
         "部署演练记录了星间链路故障注入的触发顺序。",
@@ -915,6 +905,7 @@ def test_vertical_quality_control_flow_with_deterministic_ai(async_runner, monke
     )
 
 
+@pytest.mark.acceptance
 @pytest.mark.skipif(
   not _provider_environment_available(),
   reason=(

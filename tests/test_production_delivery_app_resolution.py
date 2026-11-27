@@ -92,7 +92,10 @@ def test_production_app_resolution_rejects_wrong_app_identity(
   executable = _heroku_cli / "heroku"
   executable.write_text(
     "#!/usr/bin/env python3\n"
-    "import json, sys\n"
+    "import json, os, sys\n"
+    "from pathlib import Path\n"
+    "with Path(os.environ['HEROKU_CALLS']).open('a') as calls:\n"
+    "  calls.write(' '.join(sys.argv[1:]) + '\\n')\n"
     "app = sys.argv[sys.argv.index('--app') + 1]\n"
     f"name = {unexpected_name!r}\n"
     "print(json.dumps({'app': {'name': name if app == "
@@ -121,4 +124,4 @@ def test_production_app_resolution_rejects_wrong_app_identity(
 
   assert result.returncode != 0
   assert "unexpected app identity" in result.stderr
-  assert not calls.exists() or "apps:create" not in calls.read_text(encoding="utf-8")
+  assert "apps:create" not in calls.read_text(encoding="utf-8")

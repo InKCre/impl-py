@@ -101,7 +101,7 @@ def test_backfill_treats_empty_cursor_as_exhausted(capture):
   api.get_bookmarks.assert_awaited_once()
 
 
-def test_backfill_does_not_report_uncommitted_page_as_saved(capture, monkeypatch):
+def test_backfill_stops_progress_when_page_persistence_raises(capture, monkeypatch):
   api, saved, source, repository = capture
   api.get_bookmarks.side_effect = [page([1, 2], "a"), page([3, 4], "b")]
   persist = bookmark.persist_twitter

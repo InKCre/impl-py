@@ -321,6 +321,9 @@ def test_real_maintenance_freshness_and_global_retrieval(async_runner, monkeypat
       )
     )
     assert failed.failed == 1
+    assert [
+      (item.entity, item.reason) for item in failed.diagnostics if item.outcome == "failed"
+    ] == [(failure_block_id, "RuntimeError")]
     with TestSession() as db:
       assert db.get(BlockEmbeddingModel, (profile_id, failure_block_id)) is None
 
@@ -336,8 +339,10 @@ def test_real_maintenance_freshness_and_global_retrieval(async_runner, monkeypat
       second_failure_block_id = second_failure_block.id
       block_ids.append(second_failure_block_id)
 
+    invalid_batch_inputs = []
+
     async def wrong_cardinality(_cls, model, inputs, dimensions):
-      assert len(inputs) == 2
+      invalid_batch_inputs.append(inputs)
       return ((0.0, 0.0, 1.0),)
 
     monkeypatch.setattr(AIManager, "embed", classmethod(wrong_cardinality))
@@ -347,7 +352,18 @@ def test_real_maintenance_freshness_and_global_retrieval(async_runner, monkeypat
         EmbeddingMaintenanceOptions(max_embeddings=2, batch_size=2),
       )
     )
+    assert invalid_batch_inputs == [
+      (
+        "semantic-provider-failure-019fad3c",
+        "semantic-cardinality-failure-019fad3c",
+      )
+    ]
     assert invalid_batch.failed == 2
+    assert [
+      (item.entity, item.reason)
+      for item in invalid_batch.diagnostics
+      if item.outcome == "failed"
+    ] == [(failure_block_id, "ValueError"), (second_failure_block_id, "ValueError")]
     with TestSession() as db:
       assert db.get(BlockEmbeddingModel, (profile_id, failure_block_id)) is None
       assert db.get(BlockEmbeddingModel, (profile_id, second_failure_block_id)) is None

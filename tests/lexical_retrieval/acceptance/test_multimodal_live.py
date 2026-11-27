@@ -58,10 +58,14 @@ CONFIG_KEYS = (
 )
 
 
-pytestmark = pytest.mark.skipif(
-  not all(os.getenv(name) for name in REQUIRED_ENVIRONMENT),
-  reason="requires an explicit database and real multimodal Model Studio model",
-)
+pytestmark = [
+  pytest.mark.integration,
+  pytest.mark.acceptance,
+  pytest.mark.skipif(
+    not all(os.getenv(name) for name in REQUIRED_ENVIRONMENT),
+    reason="requires an explicit database and real multimodal Model Studio model",
+  ),
+]
 
 
 def _reset_runtime_rows() -> None:

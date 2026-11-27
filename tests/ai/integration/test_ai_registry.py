@@ -104,7 +104,7 @@ def test_ai_facts_round_trip_typed_capabilities_and_database_invariants(async_ru
 
       model.native_model_id = "forbidden-change"
       db.add(model)
-      with pytest.raises(sqlalchemy.exc.IntegrityError):
+      with pytest.raises(sqlalchemy.exc.IntegrityError, match="identity is immutable"):
         db.commit()
       db.rollback()
   finally:

@@ -38,6 +38,11 @@ pdm run lint
 pdm run check:foundation
 ```
 
+默认测试覆盖 `tests/`、`scripts/tests/` 和 ChatGPT 伴随进程生命周期，排除显式 `acceptance`。
+数据库回归由 `pdm run test:database` 在一次性 PostgreSQL 集群执行；环境输入、各验证层的含义及
+真实供应商验收边界见[开发环境](docs/40-deployment/development-environment.md#required-environment-variables)。
+本机重型构建（包括检查中的 wheel 构建）使用 `agent-build` 启动，例如 `agent-build pdm run check`。
+
 Verification follows the organization-wide
 [Verification and Test Policy](https://github.com/InKCre/.github/blob/main/TESTING.md). The remaining
 migration, integration, and acceptance suites are repository-local admitted exceptions; they do not

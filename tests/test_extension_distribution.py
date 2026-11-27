@@ -1,7 +1,7 @@
 import json
 import sys
 
-from scripts.extension_distribution import ENTRY_POINT_GROUP, main, read_project
+from scripts.extension_distribution import main, read_project
 
 
 def test_metadata_targets_only_the_exact_python_distribution(tmp_path, monkeypatch, capsys):
@@ -40,7 +40,7 @@ host-sdk-version = ">=0.3.0 <0.4.0"
       "host_sdk": "core-py",
       "host_sdk_version": ">=0.3.0 <0.4.0",
       "entry_point": {
-        "group": ENTRY_POINT_GROUP,
+        "group": "inkcre.core.extensions",
         "name": "example",
         "object": "extensions.example:ExampleExtension",
       },
