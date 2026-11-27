@@ -243,7 +243,8 @@ class AttachmentApplicationService:
   ) -> SolvedAttachment:
     created_at = now or datetime.datetime.now(datetime.UTC)
     async with graph_uow() as uow:
-      if memo_id is not None and await MemoGraph.get_root(memo_id, uow) is None:
+      # Keep the read-modify-append operation under the memo's existing write lock.
+      if memo_id is not None and await MemoGraph.get_root(memo_id, uow, lock=True) is None:
         raise AttachmentNotFoundError(f"Memo memos/{memo_id} not found")
       block = await AttachmentGraph.create(
         filename=filename,
