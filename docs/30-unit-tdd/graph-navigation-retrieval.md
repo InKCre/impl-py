@@ -38,6 +38,8 @@ discard most rows on sparse endpoints.
 
 Shortest-by-hop search is bounded bidirectional BFS. Defaults are four hops and 1,000 explored Blocks;
 hard bounds are eight hops and 10,000 Blocks. Frontier batching is private transport/query mechanics.
+Endpoint Relation pages continue until exhausted: many parallel Relations can refer to very few
+Blocks, so a full Relation page cannot establish disconnection or replace the explored-Block budget.
 Equal-shortest results have no stable tie-break contract. Traversal retains the Relation rows it reads
 and assembles a candidate from that operation-local snapshot instead of rereading and rejecting ordinary
 concurrent changes. If candidate endpoint Blocks no longer exist when closure is assembled, the public
