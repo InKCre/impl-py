@@ -12,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.settings import settings
+from app.access_log import access_log_config
 from app.runtime import process_restart_requested
 from run import api_app
 
@@ -23,7 +24,9 @@ def _arguments() -> argparse.Namespace:
 
 
 async def _serve(port: int) -> None:
-  config = uvicorn.Config(api_app, host="0.0.0.0", port=port)
+  config = uvicorn.Config(
+    api_app, host="0.0.0.0", port=port, log_config=access_log_config()
+  )
   server = uvicorn.Server(config)
   import run
 
