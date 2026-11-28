@@ -174,6 +174,7 @@ class RunningExtension:
   acquired: AcquiredDistribution
   extension_class: type[ExtensionBase]
   claim: ExtensionRuntimeClaim
+  stopping: bool = False
 
 
 class ExtensionHost:
@@ -767,7 +768,9 @@ class ExtensionHost:
         raise ExtensionRestartRequiredError(
           f"A different Release of {state.name} is already running"
         )
-      return existing
+      if not existing.stopping:
+        return existing
+      await self._stop(existing)
     association, acquired = await self._acquire(state, selection)
     return await self._start_acquired(app, state, selection, association, acquired)
 
@@ -846,14 +849,22 @@ class ExtensionHost:
     return current
 
   async def _stop(self, running: RunningExtension) -> None:
-    await running.extension_class.on_close()
-    running.extension_class.unpublish()
+    failures = await self._withdraw_running_effects(running)
+    if len(failures) == 1:
+      raise failures[0]
+    if failures:
+      raise ExceptionGroup("Extension shutdown failed", failures)
+    # Keep the binding, claim, and running record until close succeeds so a
+    # later stop can retry the Extension's own cleanup.
     running.extension_class.unbind()
     running.extension_class.release_runtime()
     running.claim.release()
     self.running.pop(running.name, None)
 
-  async def _force_stop(self, running: RunningExtension) -> typing.List[Exception]:
+  async def _withdraw_running_effects(
+    self, running: RunningExtension
+  ) -> typing.List[Exception]:
+    running.stopping = True
     failures: list[Exception] = []
     try:
       await running.extension_class.on_close()
@@ -863,6 +874,10 @@ class ExtensionHost:
       running.extension_class.unpublish()
     except Exception as error:
       failures.append(error)
+    return failures
+
+  async def _force_stop(self, running: RunningExtension) -> typing.List[Exception]:
+    failures = await self._withdraw_running_effects(running)
     try:
       running.extension_class.unbind()
     except Exception as error:
@@ -948,16 +963,30 @@ class ExtensionHost:
       selection = await self.store.get_participation(peer_id, name)
       if selection is None:
         raise ExtensionNotInstalledError(f"{name} has no selection on this Peer")
-      if not selection.enabled:
-        return selection
+      if selection.enabled:
+        selection = await self.store.set_participation_enabled(peer_id, name, False)
+        self._operations.pop(name, None)
       running = self.running.get(name)
-      published = bool(running and running.extension_class.peer_inbounds())
-      if running is not None:
+      if running is None:
+        return selection
+      published = bool(running.extension_class.peer_inbounds())
+      failures: list[Exception] = []
+      try:
         await self._stop(running)
-      persisted = await self.store.set_participation_enabled(peer_id, name, False)
+      except Exception as error:
+        failures.append(error)
       if published:
-        await PeerManager.refresh_self(settings.peer_lease_ttl_seconds)
-      return persisted
+        try:
+          await PeerManager.refresh_self(settings.peer_lease_ttl_seconds)
+        except Exception as error:
+          failures.append(error)
+      if failures:
+        self._operations[name] = (None, "\n".join(str(error) for error in failures))
+        if len(failures) == 1:
+          raise failures[0]
+        raise ExceptionGroup("Extension disable failed", failures)
+      self._operations.pop(name, None)
+      return selection
 
   async def start_enabled(self, app: fastapi.FastAPI) -> None:
     """Cold restore exact Python selections; never install packages in this process."""
