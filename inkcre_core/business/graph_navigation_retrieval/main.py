@@ -193,7 +193,7 @@ class GraphNavigationRetrievalManager:
                 relation_id = relation.id
                 seen_relations.add(relation_id)
                 neighbor = relation.to_ if relation.from_ == current else relation.from_
-                if neighbor in members:
+                if neighbor is None or neighbor in members:
                   continue
                 if (
                   neighbor not in explored_blocks
@@ -371,17 +371,20 @@ class GraphNavigationRetrievalManager:
     direction: GraphDirection,
     reverse: bool,
   ) -> tuple[tuple[BlockID, BlockID], ...]:
+    source, target = relation.from_, relation.to_
+    if source is None or target is None:
+      return ()
     steps: list[tuple[BlockID, BlockID]] = []
     if not reverse:
-      if direction in ("out", "both") and relation.from_ in frontier:
-        steps.append((relation.from_, relation.to_))
-      if direction in ("in", "both") and relation.to_ in frontier:
-        steps.append((relation.to_, relation.from_))
+      if direction in ("out", "both") and source in frontier:
+        steps.append((source, target))
+      if direction in ("in", "both") and target in frontier:
+        steps.append((target, source))
     else:
-      if direction in ("out", "both") and relation.to_ in frontier:
-        steps.append((relation.to_, relation.from_))
-      if direction in ("in", "both") and relation.from_ in frontier:
-        steps.append((relation.from_, relation.to_))
+      if direction in ("out", "both") and target in frontier:
+        steps.append((target, source))
+      if direction in ("in", "both") and source in frontier:
+        steps.append((source, target))
     return tuple(steps)
 
   @classmethod
