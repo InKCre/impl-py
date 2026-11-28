@@ -136,6 +136,8 @@ def test_account_page_scopes_scripts_and_connections_with_nonce_csp(archive_clie
     assert not script.has_attr("src")
     nonce = script.get("nonce")
     assert nonce and f"script-src 'nonce-{nonce}'" in csp
+  # The disconnect form posts a top-level navigation and must retain its same-origin Origin.
+  assert response.headers["referrer-policy"] == "same-origin"
   assert "connect-src 'self'" in csp
   assert "unsafe-inline" not in csp
 
@@ -149,7 +151,9 @@ def test_account_page_shows_peer_and_expiry_for_an_existing_session(archive_clie
   )
 
   assert response.status_code == 200
-  assert '<p id="connection-status" role="status">Connected</p>' in response.text
+  page = BeautifulSoup(response.text, "html.parser")
+  status = page.select_one('[role="status"]')
+  assert status is not None and status.get_text(strip=True) == "Connected"
   assert f"InKCre Peer: {settings.peer_name}" in response.text
   assert "2099-01-02T03:04:05Z" in response.text
 
@@ -199,8 +203,9 @@ def test_session_renews_cookie_inside_half_life(archive_client, monkeypatch):
   assert response.status_code == 200
   cookie = response.headers["set-cookie"].split(";", 1)[0]
   renewed_token = cookie.split("=", 1)[1]
-  renewed_claims = archive_session._decode_peer_token(renewed_token)
-  assert renewed_claims is not None
+  renewed_claims = jwt.decode(
+    renewed_token, settings.jwt_secret, algorithms=[JWT_ALGORITHM], audience="inkcre-api"
+  )
   assert renewed_claims["exp"] == now + lifetime
 
 
