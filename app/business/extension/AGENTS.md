@@ -22,8 +22,9 @@
 - 新 install/upgrade 只接受 published；已安装 exact yanked Release 可 enable/cold restore 并告警。
 - 选择缺失的 Python wheel 时先下载并验证；暂停 Peer、排空任务并关闭 Extension 后，才把 wheel 安装到共享解释器。
   应用失败时保留暂停与明确错误，不声称回滚。应用完成后必须以新进程重载 Python 模块。
-- enable 只允许启动当前 Peer 已选中的 exact installed Distribution，不隐式安装 pip 包。disable 先停止 runtime
-  再保存 intent；冷启动只恢复该 Peer 的精确选择。
+- enable 只允许启动当前 Peer 已选中的 exact installed Distribution，不隐式安装 pip 包。启停顺序遵循
+  [共享参与合同](../../../docs/_shared/20-product-tdd/extension-release-and-installation.md#应用版本与失败边界)。
+  冷启动只恢复该 Peer 的精确选择。
 - 未解析的旧 enabled member 保留原版本与 enabled intent，必须精确解析该版本；失败不得删 intent，也不得回退到 latest。
 - `ExtensionBase` 向 Extension 提供 fresh validated config 读写与 typed deployment-wide state
   mutation；Extension 不接触 SQLModel，数据库行锁与并发语义仍由 Core store 实现。
