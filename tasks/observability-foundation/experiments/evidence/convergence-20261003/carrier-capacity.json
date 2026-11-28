@@ -1,8 +1,0 @@
-{
-  "sdk_injected_traceparent_bytes": 55,
-  "sdk_injected_tracestate_bytes": 1109,
-  "candidate_max_bytes_each": 512,
-  "oversize_state_policy": "omit optional state as a whole; preserve parent IDs/flags",
-  "future_context_reinjected_as_version_00": true,
-  "persistence_limit_is_application_policy_not_W3C_maximum": true
-}

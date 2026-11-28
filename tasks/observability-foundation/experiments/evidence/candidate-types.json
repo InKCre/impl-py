@@ -1,7 +1,0 @@
-{
-  "source": "candidate migrated disposable o11y_impl, not production-admitted artifact",
-  "migration_head": "3d9593b0c855",
-  "generator": "supabase@2.112.0",
-  "sha256": "c80b2bccceb49f58f9708d262b3bd45a50f3d46ec75169cdf13d3aa1bc9ae398",
-  "required_before_merge": "regenerate/compare via sync-database-contract.mjs from admitted core artifact"
-}

@@ -1,7 +1,0 @@
-{
-  "legacy_ts_insert_defaults_null": true,
-  "legacy_ts_read_ignores_carrier": true,
-  "legacy_ts_claim_close_preserve_carrier": true,
-  "transport": "actual DBAPIClient and PostgREST",
-  "runtime": "Node; config/auth sources replaced with dedicated lab values; browser not tested"
-}
