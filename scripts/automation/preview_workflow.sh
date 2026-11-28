@@ -53,17 +53,23 @@ case "${1:-}" in
     ;;
   build-extensions)
     validate_preview_identity
-    require_env ARTIFACT_DIRECTORY
-    require_env RUNNER_TEMP
-    preview_inputs="$RUNNER_TEMP/preview-wheel-inputs"
+    if [ -n "${ARTIFACT_DIRECTORY:-}" ]; then
+      require_env RUNNER_TEMP
+      preview_inputs="$RUNNER_TEMP/preview-wheel-inputs"
+      preview_registry="$ARTIFACT_DIRECTORY/registry"
+    else
+      # Older delivery controllers invoke the PR checkout on their own runner.
+      require_env GITHUB_WORKSPACE
+      preview_inputs="$GITHUB_WORKSPACE/.extension-preview-inputs"
+      preview_registry="$GITHUB_WORKSPACE/.extension-preview-registry"
+    fi
     public_origin="https://pr-$PR_NUMBER.$PAGES_PROJECT.pages.dev"
     pdm run build:extension-preview --output "$preview_inputs"
     pdm run inkcre-ext preview build --inventory "$preview_inputs/extensions.json" \
-      --public-origin "$public_origin" --output "$ARTIFACT_DIRECTORY/registry"
+      --public-origin "$public_origin" --output "$preview_registry"
     ;;
   build-images)
     require_env HEAD_SHA
-    require_env ARTIFACT_DIRECTORY
     require_env SOURCE_DIRECTORY
     [[ "$HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
     for process in web release; do
@@ -75,10 +81,12 @@ case "${1:-}" in
       --file "$SOURCE_DIRECTORY/Dockerfile.postgrest" \
       --build-arg "SOURCE_REVISION=$HEAD_SHA" \
       --tag "inkcre-preview-postgrest:$HEAD_SHA" "$SOURCE_DIRECTORY"
-    mkdir -p "$ARTIFACT_DIRECTORY"
-    images=()
-    while IFS= read -r image; do images+=("$image"); done < <(preview_images)
-    docker image save --output "$ARTIFACT_DIRECTORY/images.tar" "${images[@]}"
+    if [ -n "${ARTIFACT_DIRECTORY:-}" ]; then
+      mkdir -p "$ARTIFACT_DIRECTORY"
+      images=()
+      while IFS= read -r image; do images+=("$image"); done < <(preview_images)
+      docker image save --output "$ARTIFACT_DIRECTORY/images.tar" "${images[@]}"
+    fi
     ;;
   load-artifact)
     require_env HEAD_SHA

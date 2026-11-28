@@ -21,6 +21,62 @@ def _run(script: str, command: str, environment: dict[str, str]):
   )
 
 
+@pytest.mark.parametrize("artifact_mode", [False, True], ids=["current-main", "artifact"])
+def test_preview_build_serves_each_controller(tmp_path, artifact_mode):
+  workspace = tmp_path / "workspace"
+  source = workspace / "source"
+  runner_temp = tmp_path / "temp"
+  artifact = runner_temp / "preview-artifact"
+  calls = tmp_path / "calls"
+  pages_project = "inkcre-core-py-extension-registry-preview"
+  head = "a" * 40
+  for tool in ("pdm", "docker"):
+    command = tmp_path / tool
+    command.write_text('#!/bin/sh\nprintf "%s %s\\n" "${0##*/}" "$*" >> "$BUILD_CALLS"\n')
+    command.chmod(0o700)
+
+  environment = {
+    **os.environ,
+    "PATH": f"{tmp_path}:{os.environ['PATH']}",
+    "BUILD_CALLS": str(calls),
+    "GITHUB_WORKSPACE": str(workspace),
+    "HEAD_SHA": head,
+    "PAGES_PROJECT": pages_project,
+    "PR_NUMBER": "123",
+    "RUNNER_TEMP": str(runner_temp),
+    "SOURCE_DIRECTORY": str(source),
+  }
+  environment.pop("ARTIFACT_DIRECTORY", None)
+  preview_inputs = workspace / ".extension-preview-inputs"
+  registry = workspace / ".extension-preview-registry"
+  if artifact_mode:
+    environment["ARTIFACT_DIRECTORY"] = str(artifact)
+    preview_inputs = runner_temp / "preview-wheel-inputs"
+    registry = artifact / "registry"
+
+  for command in ("build-extensions", "build-images"):
+    result = _run("preview_workflow.sh", command, environment)
+    assert result.returncode == 0, result.stderr
+
+  tags = [f"inkcre-preview-{process}:{head}" for process in ("web", "release", "postgrest")]
+  docker_build = "docker build --platform linux/amd64 --provenance=false"
+  expected = [
+    f"pdm run build:extension-preview --output {preview_inputs}",
+    f"pdm run inkcre-ext preview build --inventory {preview_inputs / 'extensions.json'} "
+    f"--public-origin https://pr-123.{pages_project}.pages.dev --output {registry}",
+    f"{docker_build} --target heroku-web --build-arg SOURCE_REVISION={head} "
+    f"--tag {tags[0]} {source}",
+    f"{docker_build} --target heroku-release --build-arg SOURCE_REVISION={head} "
+    f"--tag {tags[1]} {source}",
+    f"{docker_build} --file {source / 'Dockerfile.postgrest'} "
+    f"--build-arg SOURCE_REVISION={head} --tag {tags[2]} {source}",
+  ]
+  if artifact_mode:
+    archive = artifact / "images.tar"
+    expected.append(f"docker image save --output {archive} {' '.join(tags)}")
+  assert calls.read_text().splitlines() == expected
+
+
 @pytest.mark.parametrize(
   "defect, docker_expected",
   [
@@ -30,6 +86,7 @@ def _run(script: str, command: str, environment: dict[str, str]):
     ("symlink", False),
     ("missing-registry-index", False),
     ("missing-images", False),
+    ("missing-artifact-directory", False),
     ("wrong-source", True),
     ("wrong-platform", True),
   ],
@@ -67,19 +124,18 @@ def test_only_static_registry_and_exact_head_images_can_be_delivered(
   )
   docker.chmod(0o700)
   calls = tmp_path / "calls"
-  result = _run(
-    "preview_workflow.sh",
-    "load-artifact",
-    {
-      **os.environ,
-      "PATH": f"{tmp_path}:{os.environ['PATH']}",
-      "ARTIFACT_DIRECTORY": str(artifact),
-      "HEAD_SHA": head,
-      "DOCKER_CALLS": str(calls),
-      "IMAGE_PLATFORM": "linux/arm64" if defect == "wrong-platform" else "linux/amd64",
-      "IMAGE_REVISION": "b" * 40 if defect == "wrong-source" else head,
-    },
-  )
+  environment = {
+    **os.environ,
+    "PATH": f"{tmp_path}:{os.environ['PATH']}",
+    "ARTIFACT_DIRECTORY": str(artifact),
+    "HEAD_SHA": head,
+    "DOCKER_CALLS": str(calls),
+    "IMAGE_PLATFORM": "linux/arm64" if defect == "wrong-platform" else "linux/amd64",
+    "IMAGE_REVISION": "b" * 40 if defect == "wrong-source" else head,
+  }
+  if defect == "missing-artifact-directory":
+    del environment["ARTIFACT_DIRECTORY"]
+  result = _run("preview_workflow.sh", "load-artifact", environment)
 
   assert (result.returncode == 0) == (defect is None), result.stderr
   assert calls.exists() == docker_expected
