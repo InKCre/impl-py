@@ -8,7 +8,7 @@ import pytest
 import sqlalchemy
 import sqlalchemy.exc
 
-from inkcre_core.business.ai import AIManager
+from inkcre_core.business.ai import AIExecutionRequirement, AIManager
 from tests.database import TestSession
 from inkcre_core.schemas.ai import (
   AIModelModel,
@@ -99,12 +99,22 @@ def test_ai_facts_round_trip_typed_capabilities_and_database_invariants(async_ru
       loaded = async_runner.run(AIManager.get_model(model.id))
       assert loaded is not None
       assert loaded.native_model_id == "integration-model"
-      target = async_runner.run(AIManager._load_target_async(model.id))
-      assert target.model.id == model.id
+      requirement = AIExecutionRequirement(
+        capability="chat",
+        input_modalities=frozenset({"text"}),
+        output_modalities=frozenset({"text"}),
+        features=frozenset({"tool_calling"}),
+      )
+      assert async_runner.run(AIManager.can_execute(model.id, requirement))
+      provider.enabled = False
+      db.commit()
+      assert not async_runner.run(AIManager.can_execute(model.id, requirement))
+      # Disabled providers still expose their models for inspection.
+      assert async_runner.run(AIManager.get_model(model.id)) is not None
 
       model.native_model_id = "forbidden-change"
       db.add(model)
-      with pytest.raises(sqlalchemy.exc.IntegrityError):
+      with pytest.raises(sqlalchemy.exc.IntegrityError, match="identity is immutable"):
         db.commit()
       db.rollback()
   finally:

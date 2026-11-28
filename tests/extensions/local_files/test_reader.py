@@ -1,112 +1,102 @@
-"""Readers consume stored bodies; the source Peer and original file are unnecessary."""
+"""Readers consume stored bodies independently of the original Peer."""
 
-import datetime
-from types import SimpleNamespace
+import json
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
 
-from extensions.local_files.schema import FileMetadata, file_location
-from extensions.local_files.resolver import LocalFileResolver
-from inkcre_core.business.info_base.services import BlockService
+from extensions.local_files import Extension
+from extensions.local_files.schema import file_location
+from inkcre_core.business.info_base.resolver import ResolverManager, register_core_resolvers
+from inkcre_core.business.info_base.services import BlockService, RelationService
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.relation import RelationModel
 
 
-def test_location_retains_machine_path_without_remote_file_access():
-  peer, path = file_location(
-    "inkcre-peer-file://a143b185-f43d-47d1-8ef7-1d3857284b01/Users/a/%E4%B8%AD%E6%96%87%20%23%3F.md"
-  )
+LOCATION = "inkcre-peer-file://a143b185-f43d-47d1-8ef7-1d3857284b01"
+
+
+def test_location_decodes_peer_and_absolute_path():
+  peer, path = file_location(f"{LOCATION}/Users/a/%E4%B8%AD%E6%96%87%20%23%3F.md")
   assert peer == UUID("a143b185-f43d-47d1-8ef7-1d3857284b01")
   assert path == "/Users/a/中文 #?.md"
-  for value in [
-    "file:///etc/passwd",
-    "inkcre-peer-file://unknown/a",
-    "inkcre-peer-file://a143b185-f43d-47d1-8ef7-1d3857284b01/a#",
+  for value, reason in [
+    ("file:///etc/passwd", "Invalid Peer file location"),
+    ("inkcre-peer-file://unknown/a", "UUID"),
+    (f"{LOCATION}/a#", "Invalid Peer file location"),
   ]:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=reason):
       file_location(value)
 
 
-def test_failed_current_file_keeps_successful_body_readable(monkeypatch, async_runner):
-  metadata = FileMetadata(
-    location="inkcre-peer-file://a143b185-f43d-47d1-8ef7-1d3857284b01/Users/a/note.docx",
-    format="docx",
-    available=False,
-    observed_at=datetime.datetime.now(datetime.UTC),
-    revision={
+@pytest.fixture
+def local_reader(monkeypatch):
+  Extension.load_decoders()
+  register_core_resolvers()
+
+  def reader(version, metadata, body):
+    monkeypatch.setattr(BlockService, "get", AsyncMock(return_value=body))
+    edges = [RelationModel(from_=1, to_=20, content="body")] if body else []
+    monkeypatch.setattr(RelationService, "get", AsyncMock(return_value=edges))
+    return ResolverManager.get(
+      BlockModel(
+        id=1,
+        resolver=f"extensions.local_files.file.v{version}",
+        content=json.dumps(metadata),
+      )
+    )
+
+  return reader
+
+
+def test_failed_current_file_keeps_successful_body_readable(local_reader, async_runner):
+  metadata = {
+    "location": f"{LOCATION}/Users/a/note.docx",
+    "format": "docx",
+    "available": False,
+    "observed_at": "2026-08-02T00:00:00Z",
+    "revision": {
       "sha256": "a" * 64,
       "extractor": "mac-native-text.v1",
-      "extracted_at": datetime.datetime.now(datetime.UTC),
+      "extracted_at": "2026-08-01T00:00:00Z",
       "scope": "main_document",
     },
-    issue="当前原件损坏",
+    "issue": "当前原件损坏",
+  }
+  body = BlockModel(id=20, resolver="core.text.v1", content="上次成功正文")
+  text = async_runner.run(
+    local_reader(1, metadata, body).get_text(materialize_missing=False)
   )
-  reader = object.__new__(LocalFileResolver)
-  monkeypatch.setattr(
-    reader, "get_raw_content", AsyncMock(return_value=metadata.model_dump_json())
-  )
-  monkeypatch.setattr(
-    reader,
-    "get_relations",
-    AsyncMock(return_value=(SimpleNamespace(content="body", to_=20),)),
-  )
-  monkeypatch.setattr(
-    BlockService,
-    "get",
-    AsyncMock(
-      return_value=SimpleNamespace(
-        id=20, resolver="core.text.v1", content="上次成功正文", storage=None
-      )
-    ),
-  )
-  text = async_runner.run(reader.get_text(materialize_missing=False))
   assert "上次成功正文" in text and "原件已失效" in text and "不含脚注" in text
-  monkeypatch.setattr(reader, "get_relations", AsyncMock(return_value=()))
   with pytest.raises(ValueError, match="正文关系"):
-    async_runner.run(reader.get_text())
+    async_runner.run(local_reader(1, metadata, None).get_text())
 
 
 @pytest.mark.parametrize(
-  "resolver,content,expected",
+  "format_name,content,expected",
   [
-    ("core.markdown.v1", "# 标题\n\n`<node>`", "`<node>`"),
+    ("markdown", "# 标题\n\n`<node>`", "`<node>`"),
     (
-      "core.html.v1",
+      "html",
       '<h1>标题</h1><video src="https://example.org/video">'
       '<track src="https://example.org/captions.vtt"></video>',
       "https://example.org/captions.vtt",
     ),
   ],
 )
-def test_v2_uses_the_body_format(monkeypatch, async_runner, resolver, content, expected):
-  from extensions.local_files.resolver import LocalFileV2Resolver
-  from inkcre_core.business.info_base.resolver import register_core_resolvers
-  from inkcre_core.schemas.info_base.block import BlockModel
-
-  register_core_resolvers()
-  now = datetime.datetime.now(datetime.UTC)
-  metadata = FileMetadata(
-    location="inkcre-peer-file://a143b185-f43d-47d1-8ef7-1d3857284b01/Users/a/note.md",
-    format="markdown",
-    available=True,
-    observed_at=now,
+def test_v2_uses_the_body_format(
+  local_reader, async_runner, format_name, content, expected
+):
+  metadata = {
+    "location": f"{LOCATION}/Users/a/note.{format_name}",
+    "format": format_name,
+    "available": True,
+    "observed_at": "2026-08-02T00:00:00Z",
+  }
+  body = BlockModel(id=20, resolver=f"core.{format_name}.v1", content=content)
+  assert expected in async_runner.run(
+    local_reader(2, metadata, body).get_text(materialize_missing=False)
   )
-  reader = object.__new__(LocalFileV2Resolver)
-  monkeypatch.setattr(
-    reader, "get_raw_content", AsyncMock(return_value=metadata.model_dump_json())
-  )
-  monkeypatch.setattr(
-    reader,
-    "get_relations",
-    AsyncMock(return_value=(SimpleNamespace(content="body", to_=20),)),
-  )
-  block = BlockModel(
-    id=20, resolver=resolver, content=content, storage=None, created_at=now, updated_at=now
-  )
-  monkeypatch.setattr(BlockService, "get", AsyncMock(return_value=block))
-  assert expected in async_runner.run(reader.get_text(materialize_missing=False))
-  legacy = object.__new__(LocalFileResolver)
-  monkeypatch.setattr(legacy, "get_raw_content", reader.get_raw_content)
-  monkeypatch.setattr(legacy, "get_relations", reader.get_relations)
   with pytest.raises(ValueError, match="类型不符"):
-    async_runner.run(legacy.get_text())
+    async_runner.run(local_reader(1, metadata, body).get_text())

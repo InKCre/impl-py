@@ -14,7 +14,6 @@ from app.business.info_base.resolver.label import format_label
 from app.business.source.config import resolve_writable_storage_async
 from app.persistence.source.uow import source_uow
 from app.schemas.info_base.block import BlockForm, BlockModel
-from app.schemas.info_base.main import StarsGraphForm
 from app.schemas.source import SourceModel
 
 from .schema import SolvedTelegramAttachment, TelegramAttachment, TelegramMessage
@@ -50,13 +49,6 @@ class TelegramMessageResolver(
   ) -> TelegramMessage:
     del materialize_missing
     return TelegramMessage.model_validate_json(await self.get_raw_content(refresh=refresh))
-
-  @classmethod
-  def create_graph(cls, message: TelegramMessage) -> StarsGraphForm:
-    """Legacy fixture seam; new collection never calls it."""
-    return StarsGraphForm(
-      block=BlockForm(resolver=cls.__rsotype__, content=message.model_dump_json())
-    )
 
   async def get_text(
     self,

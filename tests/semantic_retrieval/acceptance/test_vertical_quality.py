@@ -1,7 +1,6 @@
 """Black-box corpus ingestion and explicit real-provider semantic quality gates."""
 
 from __future__ import annotations
-from inkcre_core import current_core
 
 from inkcre_core.business.deployment_config import DeploymentConfigService
 from inkcre_core.business.info_base.commands import submit_stars
@@ -11,21 +10,18 @@ from tests.database import read_block, read_relations
 import asyncio
 import base64
 import copy
-from dataclasses import dataclass, field
+from contextlib import asynccontextmanager, contextmanager
 import json
 import os
 
 from aiohttp import web
-from fastapi.testclient import TestClient
 import pytest
-import sqlalchemy
 import sqlmodel
 
 from inkcre_core.business.ai import AIManager
 from inkcre_core.business.info_base.resolver import register_core_resolvers
 from inkcre_core.business.info_base.resolver.html import HTMLResolver
 from inkcre_core.business.info_base.storage import StorageManager
-from inkcre_core.business.info_base.storage.postgresql import PostgreSQLBlobPointer
 from inkcre_core.business.organization import (
   DRAFT_GRAPH_TOOL,
   GET_DRAFT_GRAPH_SCHEMA_TOOL,
@@ -53,10 +49,6 @@ from inkcre_core.schemas.ai import (
   ToolCall,
   ToolResultMessage,
   UserMessage,
-)
-from inkcre_core.schemas.deployment_config import (
-  DeploymentConfigModel,
-  DeploymentConfigView,
 )
 from inkcre_core.schemas.info_base.block import BlockModel
 from inkcre_core.schemas.info_base.relation import RelationModel
@@ -87,7 +79,7 @@ from .corpus import (
 )
 
 
-pytestmark = [pytest.mark.integration, pytest.mark.acceptance]
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("isolated_database_runtime")]
 
 PAT = "memos_pat_" + "A" * 32
 TINY_PNG = base64.b64decode(
@@ -98,15 +90,6 @@ PROVIDER_ENVIRONMENT = (
   "INKCRE_ACCEPTANCE_EMBEDDING_MODEL",
   "INKCRE_ACCEPTANCE_CHAT_MODEL",
 )
-
-
-@dataclass
-class CorpusRun:
-  manifest: CorpusManifest
-  aliases: dict[str, int] = field(default_factory=dict)
-  roots: set[int] = field(default_factory=set)
-  source_ids: set[int] = field(default_factory=set)
-  server: "CorpusHTTPDouble | None" = None
 
 
 class CorpusHTTPDouble:
@@ -207,15 +190,19 @@ def _resource_id(name: str) -> int:
   return int(name.rpartition("/")[2])
 
 
-def _memos_client() -> TestClient:
-  return publish_extension(
-    MemosExtension,
-    {"personal_access_token": PAT},
-    persist_config=True,
-  ).client
+@contextmanager
+def _memos_client():
+  publication = publish_extension(
+    MemosExtension, {"personal_access_token": PAT}, persist_config=True
+  )
+  try:
+    with publication.client as client:
+      yield client
+  finally:
+    publication.unpublish()
 
 
-def _ingest_memo(manifest: CorpusManifest) -> tuple[int, int]:
+def _ingest_memo(manifest: CorpusManifest) -> int:
   data = manifest.producer_inputs["memo.design-capture"]
   headers = {"Authorization": f"Bearer {PAT}"}
   with _memos_client() as client:
@@ -253,7 +240,7 @@ def _ingest_memo(manifest: CorpusManifest) -> tuple[int, int]:
       },
     )
     assert comment.status_code == 200, comment.text
-    return memo_id, _resource_id(comment.json()["name"])
+    return memo_id
 
 
 def _ingest_text_memo(content: str) -> int:
@@ -298,7 +285,7 @@ async def _collect_source(source_id: int) -> None:
   assert closed.status is JobStatus.FINISHED, closed.state
 
 
-def _feed_entities(source_id: int, item_title: str) -> tuple[int, int]:
+def _feed_item_id(source_id: int, item_title: str) -> int:
   with TestSession() as db:
     feed = next(
       block
@@ -325,10 +312,11 @@ def _feed_entities(source_id: int, item_title: str) -> tuple[int, int]:
       ).title
       == item_title
     )
-    return feed_id, _required_id(item.id)
+    return _required_id(item.id)
 
 
-async def _ingest_corpus(manifest: CorpusManifest) -> CorpusRun:
+@asynccontextmanager
+async def _ingested_corpus(manifest: CorpusManifest):
   register_core_resolvers()
   await StorageManager.setup_builtin_storages_async()
   MemosExtension._init_resolvers()
@@ -338,12 +326,10 @@ async def _ingest_corpus(manifest: CorpusManifest) -> CorpusRun:
   await JobManager.sync_job_types()
 
   server = CorpusHTTPDouble(manifest)
-  run = CorpusRun(manifest=manifest, server=server)
+  aliases: dict[str, int] = {}
   await server.start()
   try:
-    memo_id, comment_id = await asyncio.to_thread(_ingest_memo, manifest)
-    run.aliases["memo.design-capture"] = memo_id
-    run.roots.update((memo_id, comment_id))
+    aliases["memo.design-capture"] = await asyncio.to_thread(_ingest_memo, manifest)
 
     source_types = {
       "rss": "extensions.rss.rss.Source",
@@ -363,122 +349,26 @@ async def _ingest_corpus(manifest: CorpusManifest) -> CorpusRun:
           user_agent="InKCre semantic-retrieval acceptance/1",
         ),
       )
-      run.source_ids.add(source_id)
       await _collect_source(source_id)
-      feed_id, item_id = _feed_entities(
+      aliases[alias] = _feed_item_id(
         source_id,
         manifest.producer_inputs[alias]["item_title"],
       )
-      run.roots.add(feed_id)
-      run.aliases[alias] = item_id
 
     sqlite_url = f"{server.base_url}/sqlite-architecture.html"
     root = await submit_stars(HTMLResolver.create_graph(sqlite_url))
-    sqlite_id = _required_id(root.id)
-    run.roots.add(sqlite_id)
-    run.aliases["sqlite.architecture-source"] = sqlite_id
-    return run
-  except BaseException:
-    await _close_corpus(run)
-    raise
-
-
-def _connected_blocks(roots: set[int]) -> set[int]:
-  connected = set(roots)
-  frontier = set(roots)
-  with TestSession() as db:
-    while frontier:
-      current = frontier.pop()
-      for relation in read_relations(current, db_session=db):
-        other = relation.to_ if relation.from_ == current else relation.from_
-        if other not in connected:
-          connected.add(other)
-          frontier.add(other)
-  return connected
-
-
-def _discover_partial_roots(run: CorpusRun) -> None:
-  """Recover acceptance-owned roots after a producer failed mid-command."""
-  memo = run.manifest.producer_inputs["memo.design-capture"]
-  with TestSession() as db:
-    for block in db.exec(sqlmodel.select(BlockModel)).all():
-      block_id = block.id
-      if block_id is None:
-        continue
-      if block.resolver in {
-        "extensions.memos.memo.v1",
-        "extensions.memos.attachment.v2",
-      } and any(
-        marker in block.content
-        for marker in (
-          memo["body"],
-          memo["comment"],
-          "architecture-context.png",
-        )
-      ):
-        run.roots.add(block_id)
-      elif block.resolver == FEED_RESOLVER_ID:
-        try:
-          source_id = CanonicalFeed.model_validate_json(block.content).source_instance_id
-        except ValueError:
-          continue
-        if source_id in run.source_ids:
-          run.roots.add(block_id)
-      elif block.resolver == "core.html.v1" and block.content.endswith(
-        "/sqlite-architecture.html"
-      ):
-        run.roots.add(block_id)
-
-
-def _cleanup_corpus(run: CorpusRun) -> None:
-  _discover_partial_roots(run)
-  block_ids = _connected_blocks(run.roots) if run.roots else set()
-  blob_ids: set[object] = set()
-  with TestSession() as db:
-    for block_id in block_ids:
-      block = db.get(BlockModel, block_id)
-      if block is not None and block.storage == -4:
-        blob_ids.add(PostgreSQLBlobPointer.model_validate_json(block.content).blob_id)
-    if block_ids:
-      db.connection().execute(
-        sqlalchemy.text(
-          "DELETE FROM inkcre.relations WHERE from_ = ANY(:ids) OR to_ = ANY(:ids)"
-        ),
-        {"ids": list(block_ids)},
-      )
-      db.connection().execute(
-        sqlalchemy.text("DELETE FROM inkcre.blocks WHERE id = ANY(:ids)"),
-        {"ids": list(block_ids)},
-      )
-    if blob_ids:
-      db.connection().execute(
-        sqlalchemy.text("DELETE FROM inkcre.storage_blobs WHERE id = ANY(:ids)"),
-        {"ids": list(blob_ids)},
-      )
-    if run.source_ids:
-      db.connection().execute(
-        sqlalchemy.text("DELETE FROM inkcre.sources WHERE id = ANY(:ids)"),
-        {"ids": list(run.source_ids)},
-      )
-    db.commit()
-  for source_id in run.source_ids:
-    current_core().sources.pop(source_id, None)
-
-
-async def _close_corpus(run: CorpusRun) -> None:
-  try:
-    _cleanup_corpus(run)
+    aliases["sqlite.architecture-source"] = _required_id(root.id)
+    yield aliases
   finally:
-    if run.server is not None:
-      await run.server.close()
+    await server.close()
 
 
-def _assert_ingested_graph(run: CorpusRun) -> None:
+def _assert_ingested_graph(aliases: dict[str, int]) -> None:
   with TestSession() as db:
-    memo = db.get_one(BlockModel, run.aliases["memo.design-capture"])
+    memo = db.get_one(BlockModel, aliases["memo.design-capture"])
     assert memo.resolver == "extensions.memos.memo.v1"
-    rss_item = db.get_one(BlockModel, run.aliases["rss.deep-modules"])
-    atom_item = db.get_one(BlockModel, run.aliases["atom.peer-discovery"])
+    rss_item = db.get_one(BlockModel, aliases["rss.deep-modules"])
+    atom_item = db.get_one(BlockModel, aliases["atom.peer-discovery"])
     assert rss_item.resolver == atom_item.resolver == FEED_ITEM_RESOLVER_ID
     enclosure = db.exec(
       sqlmodel.select(RelationModel).where(
@@ -494,28 +384,8 @@ def _assert_ingested_graph(run: CorpusRun) -> None:
     ).one()
     image = db.get_one(BlockModel, materialized.to_)
     assert image.resolver == "core.image.v1"
-    sqlite_root = db.get_one(BlockModel, run.aliases["sqlite.architecture-source"])
+    sqlite_root = db.get_one(BlockModel, aliases["sqlite.architecture-source"])
     assert (sqlite_root.resolver, sqlite_root.storage) == ("core.html.v1", -1)
-
-
-@pytest.mark.skipif(
-  not os.getenv("INKCRE_TEST_DATABASE_URL"),
-  reason="requires an explicitly selected migrated PostgreSQL runtime",
-)
-def test_real_producers_create_the_authoritative_corpus_graph(
-  async_runner,
-):
-  manifest = load_manifest()
-  verify_document_digests(manifest)
-
-  async def journey() -> None:
-    run = await _ingest_corpus(manifest)
-    try:
-      _assert_ingested_graph(run)
-    finally:
-      await _close_corpus(run)
-
-  async_runner.run(journey())
 
 
 @pytest.mark.skipif(
@@ -529,8 +399,8 @@ def test_real_producer_corpus_supports_exact_and_chinese_lexical_recall(
   verify_document_digests(manifest)
 
   async def journey() -> None:
-    run = await _ingest_corpus(manifest)
-    try:
+    async with _ingested_corpus(manifest) as aliases:
+      _assert_ingested_graph(aliases)
       target = await asyncio.to_thread(
         _ingest_text_memo,
         "部署演练记录了星间链路故障注入的触发顺序。",
@@ -539,7 +409,6 @@ def test_real_producer_corpus_supports_exact_and_chinese_lexical_recall(
         _ingest_text_memo,
         "部署演练记录了卫星通信异常的排查过程。",
       )
-      run.roots.update((target, distractor))
 
       report = await LexicalRetrievalManager.maintain(
         LexicalMaintenanceOptions(max_records=500)
@@ -547,14 +416,12 @@ def test_real_producer_corpus_supports_exact_and_chinese_lexical_recall(
       assert report.failed == 0
 
       technical = await LexicalRetrievalManager.retrieve_local("sqlite3_prepare_v2")
-      assert technical.matches[0].block.id == run.aliases["sqlite.architecture-source"]
+      assert technical.matches[0].block.id == aliases["sqlite.architecture-source"]
       assert technical.matches[0].evidence in {"label_substring", "text_substring"}
 
       chinese = await LexicalRetrievalManager.retrieve_local("链路故障注入")
       assert chinese.matches[0].block.id == target
       assert distractor not in {match.block.id for match in chinese.matches}
-    finally:
-      await _close_corpus(run)
 
   async_runner.run(journey())
 
@@ -565,49 +432,6 @@ def _provider_environment_available() -> bool:
   )
 
 
-async def _restore_config(key: str, backup: DeploymentConfigView | None) -> None:
-  with TestSession() as db:
-    record = db.get(DeploymentConfigModel, key)
-    if record is not None:
-      db.delete(record)
-      db.commit()
-  if backup is not None:
-    await DeploymentConfigService.replace(key, backup.schema_id, backup.value)
-
-
-def _cleanup_ai(
-  *,
-  provider_id: int | None,
-  model_ids: tuple[int, ...],
-  profile_id: int | None,
-  agent_id: int | None,
-) -> None:
-  with TestSession() as db:
-    if agent_id is not None:
-      agent = db.get(AgentDefinitionModel, agent_id)
-      if agent is not None:
-        db.delete(agent)
-    if profile_id is not None:
-      # Maintenance may embed pre-existing rows; remove only this test profile's support.
-      for table in ("block_embeddings", "relation_embeddings"):
-        db.connection().execute(
-          sqlalchemy.text(f"DELETE FROM inkcre.{table} WHERE profile = :profile"),
-          {"profile": profile_id},
-        )
-      profile = db.get(EmbeddingProfileModel, profile_id)
-      if profile is not None:
-        db.delete(profile)
-    for model_id in model_ids:
-      model = db.get(AIModelModel, model_id)
-      if model is not None:
-        db.delete(model)
-    if provider_id is not None:
-      provider = db.get(AIProviderModel, provider_id)
-      if provider is not None:
-        db.delete(provider)
-    db.commit()
-
-
 def _create_ai_facts(
   *,
   api_key: str,
@@ -615,7 +439,7 @@ def _create_ai_facts(
   embedding_model_name: str,
   chat_model_name: str,
   dimensions: int,
-) -> tuple[int, int, int, int, int]:
+) -> tuple[int, int]:
   config: dict[str, str] = {"api_key": api_key}
   if base_url:
     config["base_url"] = base_url
@@ -648,11 +472,10 @@ def _create_ai_facts(
     )
     db.add_all((embedding_model, chat_model))
     db.flush()
-    embedding_model_id = _required_id(embedding_model.id)
     chat_model_id = _required_id(chat_model.id)
     profile = EmbeddingProfileModel(
       name="Semantic retrieval acceptance profile",
-      ai_model=embedding_model_id,
+      ai_model=_required_id(embedding_model.id),
       dimensions=dimensions,
     )
     db.add(profile)
@@ -676,18 +499,12 @@ def _create_ai_facts(
     db.add(agent)
     db.commit()
     db.refresh(agent)
-    return (
-      provider_id,
-      embedding_model_id,
-      chat_model_id,
-      profile_id,
-      _required_id(agent.id),
-    )
+    return profile_id, _required_id(agent.id)
 
 
 async def _exercise_quality(
   manifest: CorpusManifest,
-  run: CorpusRun,
+  aliases: dict[str, int],
   *,
   profile_id: int,
   agent_id: int,
@@ -696,7 +513,7 @@ async def _exercise_quality(
     RUMINATION_CONFIG_KEY, RUMINATION_CONFIG_SCHEMA, {"agent": agent_id}
   )
 
-  sqlite_id = run.aliases["sqlite.architecture-source"]
+  sqlite_id = aliases["sqlite.architecture-source"]
   previous_relations = {
     relation.id
     for relation in read_relations(
@@ -722,7 +539,7 @@ async def _exercise_quality(
   pager = read_block(interpretation.to_)
   assert pager is not None
   assert "pager" in pager.content.casefold()
-  run.aliases["sqlite.pager"] = _required_id(pager.id)
+  aliases["sqlite.pager"] = _required_id(pager.id)
 
   report = await SemanticRetrievalManager.maintain(
     profile_id,
@@ -733,7 +550,7 @@ async def _exercise_quality(
     ),
   )
   assert report.failed == 0, report.diagnostics
-  _assert_judged_blocks_are_fresh(manifest, run.aliases, profile_id)
+  _assert_judged_blocks_are_fresh(manifest, aliases, profile_id)
   for judgment in manifest.quality_queries:
     result = await SemanticRetrievalManager.retrieve(
       judgment.query,
@@ -743,7 +560,7 @@ async def _exercise_quality(
     ranked: list[tuple[str, int]] = []
     for match in result.matches:
       ranked.append((match.type, _required_id(match.entity.id)))
-    assert_quality_judgment(judgment, run.aliases, tuple(ranked))
+    assert_quality_judgment(judgment, aliases, tuple(ranked))
 
 
 def _assert_judged_blocks_are_fresh(
@@ -791,11 +608,6 @@ def _deterministic_vector(text: str) -> tuple[float, float, float, float, float]
 )
 def test_vertical_quality_control_flow_with_deterministic_ai(async_runner, monkeypatch):
   manifest = load_manifest()
-  provider_id: int | None = None
-  model_ids: tuple[int, ...] = ()
-  profile_id: int | None = None
-  agent_id: int | None = None
-  rumination_backup = async_runner.run(DeploymentConfigService.read(RUMINATION_CONFIG_KEY))
 
   async def embed(_cls, _model, inputs, dimensions):
     assert dimensions == 5
@@ -875,46 +687,27 @@ def test_vertical_quality_control_flow_with_deterministic_ai(async_runner, monke
   monkeypatch.setattr(AIManager, "chat", classmethod(chat))
 
   async def journey() -> None:
-    nonlocal provider_id, model_ids, profile_id, agent_id
-    run = await _ingest_corpus(manifest)
-    try:
+    async with _ingested_corpus(manifest) as aliases:
       await AIManager.sync_dialects_async()
-      (
-        provider_id,
-        embedding_model_id,
-        chat_model_id,
-        profile_id,
-        agent_id,
-      ) = _create_ai_facts(
+      profile_id, agent_id = _create_ai_facts(
         api_key="deterministic-test-key",
         base_url="https://provider.invalid/v1",
         embedding_model_name="deterministic-embedding",
         chat_model_name="deterministic-chat",
         dimensions=5,
       )
-      model_ids = (embedding_model_id, chat_model_id)
       await _exercise_quality(
         manifest,
-        run,
+        aliases,
         profile_id=profile_id,
         agent_id=agent_id,
       )
       assert model_calls == 4
-    finally:
-      await _close_corpus(run)
 
-  try:
-    async_runner.run(journey())
-  finally:
-    async_runner.run(_restore_config(RUMINATION_CONFIG_KEY, rumination_backup))
-    _cleanup_ai(
-      provider_id=provider_id,
-      model_ids=model_ids,
-      profile_id=profile_id,
-      agent_id=agent_id,
-    )
+  async_runner.run(journey())
 
 
+@pytest.mark.acceptance
 @pytest.mark.skipif(
   not _provider_environment_available(),
   reason=(
@@ -926,47 +719,22 @@ def test_real_provider_quality_and_rumination_gain(
   async_runner,
 ):
   manifest = load_manifest()
-  provider_id: int | None = None
-  model_ids: tuple[int, ...] = ()
-  profile_id: int | None = None
-  agent_id: int | None = None
-  rumination_backup = async_runner.run(DeploymentConfigService.read(RUMINATION_CONFIG_KEY))
 
   async def journey() -> None:
-    nonlocal provider_id, model_ids, profile_id, agent_id
-    run = await _ingest_corpus(manifest)
-    try:
+    async with _ingested_corpus(manifest) as aliases:
       await AIManager.sync_dialects_async()
-      (
-        provider_id,
-        embedding_model_id,
-        chat_model_id,
-        profile_id,
-        agent_id,
-      ) = _create_ai_facts(
+      profile_id, agent_id = _create_ai_facts(
         api_key=os.environ["INKCRE_ACCEPTANCE_AI_API_KEY"],
         base_url=os.getenv("INKCRE_ACCEPTANCE_AI_BASE_URL"),
         embedding_model_name=os.environ["INKCRE_ACCEPTANCE_EMBEDDING_MODEL"],
         chat_model_name=os.environ["INKCRE_ACCEPTANCE_CHAT_MODEL"],
         dimensions=int(os.getenv("INKCRE_ACCEPTANCE_EMBEDDING_DIMENSIONS", "256")),
       )
-      model_ids = (embedding_model_id, chat_model_id)
       await _exercise_quality(
         manifest,
-        run,
+        aliases,
         profile_id=profile_id,
         agent_id=agent_id,
       )
-    finally:
-      await _close_corpus(run)
 
-  try:
-    async_runner.run(journey())
-  finally:
-    async_runner.run(_restore_config(RUMINATION_CONFIG_KEY, rumination_backup))
-    _cleanup_ai(
-      provider_id=provider_id,
-      model_ids=model_ids,
-      profile_id=profile_id,
-      agent_id=agent_id,
-    )
+  async_runner.run(journey())

@@ -413,18 +413,29 @@ class GraphNavigationRetrievalManager:
         "both",
       )
     )
+    endpoints: list[typing.Literal["from", "to"]] = []
     if needs_from:
-      for relation in await uow.relations.get_endpoint_page(
-        frontier, endpoint="from", contents=contents, limit=MAX_MAX_EXPLORED_BLOCKS
-      ):
-        if relation.id is not None:
-          relations[relation.id] = relation
+      endpoints.append("from")
     if needs_to:
-      for relation in await uow.relations.get_endpoint_page(
-        frontier, endpoint="to", contents=contents, limit=MAX_MAX_EXPLORED_BLOCKS
-      ):
-        if relation.id is not None:
-          relations[relation.id] = relation
+      endpoints.append("to")
+    for endpoint in endpoints:
+      cursor = None
+      while True:
+        page = await uow.relations.get_endpoint_page(
+          frontier,
+          endpoint=endpoint,
+          contents=contents,
+          cursor=cursor,
+          limit=MAX_MAX_EXPLORED_BLOCKS,
+        )
+        for relation in page:
+          if relation.id is not None:
+            relations[relation.id] = relation
+        if len(page) < MAX_MAX_EXPLORED_BLOCKS:
+          break
+        # A Relation page is not an explored-Block budget: parallel edges can
+        # fill it without exhausting the reachable graph or the caller's budget.
+        cursor = typing.cast(RelationID, page[-1].id)
     return tuple(relations.values())
 
   @classmethod

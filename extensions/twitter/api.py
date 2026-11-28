@@ -69,9 +69,8 @@ def _provider_counts(raw: dict, names: dict[str, str], observed_at: str) -> dict
   )
 
 
-def _official_archive(
-  raw_tweets: list[dict], includes: dict, observed_at: str
-) -> TwitterBatch:
+def _official_archive(raw_tweets: list[dict], includes: dict) -> TwitterBatch:
+  observed_at = _observed_at()
   media = []
   media_ids = {}
   for raw in includes.get("media", ()):
@@ -194,9 +193,8 @@ def _official_archive(
   return TwitterBatch.model_validate({"users": users, "posts": posts, "media": media})
 
 
-def _twikit_archive(
-  tweets: typing.Iterable[twikit.Tweet], observed_at: str
-) -> TwitterBatch:
+def _twikit_archive(tweets: typing.Iterable[twikit.Tweet]) -> TwitterBatch:
+  observed_at = _observed_at()
   posts: dict[str, dict] = {}
   users: dict[str, dict] = {}
   media: dict[str, dict] = {}
@@ -599,11 +597,6 @@ class OfficialAPI(TwitterAPI):
     self.__user_handle = user_handle
     return user_id, user_handle
 
-  def _resolve_tweets(
-    self, raw_tweets: list[dict], includes: dict[str, list[dict]]
-  ) -> TwitterBatch:
-    return _official_archive(raw_tweets, includes, _observed_at())
-
   async def get_bookmarks(
     self, max_results: int = 20, page: str | None = None
   ) -> TwitterAPIResult:
@@ -640,7 +633,7 @@ class OfficialAPI(TwitterAPI):
       path_params={"id": self.__user_id},
       query=bookmarks_query,
     )
-    batch = self._resolve_tweets(res.get("data", []), res.get("includes", {}))
+    batch = _official_archive(res.get("data", []), res.get("includes", {}))
     return TwitterAPIResult(
       next_page=res.get("meta", {}).get("next_token"),
       previous_page=res.get("meta", {}).get("previous_token"),
@@ -674,7 +667,7 @@ class OfficialAPI(TwitterAPI):
         ),
       },
     )
-    batch = self._resolve_tweets(res.get("data", []), res.get("includes", {}))
+    batch = _official_archive(res.get("data", []), res.get("includes", {}))
     return TwitterAPIResult(
       next_page=res.get("meta", {}).get("next_token"),
       previous_page=res.get("meta", {}).get("previous_token"),
@@ -751,10 +744,6 @@ class TwikitAPI(TwitterAPI):
       cookies_file=str(self.COOKIES_FILE),
     )
 
-  @staticmethod
-  def _resolve_tweets(result: typing.Iterable[twikit.Tweet]) -> TwitterBatch:
-    return _twikit_archive(result, _observed_at())
-
   async def get_bookmarks(
     self, max_results: int = 20, page: str | None = None
   ) -> TwitterAPIResult:
@@ -764,7 +753,7 @@ class TwikitAPI(TwitterAPI):
     return TwitterAPIResult(
       next_page=res.next_cursor,
       previous_page=res.previous_cursor,
-      batch=self._resolve_tweets(res),
+      batch=_twikit_archive(res),
       primary_post_ids=tuple(tweet.id for tweet in res),
     )
 
@@ -787,7 +776,7 @@ class TwikitAPI(TwitterAPI):
       return TwitterAPIResult(
         next_page=res.next_cursor,
         previous_page=res.previous_cursor,
-        batch=self._resolve_tweets(res),
+        batch=_twikit_archive(res),
         primary_post_ids=tuple(tweet.id for tweet in res),
       )
 
@@ -828,6 +817,6 @@ class TwikitAPI(TwitterAPI):
             res_tweets.extend(replies)
 
     return TwitterAPIResult(
-      batch=self._resolve_tweets(res_tweets),
+      batch=_twikit_archive(res_tweets),
       primary_post_ids=tuple(tweet.id for tweet in res_tweets),
     )

@@ -8,6 +8,7 @@ import uuid
 
 import pytest
 import sqlalchemy
+import sqlmodel
 
 from inkcre_core.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
 from inkcre_core.business.info_base.resolver import register_core_resolvers
@@ -22,6 +23,7 @@ from inkcre_core.business.organization import (
 )
 from tests.database import TestSession
 from inkcre_core.schemas.info_base.block import BlockForm
+from inkcre_core.schemas.info_base.relation import RelationModel
 
 
 pytestmark = pytest.mark.skipif(
@@ -53,7 +55,7 @@ def test_exact_behaviors_compose_into_replayable_graph_use(async_runner) -> None
         (
           BlockForm(resolver="core.text.v1", content=f"{marker}: old limit"),
           BlockForm(resolver="core.text.v1", content=f"{marker}: new limit"),
-          BlockForm(resolver="core.text.v1", content=f"{marker}: detail"),
+          BlockForm(resolver="core.text.v1", content=f"{marker}: detail about the service"),
           BlockForm(resolver="core.text.v1", content=f"{marker}: measurement"),
           BlockForm(resolver="core.text.v1", content=f"{marker}: service record"),
           BlockForm(resolver="core.text.v1", content=f"{marker}: copied report"),
@@ -152,6 +154,29 @@ def test_exact_behaviors_compose_into_replayable_graph_use(async_runner) -> None
         changed.synthesis_block_id,
       )
     )
+    with TestSession() as db:
+      edges = db.exec(
+        sqlmodel.select(RelationModel).where(
+          sqlmodel.col(RelationModel.from_).in_(persisted)
+        )
+      ).all()
+    assert sorted((edge.from_, edge.content, edge.to_) for edge in edges) == sorted(
+      [
+        (new, "supersedes", old),
+        (detail, "refines", old),
+        (evidence, "supports", new),
+        (detail, "has mention", first_anchor.fragment_block_id),
+        (first_anchor.fragment_block_id, "refers to", referent),
+        (copied, "duplicates assertion", relayed),
+        (old, "duplicates assertion", relayed),
+        (synthesis.synthesis_block_id, "edited", changed.synthesis_block_id),
+        *(
+          (source, "synthesis", target)
+          for target in (synthesis.synthesis_block_id, changed.synthesis_block_id)
+          for source in (new, detail, evidence)
+        ),
+      ]
+    )
 
     with pytest.raises(ValueError, match="existing supersedes path"):
       async_runner.run(
@@ -216,7 +241,11 @@ def test_connected_component_reports_missing_and_bounded_incomplete_proof(
     )
     assert result.truncated
     assert result.missing_seed_block_ids == (max(ids) + 1_000_000,)
-    assert len(result.proof_graph.relations) <= 1
+    (edge,) = result.proof_graph.relations
+    assert (edge.from_, edge.content, edge.to_) in {
+      (left, "duplicates assertion", bridge),
+      (bridge, "duplicates assertion", right),
+    }
   finally:
     _cleanup(persisted)
 

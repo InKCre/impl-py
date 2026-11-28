@@ -43,6 +43,8 @@ class AttachmentResolver(Resolver[SolvedAttachment, str], rso_type=ATTACHMENT_RE
     materialize_missing: bool = True,
   ) -> str:
     solved = await self.get_solved_content(refresh=refresh, materialize_missing=False)
+    if context == "default":
+      return solved.metadata.filename or solved.metadata.mime_type
     block = await BlockService.get(solved.content_block_id)
     if block is None:
       raise ValueError("采集图片已不存在")
@@ -79,6 +81,10 @@ class CaptureResolver(Resolver[SolvedCapture, str], rso_type=CAPTURE_RESOLVER):
         raise ValueError("采集材料序号无效")
       elif relation.content == "annotation":
         annotations.append(relation.to_)
+    if not material_ids and not annotations:
+      raise ValueError("采集材料和附注不能同时为空")
+    if len(material_ids) > 128:
+      raise ValueError("一次采集最多包含 128 份材料")
     if sorted(material_ids) != list(range(len(material_ids))) or len(annotations) > 1:
       raise ValueError("采集材料顺序或附注关系无效")
     materials = []

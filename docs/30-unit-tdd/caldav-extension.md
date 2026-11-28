@@ -89,9 +89,9 @@ Radicale 要求返回 `Last-Modified`，当前使用 DAV 根记录的时间；�
 
 ## 验证依据
 
-`scripts/tests/caldav/` 保留 codec、图适配与事务排查脚本，不纳入默认测试收集或 CI 门槛，也不替代真机验收。按需运行 `pdm run python -m pytest -q scripts/tests/caldav`；数据库脚本要求通过 `INKCRE_TEST_DATABASE_URL` 显式指定已迁移的隔离 PostgreSQL。该目录的 `conftest.py` 复用既有隔离进程环境，禁止加载开发或 preview 的隐式连接。
+`scripts/tests/caldav/` 拥有 codec、DAV HTTP、共享图和事务回归。默认测试执行离线 codec 契约；`pdm run test:database` 和 CI 的一次性 PostgreSQL 入口执行图与 HTTP 场景。聚焦验证可运行 `pdm run python -m pytest -q scripts/tests/caldav`；数据库场景要求通过 `INKCRE_TEST_DATABASE_URL` 显式指定已迁移的可丢弃 PostgreSQL，未指定时跳过不算通过。该目录的 `conftest.py` 复用既有隔离进程环境，禁止加载开发或 preview 的隐式连接。
 
-这些脚本可辅助检查字段往返、Resolver 读取、ETag 冲突、提交回滚、MOVE、成员并发、凭据撤销，以及共享内容、迁移和引用保留。
+codec 固定 fixture 保护跨语言属性语法、原生参数和二进制；HTTP 场景保护 ETag 冲突、提交回滚、MOVE 身份、成员并发、凭据撤销与重新启用后读取；共享图场景保护内容引用、直接 Peer 修改及旧数据升级。这些边界有独立风险，不互相替代。DAV DELETE 本身保留信息，fixture 因此在完成保留断言后精确删除本用例创建的 Block 和 blob，不能用撤下发布充当测试数据清理。自动化仍不替代真机、反向代理及外部 HTTPS 验收。
 
 2026-10-20 在华为 JKM-AL00a（Android 9）上使用 DAVx⁵ 4.5.14-ose、Tasks.org 15.3
 及系统日历／通讯录完成了真实同步验证：重复事件与提醒、离线修改单次例外、任务完成与

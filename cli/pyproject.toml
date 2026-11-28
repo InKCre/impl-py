@@ -45,3 +45,7 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pyrefly]
 project-includes = ["src"]
+# The checkout may live below a hidden worktree directory. Only exclude local
+# generated files; Pyrefly 0.56's absolute hidden-path heuristic hides src too.
+disable-project-excludes-heuristics = true
+project-excludes = ["**/__pycache__/**", ".venv/**"]

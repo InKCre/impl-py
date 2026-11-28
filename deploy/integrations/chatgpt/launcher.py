@@ -22,14 +22,14 @@ def ready(url):
     return False
 
 
-def stop(children, grace=20):
+def stop(children):
   """Signal process groups so a Tunnel transport child is also stopped."""
   for child in children:
     try:
       os.killpg(child.pid, signal.SIGTERM)
     except ProcessLookupError:
       pass
-  deadline = time.monotonic() + grace
+  deadline = time.monotonic() + 20
   for child in children:
     try:
       child.wait(timeout=max(0.01, deadline - time.monotonic()))

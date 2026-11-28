@@ -24,30 +24,13 @@ from inkcre_core.schemas.job import JobModel, JobStatus
 from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceOptions
 
 
-pytestmark = pytest.mark.skipif(
-  not os.getenv("INKCRE_TEST_DATABASE_URL"),
-  reason="requires an explicitly selected migrated PostgreSQL runtime",
-)
-
-
-@pytest.fixture
-def job_execution(async_runner):
-  JobManager.start()
-  try:
-    yield
-  finally:
-    async_runner.run(JobManager.shutdown())
-
-
-def _reset() -> None:
-  with TestSession() as db:
-    db.connection().execute(
-      sqlalchemy.text(
-        "TRUNCATE TABLE inkcre.block_lexical_records, inkcre.relations, "
-        "inkcre.blocks CASCADE"
-      )
-    )
-    db.commit()
+pytestmark = [
+  pytest.mark.usefixtures("isolated_database_runtime"),
+  pytest.mark.skipif(
+    not os.getenv("INKCRE_TEST_DATABASE_URL"),
+    reason="requires an explicitly selected migrated PostgreSQL runtime",
+  ),
+]
 
 
 def _text(content: str) -> int:
@@ -59,19 +42,20 @@ def _text(content: str) -> int:
 def test_literal_chinese_ranking_freshness_and_cascade(
   async_runner,
 ):
-  _reset()
   register_core_resolvers()
   phrase = _text("alpha beta is one continuous technical identifier")
   terms_only = _text("alpha appears here while unrelated details separate beta")
   chinese = _text("这段材料记录了星间链路故障注入的完整过程")
   deleted = _text("ephemeral deletion clue")
+  # German sharp s expands when case-folded; offsets must still address the source.
+  multilingual = _text("Straße " * 120 + "QuarzFund " + "记录 " * 120)
 
   report = async_runner.run(
     LexicalRetrievalManager.maintain(
       LexicalMaintenanceOptions(max_records=20, scan_page_size=2)
     )
   )
-  assert report.indexed == 4
+  assert report.indexed == 5
   assert report.failed == report.unavailable == 0
 
   ranked = async_runner.run(LexicalRetrievalManager.retrieve_local("alpha beta"))
@@ -82,6 +66,12 @@ def test_literal_chinese_ranking_freshness_and_cascade(
   chinese_result = async_runner.run(LexicalRetrievalManager.retrieve_local("链路故障"))
   assert chinese_result.matches[0].block.id == chinese
   assert chinese_result.matches[0].evidence == "label_substring"
+
+  result = async_runner.run(LexicalRetrievalManager.retrieve_local("quarzfund"))
+  assert [(match.block.id, match.evidence) for match in result.matches] == [
+    (multilingual, "text_substring")
+  ]
+  assert "QuarzFund" in result.matches[0].excerpt
 
   async_runner.run(
     BlockService.edit_block(phrase, content="replacement clue after authoritative edit")
@@ -114,27 +104,26 @@ def test_literal_chinese_ranking_freshness_and_cascade(
 def test_unknown_resolver_is_bounded_unavailable_diagnostic(
   async_runner,
 ):
-  _reset()
   block = seed_block(BlockForm(resolver="unknown.lexical.v1", content="opaque"))
   assert block.id is not None
+  seed_block(BlockForm(resolver="unknown.lexical.v1", content="another opaque record"))
 
   report = async_runner.run(
     LexicalRetrievalManager.maintain(
-      LexicalMaintenanceOptions(max_records=1, diagnostic_limit=1)
+      LexicalMaintenanceOptions(max_records=2, diagnostic_limit=1)
     )
   )
 
   assert report.indexed == report.failed == 0
-  assert report.unavailable == 1
-  assert report.diagnostics[0].block == block.id
-  assert report.diagnostics[0].reason == "unknown_resolver"
+  assert report.unavailable == 2
+  assert [(item.block, item.outcome, item.reason) for item in report.diagnostics] == [
+    (block.id, "unavailable", "unknown_resolver")
+  ]
 
 
 def test_direct_and_cron_created_jobs_share_exact_handler_path(
   async_runner,
-  job_execution,
 ):
-  _reset()
   register_core_resolvers()
   _text("scheduled lexical maintenance clue")
   async_runner.run(JobManager.sync_job_types())

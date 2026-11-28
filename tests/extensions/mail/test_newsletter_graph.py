@@ -2,6 +2,7 @@
 
 import datetime
 import os
+from uuid import uuid4
 
 import pytest
 
@@ -19,40 +20,63 @@ from extensions.mail.schema import (
   MailboxFact,
   MessageFact,
 )
-from tests.extensions.mail.acceptance.test_mail_vertical import (
-  MAIL_SOURCE_TYPE,
-  _bootstrap_runtime_catalogs,
-  _reset_acceptance_database,
-)
+from extensions.mail import Extension
+from extensions.mail.source import Source
 from tests.extensions.mail.test_newsletter import HTML
 
 
 pytestmark = [
   pytest.mark.integration,
   pytest.mark.skipif(
-    "mail_acceptance" not in os.getenv("INKCRE_TEST_DATABASE_URL", ""),
-    reason="requires a disposable mail_acceptance database",
+    not os.getenv("INKCRE_TEST_DATABASE_URL"),
+    reason="requires an explicitly selected migrated disposable PostgreSQL runtime",
   ),
 ]
 
 
-def test_publication_grouping_replay_and_historical_body_upgrade(async_runner):
-  _reset_acceptance_database()
+@pytest.fixture
+def newsletter_source(async_runner):
+  owned_blocks = set()
 
-  async def journey():
-    await _bootstrap_runtime_catalogs()
-    source = await SourceManager.create(
-      MAIL_SOURCE_TYPE,
+  async def create():
+    Extension.load_decoders()
+    await SourceManager.sync_source_types_async()
+    return await SourceManager.create(
+      f"{Source.__module__}.{Source.__qualname__}",
       config={
         "parameters": {"host": "mail.invalid", "username": "reader", "password": "test"}
       },
     )
-    publication = CanonicalMailingList(list_id="weekly.example.org", name="Research Weekly")
+
+  source = async_runner.run(create())
+  try:
+    yield source, owned_blocks
+  finally:
+
+    async def cleanup():
+      await SourceManager.delete(source.id)
+      async with source_uow() as uow:
+        for block_id in owned_blocks:
+          await uow.graph.blocks.delete(block_id)
+
+    async_runner.run(cleanup())
+
+
+def test_publication_grouping_replay_and_historical_body_upgrade(
+  async_runner, newsletter_source
+):
+  source, owned_blocks = newsletter_source
+  identity = uuid4().hex
+
+  async def journey():
+    publication = CanonicalMailingList(
+      list_id=f"{identity}.example.org", name="Research Weekly"
+    )
     message = MessageFact(
       uid=1,
       uid_validity=1,
       root=CanonicalEmail(
-        message_id="issue-1@example.org",
+        message_id=f"issue-1-{identity}@example.org",
         subject="Weekly research",
         authored_at=datetime.datetime(2026, 10, 20, tzinfo=datetime.timezone.utc),
       ),
@@ -61,18 +85,20 @@ def test_publication_grouping_replay_and_historical_body_upgrade(async_runner):
     )
     async with source_uow() as uow:
       reconciler = await MailGraphReconciler.for_source(uow, source)
+      owned_blocks.add(reconciler.source_block.id)
       mailbox = await reconciler.ensure_mailbox(
         MailboxFact(mailbox=CanonicalMailbox(name="INBOX"), uid_validity=1)
       )
+      assert mailbox.id is not None
       first = await reconciler.reconcile_message(mailbox, message)
-      again = await reconciler.reconcile_message(mailbox, message)
-      assert first.id == again.id
       second = await reconciler.reconcile_message(
         mailbox,
         message.model_copy(
           update={
             "uid": 2,
-            "root": message.root.model_copy(update={"message_id": "issue-2@example.org"}),
+            "root": message.root.model_copy(
+              update={"message_id": f"issue-2-{identity}@example.org"}
+            ),
           }
         ),
       )
@@ -85,7 +111,9 @@ def test_publication_grouping_replay_and_historical_body_upgrade(async_runner):
         update={
           "uid": 4,
           "mailing_list": None,
-          "root": message.root.model_copy(update={"message_id": "legacy@example.org"}),
+          "root": message.root.model_copy(
+            update={"message_id": f"legacy-{identity}@example.org"}
+          ),
         }
       )
       legacy = await reconciler.reconcile_message(mailbox, legacy_fact)
@@ -124,7 +152,7 @@ def test_publication_grouping_replay_and_historical_body_upgrade(async_runner):
         BlockForm(
           resolver="extensions.mail.email.v1",
           content=message.root.model_copy(
-            update={"message_id": "older@example.org"}
+            update={"message_id": f"older-{identity}@example.org"}
           ).model_dump_json(),
         )
       )
@@ -141,6 +169,23 @@ def test_publication_grouping_replay_and_historical_body_upgrade(async_runner):
         )
         == 2
       )
+      roots = (mailbox, first, second, duplicate, legacy, historical_issue)
+      owned_blocks.update(block.id for block in (*roots, *publications))
+      owned_blocks.add(duplicate_publication.id)
+      for root in (first, second, duplicate, legacy):
+        assert root.id is not None
+        owned_blocks.update(
+          relation.to_
+          for relation in await uow.graph.relations.get(root.id, include_in=False)
+        )
+
+    # Replay after commit with a fresh reconciler, not an in-transaction object copy.
+    async with source_uow() as uow:
+      reconciler = await MailGraphReconciler.for_source(uow, source)
+      saved_mailbox = await uow.graph.blocks.get(mailbox.id)
+      assert saved_mailbox is not None
+      replayed = await reconciler.reconcile_message(saved_mailbox, message)
+      assert replayed.id == first.id
 
     solved = await ResolverManager.get(first).get_solved_content(materialize_missing=False)
     assert solved.mailing_lists[0].solved_content.list_id == publication.list_id

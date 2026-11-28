@@ -76,6 +76,8 @@ extension-publisher = [
 dev = [
     "build>=1.3.0,<2.0.0",
     "pytest>=9.0.2",
+    "PyYAML>=6.0.3,<7",
+    "types-PyYAML>=6.0.12,<7",
     "python-dotenv>=1.2.2",
     "pre-commit>=4.4.0",
     "ruff>=0.14.10",
@@ -94,7 +96,7 @@ lint = "ruff check --no-cache ."
 format = "ruff format ."
 "format:check" = "ruff format --check ."
 typecheck = "pyrefly check --min-severity=warn --output-format=min-text --progress-bar=no"
-test = "python -m pytest -q"
+test = "python -m pytest -q -m 'not acceptance'"
 "test:database" = "bash scripts/automation/repository_check.sh database-tests"
 "test:acceptance" = "python -m pytest -q -m acceptance tests/semantic_retrieval/acceptance"
 "test:organization-acceptance" = "python -m pytest -q -s tests/organization/acceptance/test_black_box.py"
@@ -102,7 +104,7 @@ test = "python -m pytest -q"
 "lint:migrations" = "ruff check --no-cache migrations/env.py migrations/metadata.py migrations/settings.py scripts/_tooling.py scripts/doctor.py scripts/check_lock.py scripts/check_migration_history.py scripts/database_manifest.py scripts/sanitize_preview_base.py tests/migrations"
 "test:migrations" = "python -m pytest -q tests/migrations"
 "check:migrations" = { composite = ["lint:migrations", "check:migration-history"] }
-"check:automation" = { shell = "bash -n scripts/automation/*.sh" }
+"check:automation" = { shell = 'for script in scripts/automation/*.sh; do bash -n "$script" || exit; done' }
 "check:migration-history" = "python scripts/check_migration_history.py {args}"
 "check:releases" = "python scripts/release.py check {args}"
 "build:extension-preview" = "python scripts/build_extension_preview.py {args}"
@@ -112,7 +114,8 @@ test = "python -m pytest -q"
 "lint:database-imports" = "ruff check --config ruff.database.toml ."
 "lint:database-ownership" = "python scripts/check_database_boundaries.py"
 "lint:database-boundaries" = { composite = ["lint:database-imports", "lint:database-ownership"] }
-"check" = { composite = ["check:foundation", "format:check", "lint", "lint:database-boundaries", "typecheck", "check:core-package", "test"] }
+"check:code" = { composite = ["check:foundation", "format:check", "lint", "lint:database-boundaries", "typecheck", "check:core-package"] }
+"check" = { composite = ["check:code", "test"] }
 "db:revision" = "alembic revision -m {args}"
 "db:generate" = "alembic revision --autogenerate -m {args}"
 "db:record" = "python scripts/check_migration_history.py --record-new"
@@ -151,7 +154,8 @@ search-path = [".", "scripts"]
 python-version = "3.12"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "scripts/tests", "deploy/integrations/chatgpt/tests"]
+addopts = "--strict-markers"
 pythonpath = ["."]
 filterwarnings = [
     "ignore:co_lnotab is deprecated, use co_lines instead\\.:DeprecationWarning:js2py_\\.utils\\.injector",

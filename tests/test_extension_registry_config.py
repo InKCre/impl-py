@@ -80,9 +80,12 @@ def test_process_registry_origin_is_the_final_fallback(monkeypatch, async_runner
     AsyncMock(return_value=CorePeerConfig()),
   )
   monkeypatch.setattr(DeploymentConfigService, "get", AsyncMock(return_value=None))
+  monkeypatch.setattr(
+    settings, "extension_registry_url", " https://process.registry.test/ "
+  )
 
-  assert async_runner.run(resolve_extension_registry_origin()) == normalize_registry_origin(
-    settings.extension_registry_url
+  assert (
+    async_runner.run(resolve_extension_registry_origin()) == "https://process.registry.test"
   )
 
 
@@ -93,7 +96,7 @@ def test_deployment_registry_contract_is_strict():
     ).extension_registry_url
     == "https://registry.test"
   )
-  with pytest.raises(ValueError):
+  with pytest.raises(ValueError, match="Extra inputs are not permitted"):
     ExtensionRegistryDeploymentConfig.model_validate(
       {
         "extension_registry_url": "https://registry.test",

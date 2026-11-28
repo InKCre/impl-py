@@ -175,13 +175,12 @@ class RenderClient:
     self,
     api_key: str,
     *,
-    base_url: str = RENDER_API_BASE_URL,
     transport: httpx.BaseTransport | None = None,
   ) -> None:
     if not api_key:
       raise ValueError("Render API key is required")
     self._client = httpx.Client(
-      base_url=base_url,
+      base_url=RENDER_API_BASE_URL,
       headers={
         "Accept": "application/json",
         "Authorization": f"Bearer {api_key}",

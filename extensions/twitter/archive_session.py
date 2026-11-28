@@ -150,7 +150,8 @@ def _html_page(
         f"default-src 'none'; {script_policy}connect-src 'self'; form-action 'self'; "
         "base-uri 'none'; frame-ancestors 'none'"
       ),
-      "Referrer-Policy": "no-referrer",
+      # A native disconnect form needs its same-origin Origin on navigation POST.
+      "Referrer-Policy": "same-origin",
       "X-Content-Type-Options": "nosniff",
     },
   )

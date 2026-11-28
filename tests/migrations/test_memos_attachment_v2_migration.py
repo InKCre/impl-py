@@ -8,22 +8,19 @@ import datetime
 import json
 import os
 from pathlib import Path
-import uuid
 
 from alembic import command
 from alembic.config import Config
-import psycopg
-from psycopg import sql
 import pytest
 import sqlalchemy
 import sqlmodel
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.database_contract.connection import normalized_database_url, psycopg_database_url
+from app.database_contract.connection import normalized_database_url
 from inkcre_core import Core
 from inkcre_core.business.info_base.storage.postgresql import PostgreSQLBlobPointer
-from tests.database import TestSession
+from tests.database import TestSession, temporary_database
 from inkcre_core.schemas.info_base.block import BlockModel
 from inkcre_core.schemas.info_base.relation import RelationModel
 from inkcre_core.schemas.info_base.storage import StorageBlobModel
@@ -47,44 +44,40 @@ PREVIOUS_REVISION = "d0e3f4a5b6c7"
 def attachment_database(monkeypatch):
   """Own a legacy schema instead of downgrading the shared current-contract fixture."""
   owner_url = normalized_database_url(os.environ["MIGRATION_DATABASE_URL"])
-  database = f"memos_migration_{uuid.uuid4().hex}"
-  database_url = (
-    sqlalchemy.engine.make_url(owner_url)
-    .set(database=database)
-    .render_as_string(hide_password=False)
-  )
-  engine = sqlalchemy.create_engine(database_url, poolclass=NullPool)
-  async_engine = create_async_engine(database_url, poolclass=NullPool)
-  core = Core(async_engine)
-  config = Config(PROJECT_ROOT / "alembic.ini")
-  config.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
-  with psycopg.connect(psycopg_database_url(owner_url), autocommit=True) as owner:
-    owner.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-  try:
-    monkeypatch.setenv("MIGRATION_DATABASE_URL", database_url)
-    monkeypatch.setattr("tests.database.TEST_ENGINE", engine)
-    command.upgrade(config, ATTACHMENT_REVISION)
-    with engine.begin() as connection:
-      connection.execute(
-        sqlalchemy.text(
-          "INSERT INTO inkcre.storage_types (id, description, config_schema) "
-          "VALUES ('postgresql_binary', 'Migration fixture', '{}'::jsonb)"
+  with temporary_database(owner_url) as database:
+    database_url = (
+      sqlalchemy.engine.make_url(owner_url)
+      .set(database=database)
+      .render_as_string(hide_password=False)
+    )
+    engine = sqlalchemy.create_engine(database_url, poolclass=NullPool)
+    async_engine = create_async_engine(database_url, poolclass=NullPool)
+    core = Core(async_engine)
+    config = Config(PROJECT_ROOT / "alembic.ini")
+    config.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
+    try:
+      monkeypatch.setenv("MIGRATION_DATABASE_URL", database_url)
+      monkeypatch.setattr("tests.database.TEST_ENGINE", engine)
+      command.upgrade(config, ATTACHMENT_REVISION)
+      with engine.begin() as connection:
+        connection.execute(
+          sqlalchemy.text(
+            "INSERT INTO inkcre.storage_types (id, description, config_schema) "
+            "VALUES ('postgresql_binary', 'Migration fixture', '{}'::jsonb)"
+          )
         )
-      )
-      connection.execute(
-        sqlalchemy.text(
-          "INSERT INTO inkcre.storages (id, type, config) "
-          "VALUES (-4, 'postgresql_binary', '{}'::jsonb)"
+        connection.execute(
+          sqlalchemy.text(
+            "INSERT INTO inkcre.storages (id, type, config) "
+            "VALUES (-4, 'postgresql_binary', '{}'::jsonb)"
+          )
         )
-      )
-    with core.bind():
-      yield config
-  finally:
-    asyncio.run(core.aclose())
-    engine.dispose()
-    asyncio.run(async_engine.dispose())
-    with psycopg.connect(psycopg_database_url(owner_url), autocommit=True) as owner:
-      owner.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
+      with core.bind():
+        yield config
+    finally:
+      asyncio.run(core.aclose())
+      engine.dispose()
+      asyncio.run(async_engine.dispose())
 
 
 def test_seeded_v1_upgrade_and_downgrade_preserve_identity_blob_and_owner_slot(

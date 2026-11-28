@@ -25,10 +25,9 @@ pdm run check
 `doctor` reports a mismatch when the local toolchain does not match that contract.
 
 Git hook 需要在每个本地 checkout 安装；提交前会执行与 CI 相同的格式和 lint 入口。
-移动仓库目录后，需要重建含旧绝对路径的虚拟环境入口并重新安装 hook；CI 的完整
-`check` 仍是交付检查依据。
+移动仓库目录后，需要重建含旧绝对路径的虚拟环境入口并重新安装 hook；CI 使用同一份检查配置。
 
-`check` is the same hermetic repository gate used by CI. It verifies the lock and
+`check` runs the local repository gate. CI runs its static and package checks before executing the same test collection with disposable PostgreSQL. It verifies the lock and
 requirements export, migration configuration and append-only baseline, Ruff formatting,
 repository lint, static types, and the repository test suite. Use narrower commands while iterating:
 
@@ -37,6 +36,11 @@ pdm run format:check
 pdm run lint
 pdm run check:foundation
 ```
+
+默认测试覆盖 `tests/`、`scripts/tests/` 和 ChatGPT 伴随进程生命周期，排除显式 `acceptance`。
+数据库回归由 `pdm run test:database` 在一次性 PostgreSQL 集群执行；环境输入、各验证层的含义及
+真实供应商验收边界见[开发环境](docs/40-deployment/development-environment.md#required-environment-variables)。
+本机重型构建（包括检查中的 wheel 构建）使用 `agent-build` 启动，例如 `agent-build pdm run check`。
 
 Verification follows the organization-wide
 [Verification and Test Policy](https://github.com/InKCre/.github/blob/main/TESTING.md). The remaining

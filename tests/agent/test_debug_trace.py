@@ -3,11 +3,13 @@
 import asyncio
 import json
 import logging
+import uuid
 
 import pydantic
 import pytest
 
 from inkcre_core.business.agent import (
+  AgentTurnActiveError,
   BoundAgentTool,
   InMemoryThreadPersistenceBackend,
   Thread,
@@ -116,9 +118,15 @@ def test_trace_records_cancellation_without_turn_recovery(monkeypatch, caplog):
   async def run():
     entered = asyncio.Event()
 
-    async def chat(cls, *args):
-      entered.set()
-      await asyncio.Event().wait()
+    async def chat(cls, _model, messages, _tools, _choice):
+      if not entered.is_set():
+        entered.set()
+        await asyncio.Event().wait()
+      # Cancellation leaves the accepted User input; the next explicit turn
+      # must not replay the abandoned call or write a synthetic assistant reply.
+      assert [message.type for message in messages] == ["user", "user"]
+      assert messages[-1].content == (TextContentPart(text="next input"),)
+      return AssistantMessage(content="next answer")
 
     monkeypatch.setattr(AIManager, "chat", classmethod(chat))
     backend = InMemoryThreadPersistenceBackend()
@@ -129,31 +137,48 @@ def test_trace_records_cancellation_without_turn_recovery(monkeypatch, caplog):
     )
     thread = Thread(ident, state, backend, ())
     task = thread.start_turn(UserMessage(content=(TextContentPart(text="input"),)))
-    await entered.wait()
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-      await task
+    async with asyncio.timeout(5):
+      await entered.wait()
+      with pytest.raises(AgentTurnActiveError, match="already has an active Turn"):
+        thread.start_turn(UserMessage(content=(TextContentPart(text="concurrent"),)))
+      task.cancel()
+      with pytest.raises(asyncio.CancelledError):
+        await task
+      state = await thread.refresh()
+      assert [message.type for message in state.messages] == ["user"]
+      assert (
+        await thread.start_turn(UserMessage(content=(TextContentPart(text="next input"),)))
+        == TurnTermination.COMPLETED
+      )
 
   asyncio.run(run())
-  events = [
-    json.loads(r.getMessage()) for r in caplog.records if r.name == "inkcre.agent.debug"
+  finished = [
+    json.loads(r.getMessage())
+    for r in caplog.records
+    if r.name == "inkcre.agent.debug" and r.event == "agent.turn.finished"
   ]
-  assert events[-1]["outcome"] == "cancelled"
-  assert events[-1]["model_calls"] == 1
+  assert [(event["outcome"], event["model_calls"]) for event in finished] == [
+    ("cancelled", 1),
+    ("completed", 1),
+  ]
 
 
-def test_debug_disabled_and_broken_destination_do_not_raise(monkeypatch):
+def test_debug_disabled_suppresses_output_and_broken_destination_preserves_outcome(
+  monkeypatch, caplog, capsys
+):
   from inkcre_core.business.agent.debug import trace
-  import uuid
 
   monkeypatch.setattr(
     current_core(), "options", replace(current_core().options, agent_debug=False)
   )
-  asyncio.run(trace("example", uuid.uuid4(), unsupported=object()))
+  caplog.set_level(logging.INFO, logger="inkcre")
+  asyncio.run(trace("disabled", uuid.uuid4(), value="valid payload"))
+  assert not any(record.name == "inkcre.agent.debug" for record in caplog.records)
   monkeypatch.setattr(
     current_core(), "options", replace(current_core().options, agent_debug=True)
   )
   asyncio.run(trace("example", uuid.uuid4(), unsupported=object()))
+  assert "TypeError" in capsys.readouterr().err
   from inkcre_core.libs.obsrv.main import get_logger
 
   def broken_destination(*args, **kwargs):
@@ -161,3 +186,4 @@ def test_debug_disabled_and_broken_destination_do_not_raise(monkeypatch):
 
   monkeypatch.setattr(get_logger().getChild("agent.debug"), "info", broken_destination)
   asyncio.run(trace("example", uuid.uuid4(), value="valid payload"))
+  assert "OSError" in capsys.readouterr().err

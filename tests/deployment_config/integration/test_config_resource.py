@@ -84,14 +84,14 @@ def test_config_resource_replace_patch_read_and_explicit_failures(client):
     assert patched.json()["value"] == {"name": "second", "enabled": True}
     assert patched.json()["schema"] == SCHEMA_ID
 
-    assert client.patch(f"/configs/{key}.missing", json={}).status_code == 404
-    assert (
-      client.put(
-        f"/configs/{key}.unknown-write",
-        json={"schema": "tests.unknown.v1", "value": {}},
-      ).status_code
-      == 422
+    missing = client.patch(f"/configs/{key}.missing", json={})
+    assert missing.status_code == 404 and f"{key}.missing" in missing.json()["detail"]
+    unknown = client.put(
+      f"/configs/{unknown_key}",
+      json={"schema": "tests.unknown.v1", "value": {}},
     )
+    assert unknown.status_code == 422
+    assert "Unknown deployment config schema: tests.unknown.v1" in unknown.json()["detail"]
     assert client.delete(f"/configs/{key}").status_code == 204
     assert client.get(f"/configs/{key}").status_code == 404
 
@@ -102,7 +102,7 @@ def test_config_resource_replace_patch_read_and_explicit_failures(client):
           """
           INSERT INTO inkcre.configs (key, schema, value)
           VALUES
-            (:unknown_key, 'tests.unknown.v1', '{}'::jsonb),
+            (:unknown_key, 'tests.unknown.v1', '{"vendor": {"retained": 1}}'::jsonb),
             (:invalid_key, :schema, '{"enabled": true}'::jsonb)
           """
         ),
@@ -114,8 +114,19 @@ def test_config_resource_replace_patch_read_and_explicit_failures(client):
       )
       db.commit()
 
-    assert client.get(f"/configs/{unknown_key}").status_code == 200
-    assert client.get(f"/configs/{invalid_key}").status_code == 200
+    for stored_key, schema_id, value in (
+      (unknown_key, "tests.unknown.v1", {"vendor": {"retained": 1}}),
+      (invalid_key, SCHEMA_ID, {"enabled": True}),
+    ):
+      response = client.get(f"/configs/{stored_key}")
+      assert response.status_code == 200
+      returned = response.json()
+      assert (returned["key"], returned["schema"], returned["value"]) == (
+        stored_key,
+        schema_id,
+        value,
+      )
+
   finally:
     with TestSession() as db:
       _execute(

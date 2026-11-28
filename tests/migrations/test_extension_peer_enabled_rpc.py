@@ -3,28 +3,30 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from contextlib import ExitStack
 import os
 from pathlib import Path
-import shutil
-import socket
 import subprocess
 import sys
+from typing import Any
 import uuid
 
 import psycopg
+from psycopg import conninfo
 import pytest
 import sqlalchemy
 import sqlalchemy.exc
 import sqlmodel
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from scripts.automation.production_preflight import collect_database_inventory
+from app.database_contract.connection import psycopg_database_url
+from tests.database import temporary_database
+from inkcre_core import Core
 from inkcre_core.business.cron import CronManager
 from app.business.extension.errors import ExtensionStateConflictError
 from app.business.extension.state import ExtensionStateService
 from inkcre_core.business.job import JobManager
 from inkcre_core.business.source import SOURCE_COLLECT_JOB_TYPE, SourceManager
-from inkcre_core.persistence.extension import uow as extension_uow
 from inkcre_core.schemas.extension import ExtensionModel, ExtensionPeerParticipationModel
 from inkcre_core.schemas.peer import PeerModel
 from inkcre_core.schemas.cron import CronForm
@@ -32,55 +34,26 @@ from extensions.twitter.bookmark import Source as BookmarkSource
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CORE_PASSWORD = "core-runtime-contract-password-0001"  # noqa: S105 -- disposable test role
-POSTGREST_PASSWORD = "postgrest-contract-password-0001"  # noqa: S105 -- disposable test role
 
 
 @pytest.fixture(scope="module")
-def postgres_connection_info(tmp_path_factory) -> Iterator[dict[str, object]]:
-  initdb = shutil.which("initdb")
-  pg_ctl = shutil.which("pg_ctl")
-  postgres = shutil.which("postgres")
-  if initdb is None or pg_ctl is None or postgres is None:
-    pytest.skip("disposable PostgreSQL binaries are unavailable")
-  root = tmp_path_factory.mktemp("extension-participation-postgres")
-  data = root / "data"
-  with socket.socket() as probe:
-    probe.bind(("127.0.0.1", 0))
-    port = probe.getsockname()[1]
-  initialized = subprocess.run(  # noqa: S603 -- resolved local test binary
-    [initdb, "--pgdata", str(data), "--auth=trust", "--no-locale", "--encoding=UTF8"],
-    check=False,
-    capture_output=True,
-    text=True,
-  )
-  assert initialized.returncode == 0, initialized.stderr
-  started = subprocess.run(  # noqa: S603 -- stops only this disposable cluster
-    [
-      pg_ctl,
-      "--pgdata",
-      str(data),
-      "--options",
-      f"-F -h 127.0.0.1 -p {port}",
-      "--log",
-      str(root / "postgres.log"),
-      "--wait",
-      "start",
-    ],
-    check=False,
-    capture_output=True,
-    text=True,
-  )
-  assert started.returncode == 0, started.stderr
-  try:
-    yield {"host": "127.0.0.1", "port": port, "dbname": "postgres"}
-  finally:
-    subprocess.run(  # noqa: S603 -- stops only this disposable cluster
-      [pg_ctl, "--pgdata", str(data), "--wait", "stop"],
-      check=False,
-      capture_output=True,
-      text=True,
-    )
+def postgres_connection_info() -> dict[str, Any]:
+  owner_url = os.getenv("INKCRE_TEST_POSTGRES_ADMIN_URL")
+  if owner_url is None:
+    pytest.skip("requires an explicitly selected disposable PostgreSQL admin URL")
+  return conninfo.conninfo_to_dict(psycopg_database_url(owner_url))
+
+
+@pytest.fixture(scope="module")
+def participation_databases(postgres_connection_info):
+  """Create and retire only this module's databases on the disposable cluster."""
+  owner_url = os.environ["INKCRE_TEST_POSTGRES_ADMIN_URL"]
+  with ExitStack() as scope:
+
+    def create():
+      return scope.enter_context(temporary_database(owner_url))
+
+    yield create
 
 
 def _environment(database_url: str) -> dict[str, str]:
@@ -89,20 +62,23 @@ def _environment(database_url: str) -> dict[str, str]:
     "INKCRE_ENV_FILE": "",
     "DATABASE_URL": database_url,
     "MIGRATION_DATABASE_URL": database_url,
-    "CORE_DATABASE_PASSWORD": CORE_PASSWORD,
-    "POSTGREST_DATABASE_PASSWORD": POSTGREST_PASSWORD,
   }
 
 
-def _database_url(info: dict[str, object], database: str) -> str:
-  return f"postgresql+psycopg://127.0.0.1:{info['port']}/{database}"
+def _database_url(info: dict[str, Any], database: str) -> str:
+  return sqlalchemy.URL.create(
+    "postgresql+psycopg",
+    username=info.get("user"),
+    password=info.get("password"),
+    host=info.get("host"),
+    port=int(info["port"]) if "port" in info else None,
+    database=database,
+  ).render_as_string(hide_password=False)
 
 
 @pytest.fixture(scope="module")
-def setup_domain_engine(postgres_connection_info):
-  database = "extension_participation_domains"
-  with psycopg.connect(**postgres_connection_info, autocommit=True) as connection:
-    connection.execute(f"CREATE DATABASE {database}")
+def setup_domain_engine(postgres_connection_info, participation_databases):
+  database = participation_databases()
   database_url = _database_url(postgres_connection_info, database)
   migrated = subprocess.run(
     [sys.executable, "-m", "alembic", "upgrade", "head"],
@@ -129,11 +105,19 @@ def setup_domain_engine(postgres_connection_info):
     engine.dispose()
 
 
+@pytest.fixture
+def domain_runtime(setup_domain_engine):
+  core = Core(setup_domain_engine.url.render_as_string(hide_password=False))
+  with core.bind(), asyncio.Runner() as runner:
+    try:
+      yield runner
+    finally:
+      runner.run(core.aclose())
+
+
 @pytest.fixture(scope="module")
-def legacy_migration_database(postgres_connection_info):
-  database = "extension_participation_legacy"
-  with psycopg.connect(**postgres_connection_info, autocommit=True) as connection:
-    connection.execute(f"CREATE DATABASE {database}")
+def legacy_migration_database(postgres_connection_info, participation_databases):
+  database = participation_databases()
   database_url = _database_url(postgres_connection_info, database)
   environment = _environment(database_url)
   migrated = subprocess.run(
@@ -146,7 +130,7 @@ def legacy_migration_database(postgres_connection_info):
   )
   assert migrated.returncode == 0, migrated.stderr
   peer_id = uuid.uuid4()
-  with psycopg.connect(**postgres_connection_info, dbname=database) as connection:
+  with psycopg.connect(**{**postgres_connection_info, "dbname": database}) as connection:
     connection.execute(
       "INSERT INTO inkcre.peers (id, name, config_schema) "
       "VALUES (%s, 'legacy-peer', '{}'::jsonb)",
@@ -179,6 +163,51 @@ def test_upgrade_preserves_shared_state_and_exact_unresolved_legacy_pin(
   legacy_migration_database,
 ):
   info, database, database_url, peer_id, environment = legacy_migration_database
+
+  class InventoryCursor(psycopg.Cursor):
+    # Observe the server's actual transaction settings while consuming results.
+    # A syntactically valid SELECT in the default read/write transaction is unsafe.
+    def fetchall(self):
+      with psycopg.Cursor(self.connection) as observer:
+        observer.execute(
+          "SELECT current_setting('transaction_read_only'), "
+          "current_setting('transaction_isolation')"
+        )
+        assert observer.fetchone() == ("on", "repeatable read")
+      return super().fetchall()
+
+  def inventory():
+    with psycopg.connect(**{**info, "dbname": database}) as connection:
+      connection.cursor_factory = InventoryCursor
+      return collect_database_inventory(connection, peer_id)
+
+  with psycopg.connect(**{**info, "dbname": database}) as connection:
+    connection.execute(
+      "INSERT INTO inkcre.job_types (id, description, default_timeout_seconds) "
+      "VALUES ('audit.snapshot', 'inventory fixture', 60)"
+    )
+    jobs = connection.execute(
+      "INSERT INTO inkcre.jobs (type, timeout_seconds) "
+      "VALUES ('audit.snapshot', 60), ('audit.snapshot', 60) RETURNING id"
+    ).fetchall()
+    connection.execute("UPDATE inkcre.jobs SET status = 'running' WHERE id = %s", jobs[0])
+    connection.execute("UPDATE inkcre.jobs SET status = 'failed' WHERE id = %s", jobs[1])
+
+  expected_pin = {
+    "name": "inkcre/legacy",
+    "peer_id": str(peer_id),
+    "version": "0.7.4",
+    "distribution": None,
+    "enabled": True,
+  }
+  before = inventory()
+  assert before["extension_selection_source"] == "legacy_extension_snapshot"
+  assert before["extension_selections"] == [expected_pin]
+  assert [(job["id"], job["status"]) for job in before["active_jobs"]] == [
+    (jobs[0][0], "running"),
+  ]
+  assert before["current_migration_heads"] == ["3d9593b0c855"]
+  assert "does not prove" in before["observation_limit"]
   migrated = subprocess.run(
     [sys.executable, "-m", "alembic", "upgrade", "head"],
     cwd=PROJECT_ROOT,
@@ -188,7 +217,36 @@ def test_upgrade_preserves_shared_state_and_exact_unresolved_legacy_pin(
     text=True,
   )
   assert migrated.returncode == 0, migrated.stderr
-  with psycopg.connect(**info, dbname=database) as connection:
+  provisioned = subprocess.run(
+    [sys.executable, "scripts/database.py", "provision-roles"],
+    cwd=PROJECT_ROOT,
+    env=environment,
+    check=False,
+    capture_output=True,
+    text=True,
+  )
+  assert provisioned.returncode == 0, provisioned.stderr
+  with psycopg.connect(**{**info, "dbname": database}) as connection:
+    connection.execute("INSERT INTO inkcre.extensions (name) VALUES ('inkcre/pinned')")
+    connection.execute(
+      "INSERT INTO inkcre.extension_peer_participations "
+      "(name, peer_id, version, distribution, enabled) "
+      "VALUES ('inkcre/pinned', %s, '0.2.1', 'python', false)",
+      (peer_id,),
+    )
+  after = inventory()
+  assert after["extension_selection_source"] == "peer_participations"
+  assert after["extension_selections"] == [
+    expected_pin,
+    {
+      **expected_pin,
+      "name": "inkcre/pinned",
+      "distribution": "python",
+      "version": "0.2.1",
+      "enabled": False,
+    },
+  ]
+  with psycopg.connect(**{**info, "dbname": database}) as connection:
     participation = connection.execute(
       "SELECT distribution, version, enabled, config_schema "
       "FROM inkcre.extension_peer_participations "
@@ -210,23 +268,24 @@ def test_upgrade_preserves_shared_state_and_exact_unresolved_legacy_pin(
   assert legacy_snapshot_schema == ({"type": "object"},)
   assert shared == ({"shared": True}, {"progress": 4})
   assert disabled_rows == (0,)
-  with psycopg.connect(**info, dbname=database, autocommit=True) as connection:
+  with psycopg.connect(**{**info, "dbname": database}, autocommit=True) as connection:
     connection.execute("SET ROLE authenticated")
-    with pytest.raises(psycopg.errors.CheckViolation):
+    with pytest.raises(psycopg.errors.CheckViolation) as invalid_schema:
       connection.execute(
         "UPDATE inkcre.extension_peer_participations "
         'SET config_schema = \'{"type":"object"}\'::jsonb '
         "WHERE name = 'inkcre/legacy' AND peer_id = %s",
         (peer_id,),
       )
+    assert (
+      invalid_schema.value.diag.constraint_name
+      == "extension_peer_participations_unresolved_schema_null"
+    )
 
 
 def test_enabled_legacy_resolution_preserves_exact_pin_and_null_schema(
-  setup_domain_engine, monkeypatch
+  setup_domain_engine, domain_runtime
 ):
-  import asyncio
-  from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
   peer_id = uuid.uuid4()
   name = f"inkcre/legacy-{peer_id.hex}"
   with sqlmodel.Session(setup_domain_engine) as session:
@@ -235,9 +294,9 @@ def test_enabled_legacy_resolution_preserves_exact_pin_and_null_schema(
       ExtensionModel(
         name=name,
         config={"shared": True},
-        state={"progress": 4},
       )
     )
+    session.flush()
     session.add(
       ExtensionPeerParticipationModel(
         name=name,
@@ -251,14 +310,16 @@ def test_enabled_legacy_resolution_preserves_exact_pin_and_null_schema(
     session.commit()
   with setup_domain_engine.begin() as connection:
     connection.exec_driver_sql(
+      "UPDATE inkcre.extensions SET state = '{\"progress\":4}'::jsonb WHERE name = %s",
+      (name,),
+    )
+    connection.exec_driver_sql(
       "INSERT INTO inkcre_internal.extension_legacy_snapshots "
       "(name, version, enabled, config_schema) "
       "VALUES (%s, '0.7.4', ARRAY[%s]::uuid[], %s)",
       (name, peer_id, '{"type":"object"}'),
     )
 
-  engine = create_async_engine(setup_domain_engine.url)
-  monkeypatch.setattr(extension_uow, "AsyncSessionFactory", async_sessionmaker(engine))
   store = ExtensionStateService()
 
   async def scenario():
@@ -298,25 +359,31 @@ def test_enabled_legacy_resolution_preserves_exact_pin_and_null_schema(
       True,
     )
 
-  try:
-    with asyncio.Runner() as runner:
-      runner.run(scenario())
-  finally:
-    asyncio.run(engine.dispose())
+  domain_runtime.run(scenario())
 
 
-def test_v2_acl_and_state_guards(setup_domain_engine, monkeypatch):
+def test_v2_acl_and_state_guards(setup_domain_engine, domain_runtime):
   peer_id = uuid.uuid4()
   name = f"inkcre/acl-{peer_id.hex}"
   with setup_domain_engine.connect().execution_options(
     isolation_level="AUTOCOMMIT"
   ) as connection:
     connection.exec_driver_sql(
-      "INSERT INTO inkcre.peers (id, name) VALUES (%s, 'participation-test')",
+      "INSERT INTO inkcre.peers (id, name, config_schema) "
+      "VALUES (%s, 'participation-test', '{}'::jsonb)",
       (peer_id,),
     )
     connection.exec_driver_sql("INSERT INTO inkcre.extensions (name) VALUES (%s)", (name,))
     connection.exec_driver_sql("SET ROLE authenticated")
+    with pytest.raises(
+      sqlalchemy.exc.IntegrityError, match="state must be empty on insert"
+    ) as rejected:
+      connection.exec_driver_sql(
+        "INSERT INTO inkcre.extensions (name, state) "
+        "VALUES (%s, '{\"unsafe\":true}'::jsonb)",
+        (f"inkcre/invalid-{peer_id.hex}",),
+      )
+    assert isinstance(rejected.value.orig, psycopg.errors.CheckViolation)
     connection.exec_driver_sql(
       "INSERT INTO inkcre.extension_peer_participations "
       "(name, peer_id, distribution, version, enabled) "
@@ -327,66 +394,58 @@ def test_v2_acl_and_state_guards(setup_domain_engine, monkeypatch):
       "UPDATE inkcre.extensions SET state = '{\"shared\":true}'::jsonb WHERE name = %s",
       (name,),
     )
-    with pytest.raises(sqlalchemy.exc.IntegrityError):
+    with pytest.raises(sqlalchemy.exc.IntegrityError, match="extensions_state_object"):
       connection.exec_driver_sql(
         "UPDATE inkcre.extensions SET state = '[]'::jsonb WHERE name = %s",
         (name,),
       )
-    with pytest.raises(sqlalchemy.exc.ProgrammingError):
+    with pytest.raises(
+      sqlalchemy.exc.ProgrammingError, match="permission denied"
+    ) as denied:
       connection.exec_driver_sql(
         "UPDATE inkcre.extensions SET name = 'inkcre/renamed' WHERE name = %s",
         (name,),
       )
-    with pytest.raises(sqlalchemy.exc.ProgrammingError):
-      connection.exec_driver_sql(
-        "UPDATE inkcre.extensions SET version = '2.0.0' WHERE name = %s", (name,)
-      )
+    assert isinstance(denied.value.orig, psycopg.errors.InsufficientPrivilege)
     connection.exec_driver_sql("RESET ROLE")
     connection.exec_driver_sql("SET ROLE anonymous")
-    with pytest.raises(sqlalchemy.exc.ProgrammingError):
+    with pytest.raises(
+      sqlalchemy.exc.ProgrammingError, match="permission denied"
+    ) as denied:
       connection.exec_driver_sql(
         "UPDATE inkcre.extensions SET state = '{\"unsafe\":true}'::jsonb WHERE name = %s",
         (name,),
       )
+    assert isinstance(denied.value.orig, psycopg.errors.InsufficientPrivilege)
     connection.exec_driver_sql("RESET ROLE")
     connection.exec_driver_sql("SET ROLE inkcre_core")
-    with pytest.raises(sqlalchemy.exc.ProgrammingError):
-      connection.exec_driver_sql(
-        "UPDATE inkcre.extensions SET version = '2.0.0' WHERE name = %s", (name,)
-      )
     connection.exec_driver_sql(
       "UPDATE inkcre.extensions SET state = '{\"ready\":true}'::jsonb WHERE name = %s",
       (name,),
     )
     connection.exec_driver_sql("RESET ROLE")
-    with pytest.raises(sqlalchemy.exc.ProgrammingError):
+    with pytest.raises(
+      sqlalchemy.exc.IntegrityError, match="state is not empty"
+    ) as rejected:
       connection.exec_driver_sql("DELETE FROM inkcre.extensions WHERE name = %s", (name,))
-
-  engine = create_async_engine(setup_domain_engine.url)
-  monkeypatch.setattr(extension_uow, "AsyncSessionFactory", async_sessionmaker(engine))
+    assert isinstance(rejected.value.orig, psycopg.errors.CheckViolation)
 
   async def verify_shared_state():
     store = ExtensionStateService()
-    assert await store.read_state(name) == {"shared": True}
+    assert await store.read_state(name) == {"ready": True}
     await store.mutate_state(name, lambda state: {**state, "native": True})
-    assert await store.read_state(name) == {"shared": True, "native": True}
+    assert await store.read_state(name) == {"ready": True, "native": True}
 
-  try:
-    with asyncio.Runner() as runner:
-      runner.run(verify_shared_state())
-  finally:
-    asyncio.run(engine.dispose())
+  domain_runtime.run(verify_shared_state())
 
 
-def test_peer_can_persist_its_own_distribution_format(setup_domain_engine, monkeypatch):
+def test_peer_can_persist_its_own_distribution_format(setup_domain_engine, domain_runtime):
   peer_id = uuid.uuid4()
   name = f"inkcre/native-{peer_id.hex}"
   with sqlmodel.Session(setup_domain_engine) as session:
     session.add(PeerModel(id=peer_id, name="native-peer"))
     session.add(ExtensionModel(name=name))
     session.commit()
-  engine = create_async_engine(setup_domain_engine.url)
-  monkeypatch.setattr(extension_uow, "AsyncSessionFactory", async_sessionmaker(engine))
 
   async def scenario():
     store = ExtensionStateService()
@@ -395,23 +454,18 @@ def test_peer_can_persist_its_own_distribution_format(setup_domain_engine, monke
     row = await store.get_participation(peer_id, name)
     assert row is not None and row.distribution == "kotlin_apk" and row.enabled
 
-  try:
-    asyncio.run(scenario())
-  finally:
-    asyncio.run(engine.dispose())
+  domain_runtime.run(scenario())
 
 
 def test_selection_change_clears_schema_and_rejects_late_old_callback(
-  setup_domain_engine, monkeypatch
+  setup_domain_engine, domain_runtime
 ):
-  import asyncio
-  from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
   peer_id = uuid.uuid4()
   name = f"inkcre/schema-{peer_id.hex}"
   with sqlmodel.Session(setup_domain_engine) as session:
     session.add(PeerModel(id=peer_id, name="schema-cas-test"))
     session.add(ExtensionModel(name=name))
+    session.flush()
     session.add(
       ExtensionPeerParticipationModel(
         name=name,
@@ -424,8 +478,6 @@ def test_selection_change_clears_schema_and_rejects_late_old_callback(
     )
     session.commit()
 
-  engine = create_async_engine(setup_domain_engine.url)
-  monkeypatch.setattr(extension_uow, "AsyncSessionFactory", async_sessionmaker(engine))
   store = ExtensionStateService()
 
   async def scenario():
@@ -450,27 +502,12 @@ def test_selection_change_clears_schema_and_rejects_late_old_callback(
       None,
     )
 
-  try:
-    with asyncio.Runner() as runner:
-      runner.run(scenario())
-  finally:
-    asyncio.run(engine.dispose())
+  domain_runtime.run(scenario())
 
 
-def test_setup_source_and_cron_use_simple_core_owned_operations(
-  setup_domain_engine, monkeypatch
+def test_source_cron_persists_distinct_collection_jobs_and_disabled_schedule(
+  domain_runtime,
 ):
-  import asyncio
-  from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-  from inkcre_core.persistence.cron import uow as cron_uow
-  from inkcre_core.persistence.job import uow as job_uow
-  from inkcre_core.persistence.source import uow as source_uow
-
-  engine = create_async_engine(setup_domain_engine.url)
-  factory = async_sessionmaker(engine, expire_on_commit=False)
-  for module in (source_uow, job_uow, cron_uow):
-    monkeypatch.setattr(module, "AsyncSessionFactory", factory)
-
   async def scenario():
     source_type = f"{BookmarkSource.__module__}.{BookmarkSource.__qualname__}"
     await SourceManager.sync_source_types_async({source_type: BookmarkSource})
@@ -480,18 +517,22 @@ def test_setup_source_and_cron_use_simple_core_owned_operations(
     form = CronForm(
       schedule="0 6 * * *",
       job_type=SOURCE_COLLECT_JOB_TYPE,
-      job_parameters={"source": source.id, "config": {"full": False}},
+      job_parameters={"source": source.id, "config": {"full": True}},
     )
     cron = await CronManager.create(form)
     assert cron.id is not None
     first = await CronManager.run_now(cron.id)
     second = await CronManager.run_now(cron.id)
-    assert second.id != first.id
-    rebound = await CronManager.update(cron.id, form.model_copy(update={"enabled": False}))
-    assert rebound.enabled is False
+    assert first.id is not None and second.id is not None and first.id != second.id
+    for job_id in (first.id, second.id):
+      persisted = await JobManager.get(job_id)
+      assert persisted is not None and persisted.type == "core.source.collect.v1"
+      assert persisted.parameters == {
+        "source": source.id,
+        "config": {"full": True, "result_limit": 40},
+      }
+    await CronManager.update(cron.id, form.model_copy(update={"enabled": False}))
+    stored = await CronManager.get(cron.id)
+    assert stored is not None and stored.enabled is False
 
-  try:
-    with asyncio.Runner() as runner:
-      runner.run(scenario())
-  finally:
-    asyncio.run(engine.dispose())
+  domain_runtime.run(scenario())

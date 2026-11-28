@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 SCRIPT = Path(__file__).parents[1] / "scripts/automation/production_delivery.sh"
 
@@ -48,8 +50,11 @@ def _run(
   )
 
 
-def test_existing_self_host_apps_must_be_stopped_before_migration(tmp_path: Path) -> None:
-  result = _run(tmp_path, active_app="inkcre-owner-postgrest")
+@pytest.mark.parametrize("active_app", ["inkcre-owner-core", "inkcre-owner-postgrest"])
+def test_existing_self_host_apps_must_be_stopped_before_migration(
+  tmp_path: Path, active_app: str
+) -> None:
+  result = _run(tmp_path, active_app=active_app)
 
   assert result.returncode != 0
   assert "still has dynos" in result.stderr

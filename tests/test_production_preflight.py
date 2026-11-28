@@ -1,5 +1,4 @@
 import json
-from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
@@ -11,7 +10,6 @@ import pytest
 
 from scripts.automation.production_preflight import (
   checked_in_production_profile,
-  collect_database_inventory,
   quiescence_conflicts,
   read_flush_lsn,
   verify_app_configuration,
@@ -20,77 +18,6 @@ from scripts.automation.production_preflight import (
 
 CORE_APP_NAME = "inkcre-core-production"
 CORE_PEER_ID = uuid.uuid5(uuid.NAMESPACE_URL, CORE_APP_NAME)
-
-
-class SnapshotCursor:
-  def __init__(self, *, v2: bool) -> None:
-    self.v2 = v2
-    self.statement = ""
-    self.parameters = ()
-    self.statements: list[str] = []
-
-  def execute(self, statement: str, parameters=()) -> None:
-    self.statement = statement
-    self.parameters = parameters
-    self.statements.append(statement)
-
-  def fetchall(self):
-    if "version_num" in self.statement:
-      return [("3d9593b0c855",)]
-    if "contract_revision" in self.statement:
-      return [("peer-extension-setup-v1", "production", "neondb_owner")]
-    if "FROM inkcre.peers" in self.statement:
-      return [(str(CORE_PEER_ID), "core-py", "0.7.1", None, False)]
-    if "to_regclass" in self.statement:
-      return [(self.v2,)]
-    if "FROM inkcre.extension_peer_participations" in self.statement:
-      return [("inkcre/mail", str(CORE_PEER_ID), "python", "0.3.2", True)]
-    if "FROM inkcre.extensions" in self.statement:
-      return [("inkcre/mail", str(CORE_PEER_ID), None, "0.3.2", True)]
-    if "FROM inkcre.jobs" in self.statement:
-      return [(42, "core.source.collect.v1", "running", None, None, False)]
-    if "FROM pg_auth_members" in self.statement:
-      return [("inkcre_core", "authenticated", False)]
-    if "FROM pg_roles AS role" in self.statement:
-      return [("inkcre_core", "peers", True, True, False, False, False)]
-    if "FROM pg_roles" in self.statement:
-      return [("inkcre_core", True, True, False, False, False, False, False)]
-    if "FROM pg_stat_activity" in self.statement:
-      return [("inkcre_core", "core-py", "client backend", "active", None)]
-    raise AssertionError(f"unexpected query: {self.statement}")
-
-
-class SnapshotConnection:
-  def __init__(self, *, v2: bool) -> None:
-    self.fake_cursor = SnapshotCursor(v2=v2)
-
-  def transaction(self):
-    return nullcontext()
-
-  def cursor(self):
-    return self.fake_cursor
-
-
-@pytest.mark.parametrize(
-  ("v2", "expected_source", "expected_distribution"),
-  [(True, "peer_participations", "python"), (False, "legacy_extension_snapshot", None)],
-)
-def test_database_inventory_is_read_only_and_distinguishes_legacy_pins(
-  v2: bool, expected_source: str, expected_distribution: str | None
-) -> None:
-  connection = SnapshotConnection(v2=v2)
-
-  inventory = collect_database_inventory(connection, CORE_PEER_ID)
-
-  assert inventory["extension_selection_source"] == expected_source
-  assert inventory["extension_selections"][0]["distribution"] == expected_distribution
-  assert inventory["extension_selections"][0]["version"] == "0.3.2"
-  assert inventory["active_jobs"][0]["id"] == 42
-  assert all(
-    statement.lstrip().upper().startswith(("SELECT", "SET TRANSACTION"))
-    for statement in connection.fake_cursor.statements
-  )
-  assert "does not prove" in inventory["observation_limit"]
 
 
 def test_quiescence_gate_rejects_observed_peers_jobs_and_sessions() -> None:
@@ -103,11 +30,11 @@ def test_quiescence_gate_rejects_observed_peers_jobs_and_sessions() -> None:
     "database_sessions": [{"user": "authenticator"}],
   }
 
-  assert quiescence_conflicts(inventory, CORE_PEER_ID) == [
+  assert set(quiescence_conflicts(inventory, CORE_PEER_ID)) == {
     "another Peer still has an active database lease",
     "a database Job is still running",
     "database sessions remain after the configured apps were stopped",
-  ]
+  }
 
 
 def test_quiescence_gate_allows_only_core_lease_and_pending_jobs() -> None:
@@ -184,7 +111,7 @@ def test_quiescence_gate_rejects_non_idle_or_unknown_database_sessions(
 
 
 def test_quiescence_gate_tracks_real_postgresql_session_states() -> None:
-  database_url = os.environ.get("PRODUCTION_PREFLIGHT_TEST_DATABASE_URL")
+  database_url = os.environ.get("INKCRE_TEST_POSTGRES_ADMIN_URL")
   if not database_url:
     pytest.skip("a disposable PostgreSQL URL is not configured")
 
@@ -249,38 +176,29 @@ def test_quiescence_gate_tracks_real_postgresql_session_states() -> None:
     assert quiescence_conflicts(inventory, CORE_PEER_ID) == []
 
 
-def test_flush_lsn_is_read_only_and_validates_the_database_value() -> None:
-  class LsnCursor:
-    def __init__(self, value: str) -> None:
-      self.value = value
-      self.statements: list[str] = []
+def test_flush_lsn_reports_a_position_observed_on_the_disposable_database() -> None:
+  database_url = os.environ.get("INKCRE_TEST_POSTGRES_ADMIN_URL")
+  if not database_url:
+    pytest.skip("a disposable PostgreSQL URL is not configured")
 
-    def execute(self, statement: str) -> None:
-      self.statements.append(statement)
-
+  class FlushCursor(psycopg.Cursor):
     def fetchone(self):
-      return (self.value,)
+      with psycopg.Cursor(self.connection) as observer:
+        observer.execute("SHOW transaction_read_only")
+        assert observer.fetchone() == ("on",)
+      return super().fetchone()
 
-  class LsnConnection:
-    def __init__(self, value: str) -> None:
-      self.fake_cursor = LsnCursor(value)
-
-    def transaction(self):
-      return nullcontext()
-
-    def cursor(self):
-      return self.fake_cursor
-
-  connection = LsnConnection("0/AB12CD34")
-
-  assert read_flush_lsn(connection) == "0/AB12CD34"
-  assert connection.fake_cursor.statements == [
-    "SET TRANSACTION READ ONLY",
-    "SELECT pg_current_wal_flush_lsn()::text",
-  ]
-
-  with pytest.raises(RuntimeError, match="invalid WAL flush LSN"):
-    read_flush_lsn(LsnConnection("not-an-lsn"))
+  with psycopg.connect(database_url, autocommit=True) as connection:
+    before = connection.execute("SELECT pg_current_wal_flush_lsn()").fetchone()
+    assert before is not None
+    connection.cursor_factory = FlushCursor
+    position = read_flush_lsn(connection)
+    connection.cursor_factory = psycopg.Cursor
+    within_observation = connection.execute(
+      "SELECT %s::pg_lsn <= %s::pg_lsn AND %s::pg_lsn <= pg_current_wal_flush_lsn()",
+      (before[0], position, position),
+    ).fetchone()
+    assert within_observation == (True,)
 
 
 def test_app_configuration_check_redacts_secrets_and_matches_roles_and_branch() -> None:

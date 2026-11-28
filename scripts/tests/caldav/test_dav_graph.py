@@ -9,12 +9,17 @@ import xml.etree.ElementTree as ET
 import pytest
 from sqlalchemy import event
 from sqlalchemy.orm import Session
+import sqlalchemy
+import sqlmodel
 
 from app.engine import ASYNC_DB_ENGINE
 from inkcre_core.persistence.info_base.uow import graph_uow
 from inkcre_core.business.info_base.resolver import ResolverManager
 from extensions.caldav import Extension
 from extensions.caldav.schema import CALENDAR, GraphContent
+from inkcre_core.schemas.info_base.block import BlockModel
+from inkcre_core.schemas.info_base.storage import StorageBlobModel
+from tests.database import TestSession
 from tests.extensions.runtime_support import publish_extension
 
 pytestmark = pytest.mark.skipif(
@@ -23,21 +28,54 @@ pytestmark = pytest.mark.skipif(
 )
 
 PASSWORD = "caldav-integration-test-" + uuid4().hex
+PHOTO_BASE64 = (
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQXpAH"
+  "AAIbATIqos84AAAAAElFTkSuQmCC"
+)
 
 
 @pytest.fixture
 def dav():
-  published = publish_extension(
-    Extension, {"password": PASSWORD}, persist_config=True, raise_server_exceptions=False
-  )
-  with published.client as client:
-    client.auth = ("inkcre", PASSWORD)
-    try:
-      yield client
-    finally:
-      assert client.portal is not None
-      client.portal.call(ASYNC_DB_ENGINE.dispose)
+  blocks, blobs = set(), set()
+
+  def remember_created_rows(session, _flush_context):
+    for row in session.new:
+      if isinstance(row, BlockModel):
+        blocks.add(row.id)
+      elif isinstance(row, StorageBlobModel):
+        blobs.add(row.id)
+
+  event.listen(Session, "after_flush", remember_created_rows)
+  published = None
+  try:
+    published = publish_extension(
+      Extension, {"password": PASSWORD}, persist_config=True, raise_server_exceptions=False
+    )
+    with published.client as client:
+      client.auth = ("inkcre", PASSWORD)
+      try:
+        yield client
+      finally:
+        assert client.portal is not None
+        client.portal.call(ASYNC_DB_ENGINE.dispose)
+  finally:
+    if published is not None:
       published.unpublish()
+    event.remove(Session, "after_flush", remember_created_rows)
+    # DAV DELETE only withdraws publication. Remove the exact rows this test created
+    # after its retention assertions, so later whole-info-base scans stay isolated.
+    with TestSession() as session:
+      if blocks:
+        session.connection().execute(
+          sqlalchemy.delete(BlockModel).where(sqlmodel.col(BlockModel.id).in_(blocks))
+        )
+      if blobs:
+        session.connection().execute(
+          sqlalchemy.delete(StorageBlobModel).where(
+            sqlmodel.col(StorageBlobModel.id).in_(blobs)
+          )
+        )
+      session.commit()
 
 
 def calendar(summary="InKCre 测试"):
@@ -79,6 +117,16 @@ def create_calendar(client):
   response = client.request("MKCALENDAR", path)
   assert response.status_code == 201, response.text
   return path
+
+
+async def resource_id(path):
+  from extensions.caldav.graph import DAVGraph
+
+  async with graph_uow() as uow:
+    graph = DAVGraph(uow)
+    await graph.load()
+    collection_path, href = path.removeprefix("/caldav/").rsplit("/", 1)
+    return graph.collections[collection_path].items[href].block_id
 
 
 def test_native_roundtrip_graph_conflicts_and_sync_recovery(dav):
@@ -142,20 +190,41 @@ def test_native_roundtrip_graph_conflicts_and_sync_recovery(dav):
       "<D:sync-level>1</D:sync-level><D:prop><D:getetag/></D:prop>"
       "</D:sync-collection>"
     )
+    survivor = path + "surviving.ics"
+    assert (
+      dav.put(
+        survivor,
+        content=calendar("仍应列出").replace("UID:inkcre-roundtrip", "UID:surviving"),
+        headers={"If-None-Match": "*"},
+      ).status_code
+      == 201
+    )
     initial = dav.request("REPORT", path, content=report)
     assert initial.status_code == 207
-    token = ET.fromstring(initial.content).findtext("{DAV:}sync-token")
+    initial_result = ET.fromstring(initial.content)
+    assert {r.findtext("{DAV:}href") for r in initial_result.findall("{DAV:}response")} == {
+      resource,
+      survivor,
+    }
+    token = initial_result.findtext("{DAV:}sync-token")
     assert token
     same_report = report.replace("<D:sync-token/>", f"<D:sync-token>{token}</D:sync-token>")
     same = dav.request("REPORT", path, content=same_report)
-    assert not ET.fromstring(same.content).findall("{DAV:}response")
+    assert same.status_code == 207
+    same_result = ET.fromstring(same.content)
+    assert same_result.findtext("{DAV:}sync-token") == token
+    assert not same_result.findall("{DAV:}response")
     assert dav.delete(
       resource, headers={"If-Match": dav.get(resource).headers["etag"]}
     ).is_success
     expired = dav.request("REPORT", path, content=same_report)
     assert expired.status_code == 403 and "valid-sync-token" in expired.text
     rescan = dav.request("PROPFIND", path, headers={"Depth": "1"})
-    assert "event.ics" not in rescan.text
+    assert rescan.status_code == 207
+    assert {
+      r.findtext("{DAV:}href")
+      for r in ET.fromstring(rescan.content).findall("{DAV:}response")
+    } == {path, survivor}
     assert dav.get(resource).status_code == 404
   finally:
     dav.delete(path)
@@ -172,10 +241,12 @@ def test_commit_failure_rolls_back_and_never_reports_success(dav):
       == 201
     )
     original = dav.get(resource)
+    commit_attempted = []
 
     def fail_commit(session):
       # Only fail the mutation transaction, after it has flushed changed content.
       if session.info.get("caldav_test_mutated"):
+        commit_attempted.append(True)
         raise RuntimeError("injected commit failure")
 
     def record_write(session, flush_context):
@@ -190,6 +261,7 @@ def test_commit_failure_rolls_back_and_never_reports_success(dav):
         headers={"If-Match": original.headers["etag"]},
       )
       assert failed.status_code == 500
+      assert commit_attempted, "request failed before reaching the injected commit failure"
     finally:
       event.remove(Session, "after_flush", record_write)
       event.remove(Session, "before_commit", fail_commit)
@@ -198,6 +270,32 @@ def test_commit_failure_rolls_back_and_never_reports_success(dav):
     assert restored.headers["etag"] == original.headers["etag"]
   finally:
     dav.delete(path)
+
+
+def test_connection_exposes_the_public_dav_url_and_login_name(dav, monkeypatch):
+  from types import SimpleNamespace
+  from app.middleware import create_peer_jwt
+  from app.settings import settings
+  from inkcre_core.business.peer import PeerManager
+
+  config = SimpleNamespace(http_public_base_url=None)
+
+  async def current_config():
+    return config
+
+  monkeypatch.setattr(PeerManager, "get_current_config_async", current_config)
+  headers = {"Authorization": f"Bearer {create_peer_jwt(settings.jwt_secret)}"}
+  missing = dav.get("/caldav/connection", headers=headers, auth=None)
+  assert missing.status_code == 409
+  assert "Public HTTP Base URL" in missing.json()["detail"]
+
+  config.http_public_base_url = "https://calendar.example/team"
+  advertised = dav.get("/caldav/connection", headers=headers, auth=None)
+  assert advertised.status_code == 200
+  assert advertised.json() == {
+    "server_url": "https://calendar.example/team/caldav/",
+    "username": "inkcre",
+  }
 
 
 def test_tasks_contacts_and_credential_revocation(dav):
@@ -238,7 +336,7 @@ def test_tasks_contacts_and_credential_revocation(dav):
       "EMAIL:caldav-test@example.invalid",
       "ADR;TYPE=HOME:;;测试地址;上海;;;中国",
       "NOTE:保留备注",
-      "PHOTO;ENCODING=b;TYPE=PNG:aGVsbG8=",
+      "PHOTO;ENCODING=b;TYPE=PNG:" + PHOTO_BASE64,
       "X-INKCRE-TEST:kept",
       "END:VCARD",
       "",
@@ -283,6 +381,8 @@ def test_move_rejects_stale_source_and_retains_graph_identity(dav):
   try:
     created = dav.put(source, content=calendar().encode(), headers={"If-None-Match": "*"})
     assert created.status_code == 201
+    assert dav.portal is not None
+    original_id = dav.portal.call(resource_id, source)
     changed = dav.put(
       source,
       content=calendar("新版本").encode(),
@@ -298,8 +398,36 @@ def test_move_rejects_stale_source_and_retains_graph_identity(dav):
     assert dav.request("MOVE", source, headers=headers).status_code == 201
     assert dav.get(source).status_code == 404
     assert "新版本" in dav.get(target).text
+    assert dav.portal.call(resource_id, target) == original_id
   finally:
     dav.delete(path)
+
+
+def test_restart_restores_published_graph_without_recreating_objects(dav):
+  path = create_calendar(dav) + "restart.ics"
+  assert (
+    dav.put(path, content=calendar(), headers={"If-None-Match": "*"}).status_code == 201
+  )
+  before = dav.get(path)
+  assert dav.portal is not None
+  original_id = dav.portal.call(resource_id, path)
+  dav.portal.call(ASYNC_DB_ENGINE.dispose)
+  Extension.unpublish()
+  assert dav.get(path).status_code == 404
+
+  restarted = publish_extension(Extension, {"password": PASSWORD})
+  try:
+    with restarted.client as client:
+      client.auth = ("inkcre", PASSWORD)
+      restored = client.get(path)
+      assert restored.status_code == 200
+      assert restored.text == before.text
+      assert restored.headers["etag"] == before.headers["etag"]
+      assert client.portal is not None
+      assert client.portal.call(resource_id, path) == original_id
+      client.portal.call(ASYNC_DB_ENGINE.dispose)
+  finally:
+    restarted.unpublish()
 
 
 @pytest.mark.parametrize("change", ["move", "insert"])

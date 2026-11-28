@@ -6,12 +6,16 @@ behavior must be exercised through the production async services, not these help
 
 from contextlib import contextmanager
 from collections.abc import Iterable, Generator
+import uuid
 
+import psycopg
+from psycopg import sql
 import sqlalchemy
 import sqlmodel
 from sqlalchemy.pool import NullPool
 
 from app.settings import settings
+from app.database_contract.connection import psycopg_database_url
 from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
 from inkcre_core.schemas.info_base.relation import RelationModel
 
@@ -21,6 +25,21 @@ TEST_ENGINE = sqlmodel.create_engine(settings.database_url, poolclass=NullPool)
 
 def TestSession() -> sqlmodel.Session:
   return sqlmodel.Session(TEST_ENGINE, expire_on_commit=False)
+
+
+@contextmanager
+def temporary_database(owner_url: str, *, template: str | None = None):
+  """Own one database on the selected disposable cluster, including on failure."""
+  name = f"inkcre_test_{uuid.uuid4().hex}"
+  create = sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name))
+  if template is not None:
+    create += sql.SQL(" TEMPLATE {}").format(sql.Identifier(template))
+  with psycopg.connect(psycopg_database_url(owner_url), autocommit=True) as admin:
+    admin.execute(create)
+    try:
+      yield name
+    finally:
+      admin.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(name)))
 
 
 @contextmanager

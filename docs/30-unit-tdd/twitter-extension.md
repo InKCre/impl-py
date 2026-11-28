@@ -4,7 +4,7 @@ Python Twitter distribution 把 x-monkey 提交和 Bookmark 采集写入同一�
 
 `archive_schema.py` 只保存 x-monkey 0.2.0 的固定协议 DTO；`x_monkey.py` 把已校验的提交转成共同模型，并按固定 DTO 字段集递归投影 query 数据、构造协议状态与汇总。自由的 Article JSON 按值保留。共同模型未来新增的字段不会自动进入旧协议，无法用该协议表达的已知结构返回错误，不改写持久事实。Official/Twikit 适配器在 `api.py` 中直接产出共同模型，`bookmark.py` 与 `resolver.py` 不依赖协议 DTO。当前适配器保留它们明确映射的事实，不宣称保存完整 provider 原始响应或所有未知字段。
 
-`reconcile.py` 拥有本实现的身份选择、事务合并和关系维护，只返回变化集合、Block IDs 及共同读取结果，不包含 HTTP 状态或 wire 响应类型。`TwitterBatch` 没有继承远端请求的条数限制；每类 1000 条的准入边界留在 x-monkey DTO。
+`reconcile.py` 拥有本实现的身份选择、事务合并和关系维护，写入返回发生变化的原生身份集合，协议适配器据此生成逐项提交状态。`TwitterBatch` 没有继承远端请求的条数限制；每类 1000 条的准入边界留在 x-monkey DTO。
 
 一次 submit 使用一个 `graph_uow()`。Bookmark 先完成 provider 请求，再进入 `source_uow()`，锁定 Source，使用其 `graph` 合并新主帖及实际捕获的上下文，并在同一事务内推进 cursor。主帖顺序与展开上下文分开，因此引用帖不会成为下一次书签采集的 watermark；旧的数值 cursor 在比较边界转换为十进制字符串，不重置历史状态。
 
@@ -28,10 +28,10 @@ Python 的 v2 Post 文本投影包含原帖 ID、链接、已捕获作者、正�
 
 Python Twitter 在 `/twitter/x-monkey/account` 自托管连接页面。用户只在自己信任的 HTTPS 部署输入已有 `JWT_SECRET`，页面使用 WebCrypto HMAC SHA-256 本地签发 60 秒普通 Peer JWT，再以同 Origin Bearer 和 JSON `{}` 请求 `POST /twitter/x-monkey/session`。该路由复用 `require_peer_jwt`，拒绝非 Core Origin、非 JSON 和带 `session_use` 的凭据，返回 `SessionResponse` JSON 并建立归档 Cookie。页面随后 GET `api/v1/session`，确认 Cookie 的 `authenticated=true` 后才显示 `Connected`、Peer 和到期时间。
 
-账户页以随机 nonce CSP 限定脚本，`connect-src 'self'` 限定连接目标。JWT 不进入 URL，密钥不持久化或发送给服务器。页面不加载第三方脚本，不接受任意回跳；浏览器内签名不使恶意或被篡改页面安全。
+账户页使用同源 referrer 策略，使浏览器提交断开表单时保留同源 Origin。随机 nonce CSP 限定脚本，`connect-src 'self'` 限定连接目标。JWT 不进入 URL，密钥不持久化或发送给服务器。页面不加载第三方脚本，不接受任意回跳；浏览器内签名不使恶意或被篡改页面安全。
 
 连接不要求 Web 或 MF 分发。`setup.x_monkey_base_url` 继续供用户复制，Web Setup 只提供通向该 Core 账户页的普通链接，不持有此连接流程的密钥、JWT 签发或凭据传输逻辑。账户页显示 Peer 与到期时间，脚本通过会话检测确认连接。七天 Cookie 默认期限与协议续签仍由 Python Twitter 拥有。
 
-候选验证脚本与 fixture 放在 `scripts/tests/twitter`，默认 pytest 与 CI 不收集。离线合同与 HTTP 边界验证入口为 `pdm run python -m pytest -q scripts/tests/twitter/test_archive_contract.py scripts/tests/twitter/test_archive_http.py`；显式运行整个目录可用 `pdm run python -m pytest -q scripts/tests/twitter`。
+协议回归与 fixture 放在 `scripts/tests/twitter`，默认测试执行固定 wire、稀疏合并和无数据库的 HTTP/session 契约；`pdm run test:database` 和 CI 的一次性 PostgreSQL 入口执行图与发布后 HTTP 场景。聚焦离线验证入口为 `pdm run python -m pytest -q scripts/tests/twitter --ignore=scripts/tests/twitter/integration tests/extensions/twitter`；显式运行整个目录可用 `pdm run python -m pytest -q scripts/tests/twitter`。
 
-真实数据库场景要求显式提供 `INKCRE_TEST_DATABASE_URL`，使用已迁移的可丢弃 PostgreSQL runtime；测试只清理自己创建的精确 IDs，不重置开发库。原生 roundtrip 与真实 Twikit Bookmark 验证执行 `LexicalRetrievalManager.maintain` 的实际扫描、投影和检索链，在 HTTP Storage 字节边界断言零调用；同时检查归档不额外创建内容块、blob 或 Job。固定 fixture 同时用于原生 roundtrip 和独立上游合同验证，真实 userscript、HTTP 会话及 Web 消费仍需要各自的纵向验收。
+真实数据库场景要求显式提供 `INKCRE_TEST_DATABASE_URL`，使用已迁移的可丢弃 PostgreSQL runtime；测试只清理自己创建的精确 IDs，不重置开发库，缺少数据库时跳过不算通过。原生 roundtrip 与真实 Twikit Bookmark 验证执行 `LexicalRetrievalManager.maintain` 的实际扫描、投影和检索链，在 HTTP Storage 字节边界断言零调用；同时检查归档不额外创建内容块、blob 或 Job。backfill 的分页和请求预算由离线测试保护，第二页提交失败后首段保留、失败段回滚及进度不前移由真实 PostgreSQL 场景保护。官方 Bookmark 测试运行授权回调、账号查询和分页请求，在 X 的 HTTP 边界提供固定响应。账户页响应检查保护浏览器策略；实际浏览器可在 HTTPS 账户页依次连接、重载、断开并再次重载，核对会话状态。真实 userscript、X 授权与计费、Web 消费仍需各自的纵向验收。

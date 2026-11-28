@@ -99,11 +99,11 @@ pdm run check
 pdm run dev
 ```
 
-`doctor` and `check` do not start the application or connect to a database. The full
-repository contract checks tool versions, lock/export consistency, migration integrity,
-formatting, lint, settings isolation, and the complete unit-test suite.
+`doctor` 不启动应用或连接数据库。`check` 验证工具版本、锁文件、迁移完整性、格式、lint、类型、
+独立 SDK wheel 和默认测试。未显式提供测试数据库时，数据库场景报告 skip；这不构成业务持久化证明。
+CI 先运行 `check:code`，再用一次性 PostgreSQL 执行同一默认集合（`test:database`），制品 job 验证真实镜像、PostgREST、导出与恢复。
 
-格式与 lint 的范围由 `ruff.toml` 拥有，覆盖正式源码、测试与脚本。`tasks/` 是临时实验材料，`.agents/` 是独立维护的技能；二者不参与产品门禁。成为正式验证步骤的实验应迁入 `scripts/` 或 `tests/`。已发布迁移保持不可变；独立 CLI 使用 `pdm run --project cli check` 及自己的 CI。pre-commit 的格式与 lint 钩子复用 `pdm run format:check` 和 `pdm run lint`，CI 的完整入口仍为 `pdm run check`。
+格式与 lint 的范围由 `ruff.toml` 拥有，覆盖正式源码、测试与脚本。`tasks/` 是临时实验材料，`.agents/` 是独立维护的技能；二者不参与产品门禁。成为正式验证步骤的实验应迁入 `scripts/` 或 `tests/`。已发布迁移保持不可变；独立 CLI 使用 `pdm run --project cli check` 及自己的 CI。pre-commit 的格式与 lint 钩子复用 `pdm run format:check` 和 `pdm run lint`，CI 使用相同的静态、构建和测试命令。
 
 Use narrower read-only checks while iterating:
 
@@ -118,6 +118,13 @@ pdm run dev:database ready
 
 The test harness disables dotenv before application imports. Repository checks do not read a
 developer `.env` or use its database and API credentials.
+
+默认 `pdm run test` 收集 `tests/`、`scripts/tests/` 和 ChatGPT 伴随进程生命周期测试，并排除
+`acceptance` 标记。这三个目录在 CI 中由同一入口执行，不再额外重跑发布脚本和伴随进程测试。
+CalDAV/Twitter 的 codec、HTTP、数据库图测试保护不同契约：协议字节、认证/会话、事务/并发与
+持久化各自保留，不能用 HTTP mock 代替数据库结果，也不以本地通过推断真机或上游服务兼容。
+显式真实供应商、外部 RSS/Atom、IMAP 与人工质量验收保留 `acceptance` 标记；按各专项入口运行，
+默认命令不会因为当前 shell 恰好有供应商配置就执行它们。
 
 ## Required Environment Variables
 
@@ -155,13 +162,16 @@ Credentialed semantic-quality acceptance is explicit and separate from the ordin
 selected migrated `INKCRE_TEST_DATABASE_URL`; see the local Semantic Retrieval Unit TDD for the command and pass/fail
 authority.
 
-`pdm run test:database` 是无需真实 AI／IMAP 服务的 PostgreSQL 业务回归入口，具体场景清单由
-`scripts/automation/repository_check.sh` 拥有。它要求显式 `INKCRE_TEST_DATABASE_URL`；未设置时直接失败，
-不会将整组 skip 当作通过。数据库必须已经迁移且可丢弃：场景包含清空数据、事务回滚和迁移往返验证，
-不能连接共享开发库、Preview 或生产。Memos 迁移场景还要求该独占 PostgreSQL 的 `MIGRATION_DATABASE_URL`
-具有创建数据库权限；它建立随机命名的历史数据库，只往返附件所属 revision，并在结束后删除该数据库。
-这保留实际 migration 编排和应用下载读回，不会回退当前业务测试库或声称验证了整条历史 downgrade 链。
-CI 在自身临时 PostgreSQL service 上先初始化再执行这一组；外部服务和真实凭据验收继续由各自专项入口负责。
+`pdm run test:database` 在一次性 PostgreSQL 上运行整个默认测试集合。新场景按 pytest 配置发现，无需登记第二份路径清单。入口要求显式 `INKCRE_TEST_DATABASE_URL`（Core 角色）、
+`MIGRATION_DATABASE_URL` 和 `INKCRE_TEST_POSTGRES_ADMIN_URL`（同一独占集群的管理员连接），以及
+初始化时使用的 `CORE_DATABASE_PASSWORD`、`POSTGREST_DATABASE_PASSWORD`；缺少输入直接失败。
+数据库必须已经迁移，整个集群必须可丢弃：场景包含清空数据、事务回滚、创建数据库和角色授权验证，
+不能连接共享开发库、Preview 或生产。迁移测试建立独立历史数据库并在结束后删除，不回退业务测试库；
+角色凭证必须与初始化一致。执行全库索引或维护的知识验收还需要上述管理员连接和两项角色密码，借此在同一可丢弃集群中迁移一次模板，为每个场景克隆私有信息库，结束后删除。
+
+数据库入口也执行 CalDAV/Twitter 持久化、Bilibili 词法投影、Mail newsletter 图回放和使用本地
+HTTP/确定性 AI 的语义纵向场景；最后一类与真实模型质量验收分开。CI 在自身临时 PostgreSQL
+service 上初始化后运行。未执行、跳过或失败都必须分别报告，不能将整组 skip 记作通过。
 
 ## Database Branch Workflow In CI
 

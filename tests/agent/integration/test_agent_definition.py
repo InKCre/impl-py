@@ -1,5 +1,6 @@
 """Real PostgreSQL proof for Agent definitions and AgentManager snapshots."""
 
+import asyncio
 import datetime
 import os
 import time
@@ -17,6 +18,7 @@ from inkcre_core.business.agent import (
 from inkcre_core.business.ai import AIManager
 from tests.database import TestSession
 from inkcre_core.schemas import AgentDefinitionModel
+from inkcre_core.schemas.agent import AgentUpdateForm
 from inkcre_core.schemas.ai import (
   AIModelModel,
   AIProviderModel,
@@ -133,9 +135,20 @@ def test_agent_definition_round_trip_and_active_thread_snapshot(monkeypatch, asy
       assert agent.updated_at > previous_updated_at
 
     async def scenario():
+      entered = asyncio.Event()
+      release = asyncio.Event()
+
       async def chat(_cls, model, messages, tools, tool_choice):
-        assert [tool.id for tool in tools] == ["alpha", "zeta"]
+        entered.set()
         assert isinstance(tool_choice, NamedToolChoice)
+        if messages[0].content == "Original system prompt":
+          assert [tool.id for tool in tools] == ["alpha", "zeta"]
+          assert tool_choice.tool == "alpha"
+          await release.wait()
+        else:
+          assert messages[0].content == "Updated system prompt"
+          assert [tool.id for tool in tools] == ["zeta"]
+          assert tool_choice.tool == "zeta"
         return AssistantMessage(content="complete")
 
       monkeypatch.setattr(AIManager, "chat", classmethod(chat))
@@ -144,6 +157,19 @@ def test_agent_definition_round_trip_and_active_thread_snapshot(monkeypatch, asy
         UserMessage(content=(TextContentPart(text="initial input"),)),
       )
       assert thread.current_turn is not None
+      async with asyncio.timeout(10):
+        await entered.wait()
+      try:
+        await _IntegrationAgentManager.update_definition(
+          agent_id,
+          AgentUpdateForm(
+            system_prompt="Updated system prompt",
+            tools=("zeta",),
+            tool_choice=NamedToolChoice(tool="zeta"),
+          ),
+        )
+      finally:
+        release.set()
       assert await thread.current_turn == TurnTermination.COMPLETED
       assert thread.messages[0].content == "Original system prompt"
       assert [message.type for message in thread.messages] == [
@@ -151,6 +177,15 @@ def test_agent_definition_round_trip_and_active_thread_snapshot(monkeypatch, asy
         "user",
         "assistant",
       ]
+      await thread.refresh()
+      assert thread.messages[0].content == "Original system prompt"
+      assert [tool.id for tool in thread.tools] == ["alpha", "zeta"]
+      next_thread = await _IntegrationAgentManager.run(
+        agent_id, UserMessage(content=(TextContentPart(text="next input"),))
+      )
+      assert next_thread.current_turn is not None
+      assert await next_thread.current_turn == TurnTermination.COMPLETED
+      assert next_thread.messages[0].content == "Updated system prompt"
 
     async_runner.run(scenario())
 
@@ -158,7 +193,9 @@ def test_agent_definition_round_trip_and_active_thread_snapshot(monkeypatch, asy
       stored_agent = db.get(AgentDefinitionModel, agent_id)
       assert stored_agent is not None
       model_id = stored_agent.model
-      with pytest.raises(sqlalchemy.exc.IntegrityError):
+      with pytest.raises(
+        sqlalchemy.exc.IntegrityError, match="ck_agents_max_model_calls_per_turn_positive"
+      ):
         db.connection().execute(
           sqlalchemy.text(
             "INSERT INTO inkcre.agents "

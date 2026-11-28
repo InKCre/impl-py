@@ -6,24 +6,18 @@ import json
 import pydantic
 import pytest
 
-from extensions.bilibili.resolver import (
-  FolderResolver,
-  MembershipResolver,
-  UserResolver,
-  VideoResolver,
-)
+from extensions.bilibili import Extension
 from extensions.bilibili.schema import (
   FOLDER_RESOLVER,
-  MEMBERSHIP_RESOLVER,
   USER_RESOLVER,
   VIDEO_RESOLVER,
 )
 from inkcre_core.business.info_base.resolver import ResolverManager, UnknownResolverError
-from inkcre_core.business.lexical_retrieval.main import LexicalRetrievalManager
 from inkcre_core.schemas.info_base.block import BlockModel
 
 
 def block(resolver: str, content: dict) -> BlockModel:
+  Extension.load_decoders()
   now = datetime.datetime.now(datetime.UTC)
   return BlockModel(
     id=41,
@@ -36,23 +30,20 @@ def block(resolver: str, content: dict) -> BlockModel:
 
 
 @pytest.mark.parametrize(
-  "resolver_cls,resolver_id,content,expected",
+  "resolver_id,content,expected",
   [
     (
-      UserResolver,
-      USER_RESOLVER,
+      "extensions.bilibili.user.v1",
       {"mid": "100", "name": "测试 UP", "avatar_url": "https://example.test/avatar.jpg"},
       ("测试 UP", "测试 UP"),
     ),
     (
-      FolderResolver,
-      FOLDER_RESOLVER,
+      "extensions.bilibili.folder.v1",
       {"id": "90001", "title": "系统设计", "description": "架构资料", "is_private": True},
       ("系统设计", "系统设计\n架构资料"),
     ),
     (
-      VideoResolver,
-      VIDEO_RESOLVER,
+      "extensions.bilibili.video.v1",
       {
         "aid": "200",
         "bvid": "BV1ab411c7AB",
@@ -65,8 +56,7 @@ def block(resolver: str, content: dict) -> BlockModel:
       ("数据库事务", "数据库事务\n讨论隔离级别与原子提交。"),
     ),
     (
-      MembershipResolver,
-      MEMBERSHIP_RESOLVER,
+      "extensions.bilibili.membership.v1",
       {
         "availability": "unavailable",
         "page_number": 2,
@@ -78,16 +68,12 @@ def block(resolver: str, content: dict) -> BlockModel:
     ),
   ],
 )
-def test_web_records_project_without_browser(
-  async_runner, resolver_cls, resolver_id, content, expected
-):
+def test_web_records_project_without_browser(async_runner, resolver_id, content, expected):
   label, text = expected
   value = block(resolver_id, content)
-  reader = resolver_cls(value)
+  reader = ResolverManager.get(value)
   assert async_runner.run(reader.get_label()) == label
   assert async_runner.run(reader.get_text(context="lexical")) == text
-  projection = async_runner.run(LexicalRetrievalManager._project(value))
-  assert (projection.block, projection.label, projection.text) == (41, label, text)
 
 
 @pytest.mark.parametrize(
@@ -102,26 +88,35 @@ def test_web_records_project_without_browser(
 def test_sparse_identity_has_a_readable_fallback(
   async_runner, resolver_id, content, expected
 ):
-  projection = async_runner.run(
-    LexicalRetrievalManager._project(block(resolver_id, content))
-  )
-  assert projection.label == projection.text == expected
+  reader = ResolverManager.get(block(resolver_id, content))
+  assert async_runner.run(reader.get_label()) == expected
+  assert async_runner.run(reader.get_text(context="lexical")) == expected
 
 
 @pytest.mark.parametrize(
-  "content",
+  "content,field,reason",
   [
-    {"aid": 200},
-    {"aid": "2١"},
-    {"aid": "200", "title": None},
-    {"aid": "200", "duration_seconds": "180"},
-    {"aid": "200", "published_at": "2026-01-01T00:00:00+08:00"},
-    {"aid": "200", "unexpected": "cannot silently reinterpret a future record"},
+    ({"aid": 200}, ("aid",), "string_type"),
+    ({"aid": "2١"}, ("aid",), "string_pattern_mismatch"),
+    ({"aid": "200", "title": None}, (), "不能保存 null"),
+    ({"aid": "200", "duration_seconds": "180"}, ("duration_seconds",), "int_type"),
+    (
+      {"aid": "200", "published_at": "2026-01-01T00:00:00+08:00"},
+      ("published_at",),
+      "来源时间必须是 UTC",
+    ),
+    ({"aid": "200", "unexpected": "future field"}, ("unexpected",), "extra_forbidden"),
   ],
 )
-def test_malformed_v1_records_fail_instead_of_inventing_text(async_runner, content):
-  with pytest.raises(pydantic.ValidationError):
-    async_runner.run(VideoResolver(block(VIDEO_RESOLVER, content)).get_text())
+def test_malformed_v1_records_fail_instead_of_inventing_text(
+  async_runner, content, field, reason
+):
+  with pytest.raises(pydantic.ValidationError) as raised:
+    async_runner.run(ResolverManager.get(block(VIDEO_RESOLVER, content)).get_text())
+  assert any(
+    error["loc"] == field and (reason == error["type"] or reason in error["msg"])
+    for error in raised.value.errors()
+  )
 
 
 def test_unknown_version_is_not_guessed():

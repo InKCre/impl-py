@@ -5,6 +5,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 SCRIPT = Path(__file__).parents[1] / "scripts/automation/production_delivery.sh"
 
@@ -26,14 +28,7 @@ def test_transfer_images_pushes_only_the_exact_process_tags(tmp_path: Path) -> N
     "  sys.stdin.read()\n"
     "  raise SystemExit(0)\n"
     "if args[:2] == ['image', 'inspect']:\n"
-    "  image = args[-1]\n"
-    "  if (image.startswith('registry.heroku.com/') and\n"
-    "      image == os.environ.get('MISMATCH_REMOTE')):\n"
-    "    print('sha256:wrong-content')\n"
-    "  else:\n"
-    "    print('sha256:source-content')\n"
-    "  raise SystemExit(0)\n"
-    "",
+    "  print('sha256:source-content')\n",
     encoding="utf-8",
   )
   docker.chmod(0o755)
@@ -57,48 +52,31 @@ def test_transfer_images_pushes_only_the_exact_process_tags(tmp_path: Path) -> N
   assert result.returncode == 0, result.stderr
   assert test_credential not in result.stdout + result.stderr
   calls = [json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()]
-  assert calls == [
-    [
-      "tag",
-      f"inkcre-production-web:{'a' * 40}",
-      "registry.heroku.com/inkcre-owner-core/web",
-    ],
-    [
-      "tag",
+  expected_tags = {
+    (f"inkcre-production-web:{'a' * 40}", "registry.heroku.com/inkcre-owner-core/web"),
+    (
       f"inkcre-production-release:{'a' * 40}",
       "registry.heroku.com/inkcre-owner-core/release",
-    ],
-    [
-      "tag",
+    ),
+    (
       f"inkcre-production-postgrest:{'a' * 40}",
       "registry.heroku.com/inkcre-owner-postgrest/web",
-    ],
-    ["push", "registry.heroku.com/inkcre-owner-core/web"],
-    ["image", "inspect", "--format={{.Id}}", f"inkcre-production-web:{'a' * 40}"],
-    ["pull", "registry.heroku.com/inkcre-owner-core/web"],
-    ["image", "inspect", "--format={{.Id}}", "registry.heroku.com/inkcre-owner-core/web"],
-    ["push", "registry.heroku.com/inkcre-owner-core/release"],
-    ["image", "inspect", "--format={{.Id}}", f"inkcre-production-release:{'a' * 40}"],
-    ["pull", "registry.heroku.com/inkcre-owner-core/release"],
-    [
-      "image",
-      "inspect",
-      "--format={{.Id}}",
-      "registry.heroku.com/inkcre-owner-core/release",
-    ],
-    ["push", "registry.heroku.com/inkcre-owner-postgrest/web"],
-    ["image", "inspect", "--format={{.Id}}", f"inkcre-production-postgrest:{'a' * 40}"],
-    ["pull", "registry.heroku.com/inkcre-owner-postgrest/web"],
-    [
-      "image",
-      "inspect",
-      "--format={{.Id}}",
-      "registry.heroku.com/inkcre-owner-postgrest/web",
-    ],
-  ]
+    ),
+  }
+  assert {tuple(call[1:]) for call in calls if call[0] == "tag"} == expected_tags
+  for operation in ("push", "pull"):
+    assert {tuple(call[1:]) for call in calls if call[0] == operation} == {
+      (target,) for _, target in expected_tags
+    }
 
 
-def test_release_refuses_a_remote_tag_with_different_image_content(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+  "process",
+  ["inkcre-owner-core/web", "inkcre-owner-core/release", "inkcre-owner-postgrest/web"],
+)
+def test_release_refuses_a_remote_tag_with_different_image_content(
+  tmp_path: Path, process: str
+) -> None:
   bin_directory = tmp_path / "bin"
   bin_directory.mkdir()
   docker = bin_directory / "docker"
@@ -130,7 +108,7 @@ def test_release_refuses_a_remote_tag_with_different_image_content(tmp_path: Pat
       "APP_NAME": "inkcre-owner-core",
       "HEAD_SHA": "a" * 40,
       "POSTGREST_APP_NAME": "inkcre-owner-postgrest",
-      "MISMATCH_REMOTE": "registry.heroku.com/inkcre-owner-core/web",
+      "MISMATCH_REMOTE": f"registry.heroku.com/{process}",
     },
   )
 

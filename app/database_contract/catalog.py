@@ -1,8 +1,5 @@
 """Deterministic catalog, seed, and development reset operations."""
 
-from hashlib import sha256
-import json
-
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
@@ -202,77 +199,3 @@ def truncate_development(database_url: str | None = None) -> None:
       cursor.execute(
         sql.SQL("TRUNCATE TABLE {} RESTART IDENTITY CASCADE").format(relations)
       )
-
-
-def development_baseline_fingerprint(
-  database_url: str | None = None,
-) -> str:
-  """Return a value-safe fingerprint of deterministic baseline records."""
-  with database_connection(database_url) as connection:
-    with connection.cursor() as cursor:
-      _require_development(cursor)
-      document: dict[str, object] = {}
-      for key, query in (
-        (
-          "ai_dialects",
-          sql.SQL(
-            "SELECT id, description, config_schema FROM {}.ai_dialects ORDER BY id"
-          ).format(sql.Identifier(PROTOCOL_SCHEMA)),
-        ),
-        (
-          "extensions",
-          sql.SQL("SELECT name, nickname FROM {}.extensions ORDER BY name").format(
-            sql.Identifier(PROTOCOL_SCHEMA)
-          ),
-        ),
-        (
-          "job_types",
-          sql.SQL(
-            "SELECT id, description, parameters_schema, default_timeout_seconds "
-            "FROM {}.job_types ORDER BY id"
-          ).format(sql.Identifier(PROTOCOL_SCHEMA)),
-        ),
-        (
-          "storage_types",
-          sql.SQL(
-            "SELECT id, description, config_schema, writable "
-            "FROM {}.storage_types ORDER BY id"
-          ).format(sql.Identifier(PROTOCOL_SCHEMA)),
-        ),
-        (
-          "source_types",
-          sql.SQL(
-            "SELECT id, description, config_schema, collect_config_schema, "
-            "backfill_config_schema FROM {}.sources_types ORDER BY id"
-          ).format(sql.Identifier(PROTOCOL_SCHEMA)),
-        ),
-        (
-          "storages",
-          sql.SQL("SELECT id, type, nickname, config FROM {}.storages ORDER BY id").format(
-            sql.Identifier(PROTOCOL_SCHEMA)
-          ),
-        ),
-        (
-          "development_peer",
-          sql.SQL(
-            "SELECT id::text, name, application_version, labels, config, config_schema, "
-            "capabilities, "
-            "EXTRACT(EPOCH FROM lease_expires_at)::bigint, "
-            "EXTRACT(EPOCH FROM created_at)::bigint "
-            "FROM {}.peers WHERE id = %s"
-          ).format(sql.Identifier(PROTOCOL_SCHEMA)),
-        ),
-      ):
-        if key == "development_peer":
-          cursor.execute(query, (DEVELOPMENT_PEER_ID,))
-        else:
-          cursor.execute(query)
-        document[key] = cursor.fetchall()
-
-  encoded = json.dumps(
-    document,
-    default=str,
-    separators=(",", ":"),
-    sort_keys=True,
-  ).encode()
-  return sha256(encoded).hexdigest()

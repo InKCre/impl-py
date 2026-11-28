@@ -48,7 +48,6 @@ class _Candidate:
 class PeerManager:
   """Own Peer facts, local inbound registry, discovery, and one-shot routing."""
 
-  _random: random.Random = random.SystemRandom()
   _config_contract = ConfigContract(CorePeerConfig)
 
   @classmethod
@@ -248,5 +247,5 @@ class PeerManager:
           break
 
     if route_to_peer is None:
-      cls._random.shuffle(candidates)
+      random.SystemRandom().shuffle(candidates)
     return tuple(candidates)

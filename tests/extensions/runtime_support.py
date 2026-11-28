@@ -38,7 +38,6 @@ class _TestActiveModel:
 
 @dataclass
 class PublishedExtension:
-  app: fastapi.FastAPI
   extension: type[ExtensionBase]
   client: TestClient
 
@@ -52,13 +51,12 @@ def publish_extension(
   extension: type[ExtensionBase],
   config: dict[str, typing.Any] | None = None,
   *,
-  app: fastapi.FastAPI | None = None,
   raise_server_exceptions: bool = True,
   persist_config: bool = False,
 ) -> PublishedExtension:
   from app.core import CORE, CoreMiddleware
 
-  runtime_app = app or fastapi.FastAPI()
+  runtime_app = fastapi.FastAPI()
   runtime_app.add_middleware(CoreMiddleware, core=CORE)
   runtime_config = dict(config or {})
   runtime_state: dict[str, typing.Any] = {}
@@ -99,7 +97,6 @@ def publish_extension(
 
   asyncio.run(start())
   return PublishedExtension(
-    runtime_app,
     extension,
     TestClient(runtime_app, raise_server_exceptions=raise_server_exceptions),
   )

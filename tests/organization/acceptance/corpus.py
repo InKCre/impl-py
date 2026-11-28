@@ -57,7 +57,7 @@ def load_manifest() -> CorpusManifest:
   known = set(aliases)
   for world in manifest.worlds:
     for artifact in world.artifacts:
-      _artifact_text(artifact.path)
+      read_artifact(artifact.path)
     for relation in world.relations:
       if relation.from_ not in known or relation.to not in known:
         raise ValueError("Initial relation addresses an unknown corpus alias")
@@ -65,15 +65,11 @@ def load_manifest() -> CorpusManifest:
     raise ValueError("Upstream change alias must be new")
   if manifest.upstream_change.predecessor not in known:
     raise ValueError("Upstream change predecessor is unknown")
-  _artifact_text(manifest.upstream_change.path)
+  read_artifact(manifest.upstream_change.path)
   return manifest
 
 
 def read_artifact(path: str) -> str:
-  return _artifact_text(path)
-
-
-def _artifact_text(path: str) -> str:
   candidate = (CORPUS_DIRECTORY / path).resolve()
   if CORPUS_DIRECTORY.resolve() not in candidate.parents:
     raise ValueError("Artifact path escapes the Organization corpus")

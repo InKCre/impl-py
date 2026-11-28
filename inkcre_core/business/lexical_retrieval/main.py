@@ -258,6 +258,15 @@ class LexicalRetrievalManager:
         if (candidate := folded_source.find(term.casefold())) >= 0
       ]
       position = min(positions, default=0)
+    # Folding can expand a character (e.g. ß → ss). Only the original text
+    # owns the offsets used for the returned excerpt.
+    if position and len(folded_source) != len(source):
+      folded_end = 0
+      for index, character in enumerate(source):
+        folded_end += len(character.casefold())
+        if folded_end > position:
+          position = index
+          break
     start = max(0, position - _EXCERPT_LIMIT // 3)
     end = min(len(source), start + _EXCERPT_LIMIT)
     prefix = "…" if start else ""

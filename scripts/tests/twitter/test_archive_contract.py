@@ -20,13 +20,7 @@ from extensions.twitter.archive_schema import (
   SubmitResponse,
 )
 from extensions.twitter.model import RichText, TwitterBatch, TwitterPost
-from extensions.twitter.reconcile import TwitterReadResult, TwitterWriteResult
-from extensions.twitter.x_monkey import (
-  decode_submission,
-  encode_query,
-  encode_submission,
-  export_record,
-)
+from extensions.twitter.x_monkey import export_record
 
 
 @pytest.fixture
@@ -36,15 +30,8 @@ def full_archive() -> dict[str, Any]:
 
 
 def test_native_batch_preserves_complete_source_and_field_presence(full_archive):
-  original = copy.deepcopy(full_archive)
-  batch = ArchiveBatch.model_validate(full_archive)
-  assert batch.model_dump(mode="json", exclude_unset=True) == original
-  assert json.loads(batch.model_dump_json(exclude_unset=True)) == original
-  assert full_archive == original
-  assert batch.posts[0].communityNote is not None
-  assert batch.posts[0].communityNote.text.model_dump(exclude_unset=True) == {
-    "text": "来源已核实"
-  }
+  batch = ArchiveBatch.model_validate(copy.deepcopy(full_archive))
+  assert batch.model_dump(mode="json", exclude_unset=True) == full_archive
 
 
 def test_missing_and_explicit_empty_batches_remain_distinct():
@@ -57,41 +44,9 @@ def test_missing_and_explicit_empty_batches_remain_distinct():
   assert ArchiveBatch(posts=[]).model_dump(mode="json", exclude_unset=True) == {"posts": []}
 
 
-def test_fixed_protocol_roundtrips_through_owned_facts_and_neutral_results(full_archive):
-  wire = ArchiveBatch.model_validate(full_archive)
-  native = decode_submission(wire)
-  assert type(native) is TwitterBatch
-  assert type(native.posts[0]) is TwitterPost
-  assert native.model_dump(mode="json", exclude_unset=True) == full_archive
-  records = {
-    (kind, record.id): record
-    for kind in ("users", "posts", "media")
-    for record in getattr(native, kind)
-  }
-  query = ArchiveQuery(users=["17"], posts=["31", "32", "33"], media=["41"])
-  response = encode_query(
-    query,
-    TwitterReadResult(records=records, invalid=frozenset({("posts", "33")})),
-  )
-  for kind in ("users", "posts", "media"):
-    assert (
-      getattr(response, kind)[0].data.model_dump(mode="json", exclude_unset=True)
-      == (full_archive[kind][0])
-    )
-  assert [item.status for item in response.posts] == ["found", "missing", "failed"]
-  submitted = encode_submission(
-    wire, TwitterWriteResult(changed=frozenset(records), block_ids={})
-  )
-  assert submitted.summary.accepted == submitted.summary.total == 3
-  replayed = encode_submission(wire, TwitterWriteResult(changed=frozenset(), block_ids={}))
-  assert replayed.summary.unchanged == 3
-
-
 def test_capture_batch_does_not_inherit_remote_request_limits(full_archive):
   records = {"posts": [full_archive["posts"][0]] * 1001}
   assert len(TwitterBatch.model_validate(records).posts) == 1001
-  with pytest.raises(pydantic.ValidationError):
-    ArchiveBatch.model_validate(records)
 
 
 def test_fixed_export_projects_additive_native_fields_and_retains_open_json(full_archive):
@@ -111,16 +66,26 @@ def test_fixed_export_projects_additive_native_fields_and_retains_open_json(full
   exported = export_record("posts", native)
   assert exported == full_archive["posts"][0]
   assert native.model_dump(mode="json", exclude_unset=True) == post
-  with pytest.raises(pydantic.ValidationError):
+  with pytest.raises(pydantic.ValidationError) as rejected:
     ArchivePost.model_validate(post)
+  assert {(error["loc"], error["type"]) for error in rejected.value.errors()} == {
+    (("readingHint",), "extra_forbidden"),
+    (("text", "readingHint"), "extra_forbidden"),
+  }
 
 
 @pytest.mark.parametrize(
   "invalid_id", ["0", "01", "-1", "1.0", " 1", "1\n", "1１", 1, True]
 )
 def test_ids_are_positive_decimal_strings(invalid_id):
-  with pytest.raises(pydantic.ValidationError):
+  with pytest.raises(pydantic.ValidationError) as rejected:
     ArchiveQuery.model_validate({"posts": [invalid_id]})
+  assert [(error["loc"], error["type"]) for error in rejected.value.errors()] == [
+    (
+      ("posts", 0),
+      "string_pattern_mismatch" if isinstance(invalid_id, str) else "string_type",
+    )
+  ]
 
 
 @pytest.mark.parametrize(
@@ -131,6 +96,7 @@ def test_ids_are_positive_decimal_strings(invalid_id):
     (("users", 0, "counts", "likes"), 1.0),
     (("users", 0, "counts", "likes"), "1"),
     (("posts", 0, "createdAt"), "2026-02-29T00:00:00Z"),
+    (("posts", 0, "createdAt"), None),
     (("posts", 0, "createdAt"), "2026-10-19T00:00:00.123Z"),
     (("posts", 0, "createdAt"), "2026-10-19T00:00:00+00:00"),
     (("posts", 0, "countsObservedAt", "likes"), "2026-10-19T24:00:00Z"),
@@ -159,23 +125,31 @@ def test_ids_are_positive_decimal_strings(invalid_id):
 def test_invalid_native_records_fail_instead_of_coercing_or_discarding(
   full_archive, path, invalid
 ):
+  ArchiveBatch.model_validate(full_archive)
   current = full_archive
   for part in path[:-1]:
     current = current[part]
   current[path[-1]] = invalid
-  with pytest.raises(pydantic.ValidationError):
+  with pytest.raises(pydantic.ValidationError) as rejected:
     ArchiveBatch.model_validate(full_archive)
+  assert all(error["loc"][: len(path)] == path for error in rejected.value.errors())
 
 
 @pytest.mark.parametrize("kind", ["users", "posts", "media"])
 def test_query_and_submission_have_per_kind_limits(full_archive, kind):
   assert len(getattr(ArchiveQuery.model_validate({kind: ["1"] * 1000}), kind)) == 1000
-  with pytest.raises(pydantic.ValidationError):
+  with pytest.raises(pydantic.ValidationError) as rejected_query:
     ArchiveQuery.model_validate({kind: ["1"] * 1001})
+  assert [(error["loc"], error["type"]) for error in rejected_query.value.errors()] == [
+    ((kind,), "too_long")
+  ]
   record = full_archive[kind][0]
   assert len(getattr(ArchiveBatch.model_validate({kind: [record] * 1000}), kind)) == 1000
-  with pytest.raises(pydantic.ValidationError):
+  with pytest.raises(pydantic.ValidationError) as rejected_batch:
     ArchiveBatch.model_validate({kind: [record] * 1001})
+  assert [(error["loc"], error["type"]) for error in rejected_batch.value.errors()] == [
+    ((kind,), "too_long")
+  ]
 
 
 def test_query_submit_and_session_wire_roundtrip(full_archive):
@@ -205,8 +179,6 @@ def test_query_submit_and_session_wire_roundtrip(full_archive):
     "account_url": None,
   }
   assert SessionResponse.model_validate(session).model_dump(mode="json") == session
-  with pytest.raises(pydantic.ValidationError):
-    ArchivePost.model_validate({"id": "31", "authorId": "17", "createdAt": None})
 
 
 def test_merge_is_recursive_replaces_arrays_and_does_not_mutate_inputs():

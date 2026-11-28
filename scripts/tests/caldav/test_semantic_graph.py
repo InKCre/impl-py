@@ -31,11 +31,14 @@ from extensions.caldav.schema import (
   ResourceContent,
 )
 from tests.database import TestSession
-from scripts.tests.caldav.test_dav_graph import dav, pytestmark, create_calendar  # noqa: F401
-
-PHOTO = base64.b64decode(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNQXpAHAAIbATIqos84AAAAAElFTkSuQmCC"
+from scripts.tests.caldav.test_dav_graph import (  # noqa: F401
+  PHOTO_BASE64,
+  dav,
+  pytestmark,
+  create_calendar,
 )
+
+PHOTO = base64.b64decode(PHOTO_BASE64)
 
 
 def card(uid, phones=(("CELL", "+8613800000000"), ("WORK", "+8613900000000")), photo=PHOTO):
@@ -207,6 +210,12 @@ def test_child_before_parent_becomes_a_real_relation_and_survives_unpublish(dav)
     assert "RELATED-TO" not in GraphContent.model_validate_json(child.content).remainder
     assert dav.delete(parent_path).is_success
     assert parent_uid in dav.get(child_path).text
+    _, retained_fields, retained_blocks = dav.portal.call(resource_graph, child_path)
+    retained_reference = next(
+      p for p in retained_fields if p.field.link.name == "RELATED-TO"
+    )
+    assert retained_reference.relation.to_ == parent.id
+    assert retained_blocks[parent.id].resolver == parent.resolver
   finally:
     dav.delete(path)
 

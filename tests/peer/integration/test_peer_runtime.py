@@ -25,9 +25,6 @@ CAPABILITY = "core.peer.integration.v1"
 
 
 def test_real_snapshot_database_lease_and_candidate_filtering(monkeypatch, async_runner):
-  original_options = current_core().options
-  original_inbounds = current_core().inbounds
-  original_outbounds = current_core().outbounds
   local = uuid.uuid4()
   live = uuid.uuid4()
   expired = uuid.uuid4()
@@ -113,6 +110,8 @@ def test_real_snapshot_database_lease_and_candidate_filtering(monkeypatch, async
     ]
     expiry = async_runner.run(PeerManager.renew_self_lease(45))
     with TestSession() as db:
+      stored = db.get(PeerModel, local)
+      assert stored is not None and stored.lease_expires_at == expiry
       remaining = (
         db.connection()
         .execute(
@@ -137,9 +136,6 @@ def test_real_snapshot_database_lease_and_candidate_filtering(monkeypatch, async
     assert cleared is not None
     assert cleared.lease_expires_at is None
   finally:
-    monkeypatch.setattr(current_core(), "inbounds", original_inbounds)
-    monkeypatch.setattr(current_core(), "outbounds", original_outbounds)
-    monkeypatch.setattr(current_core(), "options", original_options)
     with TestSession() as db:
       db.connection().execute(
         sqlalchemy.text("DELETE FROM inkcre.peers WHERE id = ANY(:ids)"),

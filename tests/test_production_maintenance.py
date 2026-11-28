@@ -15,7 +15,7 @@ def _write_stubs(tmp_path: Path) -> tuple[Path, Path]:
   calls_path = tmp_path / "calls.jsonl"
   docker = bin_directory / "docker"
   docker.write_text(
-    "#!/usr/bin/env sh\nprintf '0/AB12CD34\\n'\n",
+    '#!/usr/bin/env sh\nprintf "%s\\n" "${FIXTURE_LSN:-0/AB12CD34}"\n',
     encoding="utf-8",
   )
   docker.chmod(0o755)
@@ -177,3 +177,21 @@ def test_backup_branch_requires_capacity_for_backup_and_preserved_recovery(
     json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()
   ]
   assert not any(request["method"] == "POST" for request in requests)
+
+
+def test_backup_branch_rejects_invalid_database_position_before_contacting_neon(
+  tmp_path: Path,
+) -> None:
+  binaries, calls = _write_stubs(tmp_path)
+  environment = _environment(tmp_path, binaries, calls)
+  environment["FIXTURE_LSN"] = "not/a-position"
+  result = subprocess.run(  # noqa: S603 - checked-in command and local transports.
+    ["bash", str(SCRIPT), "backup-branch"],
+    env=environment,
+    capture_output=True,
+    text=True,
+    check=False,
+  )
+  assert result.returncode != 0
+  assert "invalid WAL flush LSN" in result.stderr
+  assert not calls.exists()

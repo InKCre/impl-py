@@ -281,6 +281,7 @@ def test_metadata_and_condition_pages_never_load_secrets_or_handlers(
                 "query", {"filters": filters, "cursor": cursor}
               )
               assert failed.is_error
+              assert failed.structured_content["error"]["code"] == "invalid_arguments"
 
           assert statements and all(
             statement.lstrip().startswith("SELECT") for statement in statements

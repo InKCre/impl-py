@@ -34,13 +34,6 @@ pytestmark = pytest.mark.skipif(
   reason="requires an explicitly selected migrated PostgreSQL runtime",
 )
 
-SEMANTIC_ASSETS = Path(__file__).parents[3] / "assets" / "semantic-content"
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _generated_semantic_content_assets(semantic_content_assets: Path) -> None:
-  assert semantic_content_assets == SEMANTIC_ASSETS
-
 
 def _cleanup(tracked_block_ids: set[int], tracked_blob_ids: set) -> None:
   with TestSession() as db_session:
@@ -87,7 +80,7 @@ def _track_attachment(solved, tracked_block_ids: set[int], tracked_blob_ids: set
 
 
 @pytest.fixture
-def memo_client():
+def memo_client(isolated_database_runtime):
   from app.engine import ASYNC_DB_ENGINE
 
   published = publish_extension(
@@ -186,6 +179,7 @@ def test_connection_address_preserves_public_prefix_and_requires_peer_auth(memo_
 )
 def test_memos_declared_media_type_selects_exact_semantic_content(
   async_runner,
+  semantic_content_assets: Path,
   filename,
   media_type,
   resolver_id,
@@ -200,7 +194,7 @@ def test_memos_declared_media_type_selects_exact_semantic_content(
       AttachmentApplicationService.create(
         filename=filename,
         media_type=media_type,
-        content=(SEMANTIC_ASSETS / filename).read_bytes(),
+        content=(semantic_content_assets / filename).read_bytes(),
       )
     )
     _track_attachment(solved, tracked_block_ids, tracked_blob_ids)
@@ -223,7 +217,7 @@ def test_memos_declared_media_type_selects_exact_semantic_content(
       )
     assert async_runner.run(
       AttachmentApplicationService.download(solved.block_id, filename)
-    ) == (media_type, (SEMANTIC_ASSETS / filename).read_bytes())
+    ) == (media_type, (semantic_content_assets / filename).read_bytes())
   finally:
     _cleanup(tracked_block_ids, tracked_blob_ids)
 
@@ -606,6 +600,9 @@ def test_missing_raw_bytes_are_404_without_fabricating_attachment_success(
     assert created.status_code == 200
     attachment_id = int(created.json()["name"].removeprefix("attachments/"))
     tracked_block_ids.add(attachment_id)
+    download_url = f"/memos/file/attachments/{attachment_id}/missing.png"
+    available = client.get(download_url, headers=headers)
+    assert available.status_code == 200 and available.content == b"raw"
 
     with TestSession() as db_session:
       metadata_block = read_block(attachment_id, db_session)
@@ -625,11 +622,9 @@ def test_missing_raw_bytes_are_404_without_fabricating_attachment_success(
       db_session.delete(blob)
       db_session.commit()
 
-    missing = client.get(
-      f"/memos/file/attachments/{attachment_id}/missing.png",
-      headers=headers,
-    )
+    missing = client.get(download_url, headers=headers)
     assert missing.status_code == 404
+    assert missing.json()["detail"] == f"Storage blob {pointer.blob_id} not found"
     with TestSession() as db_session:
       assert read_block(attachment_id, db_session) is not None
   finally:
@@ -657,6 +652,17 @@ def test_unknown_component_resolver_returns_500_instead_of_partial_memo_success(
       ),
     )
     tracked_block_ids.add(memo.block_id)
+
+    def list_memos():
+      return client.get(
+        "/memos/api/v1/memos",
+        headers=headers,
+        params={"filter": 'creator == "users/inkcre"'},
+      )
+
+    before = list_memos()
+    assert before.status_code == 200
+    assert f"memos/{memo.block_id}" in {item["name"] for item in before.json()["memos"]}
     with TestSession() as db_session:
       unknown = seed_block(
         BlockModel(
@@ -675,12 +681,11 @@ def test_unknown_component_resolver_returns_500_instead_of_partial_memo_success(
       )
       db_session.commit()
 
-    response = client.get(
-      "/memos/api/v1/memos",
-      headers=headers,
-      params={"filter": 'creator == "users/inkcre"'},
-    )
-    assert response.status_code == 500
+    assert list_memos().status_code == 500
+    with TestSession() as session:
+      session.delete(session.get_one(BlockModel, unknown.id))
+      session.commit()
+    assert list_memos().status_code == 200
   finally:
     _cleanup(tracked_block_ids, set())
 
@@ -722,4 +727,99 @@ def test_concurrent_memos_cannot_claim_the_same_attachment(async_runner):
   try:
     async_runner.run(scenario())
   finally:
+    _cleanup(tracked_block_ids, tracked_blob_ids)
+
+
+def test_concurrent_uploads_append_without_deleting_another_attachment(async_runner):
+  """A locked memo queues both uploads before either can change its attachment list."""
+  import asyncio
+  from uuid import uuid4
+
+  from app.engine import ASYNC_DB_ENGINE
+  from extensions.memos.family.graph import ATTACHMENT_RESOLVER
+  from extensions.memos.family.schema import CanonicalAttachment
+
+  Extension._init_resolvers()
+  async_runner.run(StorageManager.setup_builtin_storages_async())
+  names = {f"{uuid4().hex}-{index}.txt" for index in range(2)}
+  tracked_block_ids: set[int] = set()
+  tracked_blob_ids = set()
+
+  async def scenario():
+    memo = await MemoApplicationService.create(
+      CanonicalMemo(body="concurrent uploads", created_at=None, updated_at=None)
+    )
+    tracked_block_ids.add(memo.block_id)
+    uploads = []
+    try:
+      async with ASYNC_DB_ENGINE.begin() as blocker:
+        await blocker.execute(
+          sqlalchemy.text("SELECT id FROM inkcre.blocks WHERE id = :id FOR UPDATE"),
+          {"id": memo.block_id},
+        )
+        blocker_pid = await blocker.scalar(sqlalchemy.text("SELECT pg_backend_pid()"))
+        uploads = [
+          asyncio.create_task(
+            AttachmentApplicationService.create(
+              filename=name,
+              media_type="text/plain",
+              content=name.encode(),
+              memo_id=memo.block_id,
+            )
+          )
+          for name in names
+        ]
+        async with asyncio.timeout(10), ASYNC_DB_ENGINE.connect() as observer:
+          while True:
+            waiting = await observer.scalar(
+              sqlalchemy.text(
+                "WITH RECURSIVE waiting(pid) AS ("
+                "SELECT pid FROM pg_stat_activity "
+                "WHERE :blocker = ANY(pg_blocking_pids(pid)) "
+                "UNION SELECT activity.pid FROM pg_stat_activity activity "
+                "JOIN waiting ON waiting.pid = ANY(pg_blocking_pids(activity.pid))"
+                ") SELECT count(*) FROM waiting"
+              ),
+              {"blocker": blocker_pid},
+            )
+            await observer.commit()
+            if waiting == 2:
+              break
+            assert not any(upload.done() for upload in uploads)
+            await asyncio.sleep(0.01)
+      results = await asyncio.gather(*uploads, return_exceptions=True)
+      assert not any(isinstance(result, BaseException) for result in results), results
+      saved = await AttachmentApplicationService.list()
+      own = [item for item in saved if item.owner_memo_id == memo.block_id]
+      assert {item.canonical.filename for item in own} == names
+      for item in own:
+        assert await AttachmentApplicationService.download(
+          item.block_id, item.canonical.filename
+        ) == ("text/plain", item.canonical.filename.encode())
+    finally:
+      for upload in uploads:
+        if not upload.done():
+          upload.cancel()
+      await asyncio.gather(*uploads, return_exceptions=True)
+
+  try:
+    async_runner.run(scenario())
+  finally:
+    with TestSession() as session:
+      for metadata in session.exec(
+        sqlmodel.select(BlockModel).where(BlockModel.resolver == ATTACHMENT_RESOLVER)
+      ).all():
+        if CanonicalAttachment.from_block_content(metadata.content).filename not in names:
+          continue
+        assert metadata.id is not None
+        tracked_block_ids.add(metadata.id)
+        for relation in read_relations(
+          metadata.id, include_in=False, content="content", db_session=session
+        ):
+          tracked_block_ids.add(relation.to_)
+          content = read_block(relation.to_, session)
+          if content is not None:
+            tracked_blob_ids.add(
+              PostgreSQLBlobPointer.model_validate_json(content.content).blob_id
+            )
     _cleanup(tracked_block_ids, tracked_blob_ids)

@@ -5,13 +5,11 @@ source "$(dirname "$0")/_common.sh"
 case "${1:-}" in
   database-tests)
     require_env INKCRE_TEST_DATABASE_URL
-    # This admitted suite needs migrated, disposable PostgreSQL, but no live AI or IMAP service.
-    pdm run python -m pytest -q -rs \
-      tests/agent/integration tests/ai/integration tests/deployment_config/integration \
-      tests/info_base/integration tests/lexical_retrieval/integration \
-      tests/organization/integration tests/peer/integration tests/semantic_retrieval/integration \
-      tests/extensions/memos/integration tests/extensions/rss/integration/test_feed_collection.py \
-      tests/migrations/test_memos_attachment_v2_migration.py
+    require_env MIGRATION_DATABASE_URL
+    require_env INKCRE_TEST_POSTGRES_ADMIN_URL
+    require_env CORE_DATABASE_PASSWORD
+    require_env POSTGREST_DATABASE_PASSWORD
+    pdm run test -rs
     ;;
   release-intent)
     arguments=()
