@@ -109,3 +109,33 @@ Agent原用例在首个模型调用悬挂期间实际更新definition，再对�
 - 正常新表 **2 passed / 1.07s**；包括既有Peer数据库lease/冷启动失败的相邻suite复跑记录在 `peer-final.log`。Ruff、格式、Pyrefly **0 diagnostics** 和diff检查通过。已在原 `tests/peer/integration` CI目录，无需新路由。
 
 **交接的剩余证明：** publication recovery测试源码名称耦合且只实跑拒绝脚本，saved artifact恢复仍交主线程release owner判断。Peer新证明不声称覆盖真实跨机丢包/超时/所有第三方代理；Loki fake HTTP证明编码和错误语义，不证明真实服务查询执行或外部认证。没有调用真实AI/Registry，也未在共享开发或预览数据库运行破坏性测试。
+
+## 6096624 全面复查（变更前）
+
+本次分区按当前文件重新划分，发布和分发的两个测试文件由 delivery 分区持有。上面的旧声明判断按原名沿用，本次完整读取现有 16 个文件及全部参数行，当前 3,384 行、66 个执行用例在专用 PostgreSQL 17 基线全部通过（37.07 秒，`execution-redo-baseline.log`）。`repository_check.sh database-tests` 包含全部数据库目录，其他归默认 pytest。复读运行时包 0.2 系列源码、实际服务入口、SDK/Extension 调用方和 `#65/#129/#133/#135/#175/#178` 历史，补正以下声明。上轮新增的 Job 三个声明（长期 stop / 定时去重 / 过期）、两行 Peer HTTP、PG 观测均 R，具体独立风险与变异如上一节。
+
+| 现声明（省略 test_） | 新判断与第二遍层级计划 |
+| --- | --- |
+| `startup_provisions_only_enabled_exact_python_selections`、`startup_stops_when_exact_enabled_pin_changes_during_restore`、`cold_restore_resolves_only_the_exact_enabled_legacy_pin`、`startup_rejects_enabled_module_federation_without_mutation`、`startup_downloads_multiple_pins_into_isolated_directories` | F。保留空/禁用/已选/旧 pin、下载/应用竞态、未支持分发和目录隔离；改走真实 origin 装配和精确 Registry URL。网络及包管理器使用确定性替身，防止动解释器。当前两次以上完整 Host 构造绕过了 origin 解析，`#133` 起的测试传参只用于这个旁路；没有外部 Python 宿主调用，公开编写扩展的入口是 `ExtensionBase`，生产只有 `EXTENSION_HOST = ExtensionHost()`。移除无调用的 `registry_origin_resolver`、测试专用 release/consumer 成员和可选分支；消费 runtime 包的 `PipDistributionConsumer` 原样代理及两个仅提供注入类型的 Protocol 一并清理。数据库 `store` 是 `_ActiveExtensionModel` 与 Host 同用的数据边界，竞态和无 DB 证明依赖它；随机源有执行顺序用途。 |
+| `environment_application_rejects_runtime_dependency_downgrade` | F。原私有 checker 被启动流程漏调时仍绿；新 keeper 走完整启用 pin 的 provision，包安装步骤改变 runtime 版本，应该因该包名失败。 |
+| `borrowed_engine_is_not_disposed_and_options_are_explicit` | F。保留 engine 所有权与 options，删通用 dataclass replace 产生不等值的比较；删除不会失去 SDK 保护。 |
+| `debug_disabled_and_broken_destination_do_not_raise`、`trace_records_cancellation_without_turn_recovery` | F。关闭 debug 原来没有证明确实不产生日志，用独立诊断出口检查；Event 永久等待加界限，取消后观察消费者下一轮历史。 |
+| `ai_facts_round_trip_typed_capabilities_and_database_invariants` | F。把私有 `_load_target_async` 的 model.id 回声换到 `can_execute` 的真控制器，以相同 model 的启用与禁用 provider 作对照，保留完整读回/约束/时间戳。 |
+| `config_resource_replace_patch_read_and_explicit_failures` | F。读历史异常记录必须返回原 schema/value，200 无法拒绝空对象；未知 schema 写入与缺失记录分辨错误，真实 PATCH/DELETE 仍是 HTTP 所有者。 |
+| `real_snapshot_database_lease_and_candidate_filtering` | F。保留四种 DB 状态与定向过滤，修复重复恢复 monkeypatch 的试验支撑噪音。 |
+
+其余旧 R 或已实施 F/C 逐项重新核对后继续保留。`close_running_for_environment_application` 是 `run.py` 持锁暂停的正式调用者；`SKIP_EXTENSION_START` 有 Render 部署配置与运行手册；OTLP `get_export_connection` 由转发路由消费；`AgentManager` 的 Thread persistence 是 MVP 所有者而非仅为测试的重置入口。没有独立删除整库或这些接缝的依据。首次校验选受影响文件，完成后复跑本区与全仓协调人负责的 CI 选择。
+
+追加的层间核对纠正三个原判。① _run_traced 只有 JobManager.check 创建后台任务时调用，原 SDK 用例既绕过 scheduler，又 mock 整个 JobManager.run。C 至 Job 的真实 abort/cleanup 测试：以 quiet poll 启动任务、handler 报出实际 ContextVar 和 Job ID，再沿原数据库终态完成，移除私有 helper 回放。② 两个本地 HTTP Peer 是受控的接收端，可根据一次操作的到达次序设置故障；不必令生产暴露可替换随机源，仍保留 SystemRandom 的原路由语义。相同的 HTTP 503，带明确 not-executed 时可换 Peer，已产生副作用且无该标志时应原样返回且不重放；现有断连行证明无响应的不确定状态。③ migration 用例末的 source/cron 是 Twitter #65 对普通 Source 调度的调用，两个行动返回值只证明不同 ID；使用 Job/get 与 Cron/get 跨事务读取实际消费参数和禁用状态，区分持久结果。
+
+### 本次实施与复验
+
+- `test_startup_stages_all_exact_wheels_before_changing_the_environment` 接收原多个 pin 的查找、隔离目录与应用证明。每份下载在各自目录使用相同 basename 写入不同坐标，应用步骤从实际传入路径回读；第二个下载失败时应用记录必须为空。Registry 输入为独立 JSON 文档，真实客户端构造 URL、验证原始响应，保留包消费者的解释器隔离。没有运行 pip 或外部 Registry。
+- `test_startup_rejects_runtime_dependency_downgrade` 以完整 provision 替换直接调用校验的原声明。`app/business/extension` 删除三项 Host 旁路、两种注入协议、无独立逻辑的 runtime 代理。`PipDistributionConsumer` 的导入位置保留，实际类由已锁定的 Runtime 提供。
+- `test_abort_is_durable_but_running_work_closes_after_cleanup` 接收 `test_job_execution_keeps_logging_when_woken_by_a_quiet_poll`，通过调度入口启动真实 Job 并取得实际 handler 的追踪状态、实际 Task 和跨 Core 终态。旧私有 helper 测试删除。`test_closing_one_core_drains_only_its_pending_work` 保留，因为执行前的 pending task 与已领取 Job 不同。
+- `test_delegation_retries_only_after_proven_non_execution` 的三个参数行覆盖明确未执行、已执行且返回普通 503、已执行且断连。两个 Peer 都是 live，使用正常随机选择，断言不同真实路径收到的请求及产生的副作用。删除 CandidateOrder 和可替换的 PeerManager._random。`test_real_snapshot_database_lease_and_candidate_filtering` 增加独立数据库会话看到的 lease 与返回值一致。
+- Agent 测试从同一个 Thread 的真实下一次模型请求观察取消和并发请求的影响，确认关闭 debug 时无记录、损坏目的地有诊断。`test_ai_facts_round_trip_typed_capabilities_and_database_invariants` 的正反两次使用相同持久化模型。配置测试读回未知 schema 的嵌套内容及不再满足登记 schema 的旧值。两个已有观测用例移除强制将 `_current_runtime` 换成 None 的 monkeypatch，新绑的 Core 本来就没有 OTLP，真实 runtime lookup 可直接验证。旧 pin 的 schema 拒绝现在断言 PostgreSQL diag 的具体 constraint 名称。Source Cron 的 Job 与禁用状态由各自 reader 重新打开读取。
+- 11 个单进程生产变异均因预期原因失败，每次仅运行对应 keeper，源码未写入。证据见 `execution-redo-control-*.log`。错误 origin 传给包管理器、跳过启动环境校验、对第二个扩展重用第一只 wheel、全部下载前就应用第一只分别由 origin、package、wheel、apply-before-download 拦住；强制开启 debug、允许重叠 Turn、丢弃旧配置 value、忽略禁用 provider、只返回 lease 不写库、绕开 Job 追踪、普通 503 重放分别由 debug、cancel-overlap、config、provider、lease、poll、normal-response 拦住。普通 503 变异实际观察到两个不同 Peer 均收到请求；提前应用变异在第二次下载失败后留下了第一只包。
+- `6096624` 上基线 **66 passed / 37.07s**，候选全部 16 文件 **67 passed / 76.70s**（并行工作的同一测试主机，未做执行成本比较），各仅一个依赖自身的 Starlette/AnyIO 弃用警告。最终 PG 约束诊断独立复跑 **1 passed / 21.76s**。14 个变动源码／测试通过 Ruff、格式、Pyrefly 含 warning 及 diff 检查。生产 4 文件共 **+11 / -84**。除两边并行维护的 migration 文件外，本区其余测试共 **+242 / -253**，全仓统计由总记录按路径去重。没有新增生产控制面。
+
+独立复核找到另一个换 Peer 的前提。已有三种 HTTP 场景都让接收端先收到请求；连接被拒绝时，传输层还需告知调用者请求尚未执行。`test_refused_connection_reports_that_the_request_was_not_executed` 让 `PeerHTTPOutbound.execute` 连接本机绑定后未监听的端口，核对 `PeerRequestNotExecuted` 及其真实 `httpx.ConnectError` 原因。该场景单独运行无需数据库。进程内仅从可重试异常中移除 `httpx.ConnectError`，同一 TCP 拒绝随即导致错误的 `PeerOutcomeUnknown`，定向运行 **1 failed / 8.21s**。恢复后，未配置数据库的该文件 **1 passed / 3 skipped**；一次性 `redo_execution` 上整个 Peer 目录 **6 passed / 33.96s**，仅有既有依赖弃用警告。Ruff、格式及 Pyrefly 含 warning 均通过。

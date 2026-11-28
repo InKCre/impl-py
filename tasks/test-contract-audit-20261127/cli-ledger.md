@@ -50,3 +50,11 @@
 `test-hygiene: PASS`：每个现有和新增 keeper 均有独立契约，未发现可证实的冗余删除；强制清理会失去当前只有一处的 Extension v2 证明。
 
 `test-adequacy: PASS（本次交付的 CLI 验收范围）`：在本机隔离 HTTP/文件边界证明命令进程、连接持久化和选择、JWT wire、错误通道/退出码、部分结果、二进制可搬移导出和慢响应的 Job 观察预算。它不证明真实 Core 业务状态、生产网络或 PyPI 安装。完整阅读其余命令及 schema projection 后，未发现需要本次修复的明显产品错误；动态 schema 重定位、混合 recall 等路径仍不能算已有自动化契约覆盖，后续修改各 owner 时应补它们的直接证明，而非机械枚举所有 endpoint。独立发行构建保持现有 CI owner。
+
+## 对 6096624 的第二遍审查及层级计划
+
+逐一复核两个 CLI 文件全部九个声明和参数行。连接重开与临时选择、字段错误保留旧值、失败 Job 与 HTTP 错误、部分批读、等待期限、可搬移 MIME 导出的六项保留，其独立失败控制见上表。原三个 Extension 声明均标 C，迁入同一个已覆盖 CLI 进程、真实请求和结果输出的 HTTP fixture。保留两类 Distribution/目标 Peer、GET 与管理 status 的区别、select/unselect 的方法/路径/回执和 config schema 选择。移除构造并替换两次 HTTPX client、直接写 Invocation._client 的测试装置。生产 Invocation._client 仍由命令创建/复用/关闭，不能删除。
+
+充分性复核发现两个公开承诺缺单独证明。其一是 source create --schema 应把由 selector 提供的 type 去掉，并让调用者能在输出文档中解析 owner 的局部引用。其二是 recall 的一个 HTTP 请求失败时，另一个模式仍可独立取回并交付结果。现有 get partial case 的两项都由一次响应给出，无法检出 recall 遇首个 HTTP 错误就停止。两项均可用同一 CLI 进程及本地 HTTP 装置验证。响应按请求路径选择，允许互不依赖的发现请求改变顺序。CLI 发行入口、REST 消费者和变化历史已核对，采用相邻 CLI check 与定向控制验证。
+
+CLI 的十个进程场景最终用时 4.45 秒；相邻 lint、format、类型均通过。以独立源码副本分别改错 distribution、丢弃 unselect 回执、把 config schema 读回共享身份、忽略局部引用重定位、首个 recall 失败就停止，五次均在目标断言失败（`redo-cli-controls.log`）。模拟 REST 回执使用 ExtensionPeerStatus 的层级、合法 Peer UUID 和 semantic 响应的 profile/metric/matches。

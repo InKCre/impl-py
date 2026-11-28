@@ -151,3 +151,47 @@
 5 个单点生产变异均被目标断言捕获，见 `protocol-control-*.log`：MOVE 重建根在 ID 断言失败；撤下父发布后退化 UID 文本在目标 ID 断言失败；backfill 提交前更新进度在 job state 断言失败；错误日期格式在独立 RFC3339 literal 断言失败；移除 no-cors guard 在 403 断言失败。`protocol-controls.py` 每次通过 finally 逐字恢复源文件，最终生产目录无本 lane 差异。变异用于证明新 keeper 能区分可信错误，不是已发现的产品缺陷。
 
 **test-hygiene：PASS（本 lane 已实施变更）**。独立契约和合理故障接缝保留；**test-adequacy：本 lane 定向通过，CI 持续路由与跨 lane 汇总由总任务负责**。本 lane 最终数据库运行在新增 `c7f2a6d9e410` 迁移落地前完成；该迁移由总任务的整合全量验证承担。第三方实时协议、手机及浏览器点击的限制仍如上，不以 mock／固定输入代替。
+
+## PR 6096624 重新审计的只读分层决定
+
+逐项对照上表的声明、完整参数表及新加的两个 keeper，再按生产入口而非测试名作第二遍规划。主分支基线及候选逐文件结果已在上文留存。审计覆盖两扩展的安装入口、DAV 连接／设备同步、x-monkey 账户／HTTP、Twitter 官方／Twikit、Bookmark 采集和回填、图与索引、文档内的手工验收，以及运维 cookie 格式转换脚本。
+
+| 修正的原决定 | 证据、keeper 与待实施改动 |
+| --- | --- |
+| 原断言「无生产测试专用接口」修正 | 10ac178 引入的 TwitterWriteResult.block_ids 每次写完后重遍历根三次并构造映射。Bookmark 忽略返回值，x_monkey 仅用 changed，跨分发合同不含回执中的 DB 主键。impl-py 的内部 TDD 曾描述该字段，因此需同步更新该句。脚本测试的 _write 则自行拼装返回值并拿它当身份与清理 oracle。删去该映射与单字段返回包装，由真实 submit 和独立数据库重读／flush 记录提供回执、身份及清理证明。 |
+| C 离线 test_fixed_protocol_roundtrips_through_owned_facts_and_neutral_results | 类型精确相等会锁定可替换的中间模型；完整字段已有离线固定 wire 和真实 HTTP 写查，损坏图的 failed 在真实 graph owner。将 mixed found/missing 的顺序、accepted/unchanged 及逐条 native ID 的 oracle 迁到发布后的 HTTP keeper，再撤销中间层重放。保留单独的 additive native projection；实际跨版本字段裁剪不能用固定 fixture 的普通提交证明。 |
+| C test_backfill_stops_progress_when_page_persistence_raises | 模拟 persist 抛错只观察内存和阶段。真实第二页提交失败的 keeper 经过更晚的失败点，重新查两页、持久 marker 和完整 job progress；二者走同一 try/await 路径，无专用错误处理。移除前者，保留分页边界、三种混乱继续条件和提交失败 keeper。 |
+| F test_native_roundtrip_graph_conflicts_and_sync_recovery | 老报告和重新枚举仅看缺失字符串／元素，任意返回无 response 的错误页也可能通过。保留一个独立未删日历，在旧 token 与新 PROPFIND 响应上检查成功多状态、精确 href 和幸存资源。 |
+| F 仓储测试/夹具 | 原 HTTP 清理重复实现了生产关系投影；graph 和 HTTP 各复制一套 UUID fixture。以 DB 测试统一的已插入 Block ID 取代关系推断清理，保留已有用户身份通过数据库边读回验证。实体 state/关系与 blob/job 的独立观测仍需保留。 |
+| F 普通 Bookmark 采集及提供方边界 | 文档承诺普通采集遇到旧的数值或字符串 marker 仅保存之前的主帖和其实际引用，full=true 只读取一页；原用例从无 marker 起步。加入两种模式的可观测选择、上下文及费用边界。 |
+| R 其余原声明及新增 restart / second-commit 保护 | 原逐项证据继续成立。CalDAV compose/normalize 和 Radicale storage 接口均有真实 plugin 调用；Twitter 的 token 构造与解码、provider 适配函数有 HTTP/Provider 内部调用；没有证据因测试调整删除它们。OAuth setup、resolver 旧数据读取、X 手工界面与 cookie 工具分别由真实用户／升级路径使用，不将“没有仓内测试调用”视为可删除依据。 |
+
+### 变更落点与保留复核
+
+| 声明／场景 | 最终决定与区分证据 |
+| --- | --- |
+| 原 fixed_protocol_roundtrips_through_owned_facts_and_neutral_results → real_http_submit_query_preserves_native_wire_payload | C。发布的 HTTP 收到完整 native batch 时按输入 ID 逐项 accepted，再次提交均 unchanged；顺序混合 missing、found，校验完整 found 数据。真实 corrupt DB 查询另保留 failed。正向完整 DTO 的字符串和字段穷举改为一次固定 fixture 对照；未来 native-only 字段剔除、开放 Article JSON、1000/1001 每类边界仍由单独表保护。 |
+| native_roundtrip_projection_and_media_are_lazy；sparse_counter_history_and_managed_edges；bookmark_joins_legacy_and_native_identity_without_overwriting_text；representative_batch_keeps_database_round_trips_bounded | F。删除测试拼出的回执 _write；身份、占位、旧根复用、用户引用和 600 条提交后的 400 个帖子根均独立从已提交行读取。媒体边用固定预期位置验证正文媒体、文章封面、文章媒体及重复引用；原 oracle 与生产同用 dict.fromkeys 且封面和文章碰巧相同。领域传输的真实 submit 重放，仅在 HTTP keeper 检查全量 wire；图 keeper 在网络字节边界检查元数据写查和检索。 |
+| media_metadata_roundtrips_without_content_blocks、真实并发事务、backfill 第二页、batch_lookup、real_http_submit_query 等图场景共用 fixture | F。只跟踪该测试进程实际 flush 的新 Block，包含失败前与占位新增，数据库外键清理其边；两个用例曾手写清理与生产同步的引用枚举，现在移除。HTTP keeper 在写入前建作者，写后从实际关系读回原作者 ID。同一用例预置的作者也属于这个测试，teardown 统一清理，不再断言测试自己实现的“cleanup 后先留、随后再删”。 |
+| ordinary collect / backfill | F。新 test_collect_selects_one_page_and_its_referenced_context 两行分别覆盖默认旧整数 marker 截断、full 取消截断并记下一页；两者都须一次实际 provider 调用、保留新主帖的展开上下文、排除无关扩展记录。旧 mock-only persistence failure 并入真实 PostgreSQL commit keeper；正常 backfill 的 skip/limit、提前结束、空 cursor 和异常继续条件仍归离线 suite。 |
+| official_provider_keeps_source_text_and_exact_id_semantics → connect_account_and_read_official_bookmark_page | C/F。原测试直接调用私有映射并借测试拼装的交付回执确认 accepted。新 keeper 从真实发布的 OAuth 配置／事务经过回调与账号查询到官方书签分页，仅在 HTTPX 外部传输边界给固定 X 回应。观察最终 token 交换、PKCE 对应、当前账号、分页参数、主帖／展开的不同身份、note_tweet 完整文本、精确 reply/conversation、断开后的状态。一次 HTTP 请求对应一次提供方交互，未使用真实 X 凭据。 |
+| twikit_bookmark_first_then_native_enrichment_keeps_one_root | F。通过真实 TwikitAPI.get_bookmarks 读取已安装 SDK 的 Tweet/Result，并从 Source 写后的数据行检查长文、回复 ID、会话 ID、媒体 ID；随后 native 补充仍保留根。两个生产 _resolve_tweets 私有转发及仅供测试传入固定时间的 mapper 参数已退出，provider adapter 各自每批获取一次观察时间。用户调用走真实 get_bookmarks/get_tweets/get_replies。 |
+| CalDAV native_roundtrip_graph_conflicts_and_sync_recovery；connection_exposes_the_public_dav_url_and_login_name | F/R。对首次 REPORT 响应、同 token 的成功无变化、过期后的 PROPFIND 重新枚举分别核对 XML 中真实幸存集合／资源。新增连接能力 keeper 通过扩展发布的 HTTP 入口验证缺公共地址 409 及配置代理前缀后的精确 URL／用户名。这是手机／Web 首次配置入口，DAV Basic 读取与 codec 均不保证广告地址。 |
+| account_page_scopes_scripts_and_connections_with_nonce_csp；account_page_shows_peer_and_expiry；session_renews_cookie_inside_half_life；disconnect_is_limited_to_core_origin_and_clears_the_cookie | F/R。现有 CSP/nonce keeper 增加导航时的标准响应策略，状态读取改为语义 role，续签 JWT 用独立 PyJWT 校验。断开接收端同源/导航/Cookie 删除的 HTTP 契约保留。真正浏览器的断开修复见下节。 |
+| 其他规则和现有 QA | 保留逐项账本中未变的 schema 负向、合并、事务、锁、resolver 图、JWT、直写、旧数据迁移、停启；已核对 JSON fixture、两种源的公开材料及 CI 默认和一次性 PG 路由。运维 cookie-string-to-json.py 供 Twikit 人工导入，Android 的 DAVx⁵/系统日历/Tasks.org/Etar、x-monkey 实际脚本和 Web 展开媒体各有独立客户端行为，保持文档和历史证据归属。Python 的公开 DTO、Radicale plugin methods、SQLAlchemy 故障注入与浏览器兼容协议均有非测试消费者或独立契约。 |
+
+**实际浏览器缺陷。** 本机独立 Helium 会话对 loopback TLS 上真实账户页操作。Connect → readback → 重载仍显示 Connected。随后原生断开表单提交时捕获的 Origin 值为字符串 null，HTTP 403；旧 harness 手动指定了有效 Origin。原页面的 no-referrer 正会抑制导航 POST 的 Origin。页面改发 same-origin 后，同一已连接会话点击相同按钮返回账户页，立即及再次重载均显示「尚未连接」。接收端仍执行原来的导航和同源要求。证据见 protocols-browser-before.log、protocols-browser-after.log、protocols-disconnect-before.log、protocols-redo-last-owner.log。此轮只使用测试签名密钥和临时 TLS，浏览器与服务已关闭。依据见 [Fetch 标准的请求 Origin 生成规则](https://fetch.spec.whatwg.org/#append-a-request-origin-header)。
+
+**范围与执行。** 原主线 9f75cbb、上一轮 6096624、本轮的测试声明文件 LOC 分别为 2461／2662／2599，支持文件（conftest、fixture）612／612／671，生产 Python（含 cookie 运维脚本）5101／5101／5075。各组未把变动的文档和 release fragment 计入，目前 54 个声明。最终在独立 redo_protocols 数据库运行本 lane 全部 101 项通过（43.62 秒），每文件结果见 protocols-redo-rechecked.xml。两个依赖弃用警告同基线。定向 Ruff check/format、Pyrefly（0 diagnostics）、git diff --check、release 声明检查与 Twitter 分发 metadata 检查完成；修改制品后的 wheel 构建归本 PR 的 CI。
+
+**12 个单点保留变异。** 进程内替换一个生产模块的内存源码，不写 checkout，真实数据库观测使用相同测试入口。报错位置逐项为 wire-order → missing/found 顺序、media-order → 三类媒体位置、legacy-id → 原根 ID、provider-primary → expansions 不能进入主 IDs、twikit-source → 长文本、collect-marker → 普通读排除旧页、dav-sync-enumeration → 首次 REPORT href、dav-advertised-url → 对外前缀、backfill-commit-progress → 首段成功后的进度、metadata-blob → 元数据写入多建了 blob、backfill-supplement → 已归档完整正文被书签预览覆盖、provider-regular-text → 常规 raw text 未反转义。原 5 个保留控制的适用结论继续使用。完整记录为 protocols-redo-control-*.log。
+
+**测试隔离修复。** 两进程在同一一次性库重叠写不同记录时，旧测试全库 COUNT 得到 9，而本测试真实新增 7 个，因此出现 1 fail/100 pass。已逐条检查仓储的 ORM 写入；keeper 现在只看当前测试实际刷新的 Block、blob、Job，并验证固定的原生及占位身份集合。无侧写的正常 owner 再次通过，意外写入 blob 的变异在正确的阶段失败。全库读取素材的 lexical maintenance 仍需仓库声明的一次性、已迁移数据库。本次未执行实时 X、私有 userscript、手机协议与真正反向代理，固定 provider、浏览器本地验证和历史真机分别保留其证据边界。
+
+**test-hygiene 及 test-adequacy 均通过本责任范围复核。** 新运行直接暴露并修复一个产品问题；现存本地证据支持上述固定输入、真实浏览器会话、发布的 HTTP 与 PostgreSQL 行为。
+
+
+独立保留复核指出 collect 与 backfill 对同一存储操作的两处调用可独立选错正文策略。旧 capture 内部的 text_policy 断言虽锁定参数，但表达的 backfill 责任未随去除 mock 自动得到保留。已扩展真实两页 commit keeper，让第一页补充已归档帖子：落库后新语言必须可见，完整原文必须原样可读，第二页仍应回滚。只将 backfill 的策略改为 replace 时，语言断言成功、正文精确报出“书签预览”取代“已归档的完整原文”；同一测试恢复生产实现通过。见 protocols-redo-control-backfill-supplement.log 与 protocols-redo-supplement.log。collect 的补充行为仍有独立的 legacy/native 真实写入证明。
+
+
+官方 provider 保留复核进一步区分 note_tweet 与普通 raw text 两路输入。固定 X 页同时返回长文及含 HTML 实体的普通父帖；分别检查解码后的正文。只让普通帖退回原始字符串时，父帖断言明确收到 parent &amp; reply，长文路径继续可用。生产实现的同一场景通过；见 protocols-redo-control-provider-regular-text.log 与 protocols-redo-official-final.log。

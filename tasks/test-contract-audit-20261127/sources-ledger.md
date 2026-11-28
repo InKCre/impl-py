@@ -79,3 +79,50 @@ R = 保留独立契约；F = 保留契约并修复断言/执行条件；C = 把�
 ## 验证路线
 
 基线 DB 由根任务串行执行中；本子任务未并发运行或修改共享 DB。后续顺序：先保存 Memos 目标失败→修复 owner→同 harness 通过；再运行改过的 Mail/Bilibili/Memos/RSS 文件与保留 siblings；纳入现有 `test:database` 并使缺环境/意外 skip 不能冒充成功。构建、打包或触发编译必须使用 agent-build。活体 IMAP、Telegram/GitHub 凭据、Android Memos 真客户端均是另外的证据边界；当前未执行不应作为修复前后证明。
+
+## 第二轮（6096624）只读判断与实施计划
+
+重新对照原文、现有实现和完整参数。9 个测试文件在一次性 redo_sources 上独立运行 71 passed、3 个外部场景 deselected（28.60s）。上表 33 个原始声明的 R/F/C 继续有效，新增和修订项如下。上一轮「没有生产测试接缝」的结论撤回。
+
+| 声明或支持入口 | 第二遍判定与 keeper |
+| --- | --- |
+| Bilibili 四个声明 | 正常/稀疏记录均由公开 ResolverManager 分派。六条错误输入应分别定位 aid 的类型/模式、null、duration、published_at、未知字段，未来版本的 UnknownResolverError 保留。 |
+| Local files 三个声明 | URI 的文件 scheme、peer UUID、fragment 分别核对拒绝原因；v1 上次正文及 v2 HTML/Markdown 的输入应由真实 reader 构造，只替代关系/块读取。 |
+| Memos 新增 test_concurrent_uploads_append_without_deleting_another_attachment | R。实际持锁的两个上传返回后，独立读取同一 memo 的两个附件与各自 bytes；原基点目标失败记录仍有效。其余十个声明保留表中各自的图、协议、竞争或故障契约。 |
+| Mail test_mail_collection_backfill_and_materialization 与 RSS 两条采集旅程 | F。相同 Job 生命周期的启动/回收由共同 fixture 承接。Mail 未启动 JobManager 的冷进程会拒绝首个 claim，RSS 未关闭会遮蔽依赖。Mail 的真实 IMAP 与筛选/回放/延迟读取仍各有独立契约；保留。 |
+| RSS / Memos media fixture | C。直接用 semantic_content_assets 返回的真实目录读取 corpus；去掉重复路径常量及比较。RSS 两个无读者的请求计数删除，feed 请求数仍有条件请求和无 I/O 检查。 |
+| runtime_support.publish_extension | C。全仓调用仅传 extension/config、持久化开关和异常模式。检查共享 scripts/tests、semantic 验收后移除无人提供的 app 参数及无人读取的 PublishedExtension.app。Twitter 状态和 Memos 配置等 fake 方法仍有实际消费者。 |
+| TelegramMessageResolver.create_graph | D。42d8527 自称旧 fixture 接口，无调用方/通用 draft 声明。已发布旧块的读取由固定历史 JSON 从 ResolverManager 验证；移除旧 fixture 写图捷径，保留读取。 |
+| GitHubGraphQLAdapter.client | R。类可导入，替换网络客户端及其所有权属于有意义的正常外部 I/O 边界；无证据支持撤销。既有 tests/info_base/integration/test_graph_commands.py::test_github_stars_retain_node_identity_and_reject_ambiguity 单独保护复用身份/歧义，不覆盖完整多页成功/中途失败后关系替换。 |
+| Capture / GitHub / Telegram 缺口 | Capture 从真实已提交图检查逆序写入、附注及坏序号；GitHub 经生产 GraphQL / Source Job 检查不完整页保留旧图、完整快照删除关系/保留实体；Telegram 从 Bot API 固定更新经 Job 检查失败时回滚、已提交后确认、下一次 offset 与授权发送者。新 keeper 分别放在各扩展目录，无需新增生产测试开关。 |
+
+第三方账户、跨 Peer 消费和协议双替身分别按实际入口核对。二次核对确立的独立层包括 Mail/RSS 的固定 I/O 与真实协议、Memos 应用层与 HTTP、Bilibili 读取与索引、GitHub 身份与快照收敛。未发现可以整组删除且有等效剩余证明的套件。
+
+### 第二轮实施与反证
+
+| 新 keeper | 实际到达的契约 |
+| --- | --- |
+| capture/test_capture_reader.py::test_material_order_and_annotation_survive_reopening | R。提交反序关系，重新打开并经正式 reader 核对甲→乙→用户附注；提交删除序号 0 后，同一入口 refresh 必须明确拒绝缺口。 |
+| 同文件::test_material_limit_matches_the_capture_graph_contract | R。Hub capture-contract 规定单次最多 128 份，TS reader 也拒绝超过 128。129 条实际关系在 6096624 得到 DID NOT RAISE，修复后拒绝；删除最后一条后 128 条仍能完整读取。 |
+| 同文件::test_screenshot_has_readable_text_and_keeps_image_facts_for_search | R。Hub 定义 attachment→core.image、可选文件名、MIME 与存储 -4；TS 同职责 reader 默认返回文件名/MIME。真实 PG 图片、父图及 Blob 在旧实现的普通文本入口抛出 UnsupportedResolverCapability(core.image.v1, text)，整份采集无法阅读；新的默认展示可读，lexical 仍读取图片 bytes 返回 media type/width。 |
+| github/test_star_collection.py::test_partial_page_preserves_last_complete_stars_and_lists | R。仅替换 HTTP 传输，初始完整快照生成三种成员关系；后续空 Stars 加未完成的 Lists 第二页报出独立固定错误，现有树未变；完整空快照后相同 Account/Repo/List Block ID 仍存在且三种关系均已移除。注入遗留 contains 后此 keeper 红。 |
+| telegram/test_inbox_collection.py::test_published_message_v1_still_reads_from_its_stored_json | R。来自已发布格式的固定 JSON 经 ResolverManager 解出 caption 和 media_type；独立证明仅删旧 fixture 写图接口仍可读取存量。 |
+| 同文件::test_failed_primary_retries_from_committed_offset_before_success_reaction | R。生产 SDK 解析固定 Bot API 响应，独立事务观察发送失败通知/成功点赞当时的内容和持久游标；中途游标写入失败须撤回正文，跳过未授权用户，下一次从 9 重试，第三次从 10 开始。移除保存反馈时 keeper 红。 |
+
+原表的 Bilibili 正常/稀疏四种情况现在都用公开分派。加回放行 future 字段的变更后，只有该参数行错误地成功；Local Files v2 故意只接收 core.text 后 Markdown/HTML 两行均因类型错误变红。新旧读者同时支持的 v1 正文继续通过。两个新增来源 keeper 的破坏和这三项旧保护共 5 failed、17 passed，进程退出即撤销替代。Capture 两个产品缺陷分别有未修代码的实际失败记录。
+
+- 保留独立的 Mail MIME、阅读清理/刊物恢复、Memos PAT/附件/HTTP/持久图、RSS/Atom、Bilibili 索引；稳定 fixture 与状态故障注入仍有调用方。shared runtime helper 的已有 CalDAV/Twitter/Memos/semantic 调用只依赖 client 和 unpublish。往届 Telegram A1/A3/A4 场景的游标/确认、GitHub Stars/Lists 同步及 Capture 多材料消费本次有可重复验证，真实 Telegram/GitHub 服务及 Mac 写入仍由相应环境验收。
+- 联跑改动 owner、共享 helper 的邻组和 GitHub 图命令，102 passed、3 个 opt-in（Dovecot、两个 RSS/Atom 外部源）deselected，55.77s。Pyrefly 0 diagnostics，Ruff lint 通过。原始记录本地可读 redo-sources-baseline.xml、redo-sources-final.xml、redo-sources-mutations.log、redo-capture-before.log、redo-capture-screenshot-before.log。
+
+
+独立复核补回 capture/test_capture_reader.py::test_capture_needs_material_or_an_annotation。Hub 同时允许纯附注且禁止空材料+空附注。旧版成功读出空记录（redo-capture-empty-before.log），新实现应明确拒绝；为同一根提交纯附注后，新 reader 可读。截图 keeper 增加无文件名时的 MIME 对照。
+
+Mail 的正式 J1–J3 用普通 Core 角色运行时，旧 fixture 的 TRUNCATE … RESTART IDENTITY 因 crons_id_seq 所有权提前失败（redo-mail-live-sequence-before.log）。现用独立迁移模板的私有 DB，退出时释放，保留真实 IMAP/QRESYNC、Job、图、MIME bytes 和回放。J4 的 impl-ts/tests/e2e/mail-info-base.spec.ts 按固定 Message-ID 查找尚无 content 的 inline，然后向活着的 IMAP Source 下载；J3 收尾已经 materialize 此 inline，模块退出也关闭 Dovecot。独立浏览器场景需要保有其执行期间的收件服务和待下载 fixture。没有找到消费本 pytest 最终数据库的调用。两条可替换 RSS/Atom 公开协议 smoke 另在 NASA RSS 和 pytest GitHub commits Atom 都通过（2 passed / 2.09s）。
+
+最后的定向验证：Capture 4 个 keeper 全过（10.91s），普通截图带/不带文件名及词法 bytes 均实际读取。真实 Mail J1–J3 在 Dovecot 2.4.4 上通过（39.98s），专用非管理员 Core 角色访问临时迁移库，错误密码下未下载部件的原因明确匹配 authentication failed。测试进程仍用原 DovecotHarness 与 IMAP 操作；临时 launcher 将它生成的配置及端口接入 Docker 官方固定 digest 723e3392…，映射容器内用户与临时目录。该容器、SSH 端口、临时启动文件、测试库已经关闭/删除。没有运行另一仓的 J4 浏览器。
+
+Memos 的 5 个 HTTP 用例也改为专有数据库，覆盖 publish_extension(persist_config=True) 写入全局安装配置、connection 修改 Peer.config 的真实副作用。普通图与媒体 case 仍按 block/blob ID 清理。所有 5 个 HTTP keeper 通过（34.48s）。源码差异中，Capture 对空图、数量、默认图片文字的修复增加 6 行；Telegram 旧 fixture 接口减少 8 行。新增 2 条扩展发布说明。任务控制、原始日志和发布说明不计入源码行数。
+
+外层库另置标记并记录既有 Peer 配置，运行 saved PAT 与 connection 两项（2 passed），回读确认标记和全部既有 Peer 配置保留，随后恢复标记的原值。见 redo-memos-isolation-witness.log。
+
+独立复核后，RSS 的两个本地采集场景改用私有数据库，删除曾遍历整个连通分量的清理。修复前，在 feed 上连入另一所有者的记录后该记录被删，且额外留下 1 个竞争 Job；修复后同一控制看到外层哨兵仍在、Job 增量为 0，两个场景均过（49.94s）。对不存在的 enclosure，保留失败 ID、状态和确切原因；把未找到替换为数据库故障后在原因断言处失败。Bilibili 四类协议输入对照 Hub 定义使用固定 resolver 名，改错 Video 注册仅令视频参数因 v1 ID 无法解析而失败；未变异的 reader 15 项通过。

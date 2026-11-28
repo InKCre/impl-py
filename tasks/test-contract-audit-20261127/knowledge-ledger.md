@@ -80,3 +80,49 @@ R=保留；F=保留契约、修复证明；C=先迁移至指定 keeper 再收敛
 ## 基线运行证据与限制
 
 根任务的离线基线：224 passed / 85 skipped；本 lane 无数据库时只有 Markdown 与 MCP recall 执行，其余明确 skip。随后根任务 DB 基线记录三个 deterministic semantic 案例因未启动 Jobs 而在 `assert JobManager.run(...)` 失败；本 lane 路径缺陷的独立前后证据为 `knowledge-path-before.log`（1 failed / 1.65 秒）与 `knowledge-path-after.log`（1 passed / 1.63 秒）。限制见当前结果。
+
+## 6096624 独立复核
+
+从当前分支重新读取 prune-tests、abyss 425a286、OpenClaw test-audit、CAMPAIGN、audit reference、openclaw-testing 及三篇适用的边界/fixture/编写参考。复核了本组 14 个测试模块、29 个当前声明、其参数/fixture、两个固定语料目录、生成语料与三个 live 场景，另读 Memos / RSS 对媒体资产的所有调用。后续表仅指当前提交，前表中已删除的两个声明不再计数。基点 `9f75cbb` 的每文件执行结果仍在根任务两份 JUnit 中，当前分支的独立数据库重跑另存一份。
+
+| 当前模块及声明（省略 test_） | 判定与能够区分的回归 |
+| --- | --- |
+| markdown / markdown_keeps_source_and_unicode | F，当前 UTF-16 bytes 与缓存的 inline 文本相同，忽略 refresh 仍绿。改用独立源内容，保留媒体匹配与代码缩进，去掉实现类身份绑定。 |
+| mcp_recall / query_labels_preserve_evidence_and_unreadable_candidates | F，同一真实 MCP 客户端已有合并与缺失预览的正向断言，尚不观察其中一路报错后成功一路的 evidence 与失败 mode 的诊断。 |
+| graph_commands / submit_graph_creates_arbitrary_links_and_returns_only_block_mapping | R，返回 mapping、块正文和双向关系通过新 session 交叉读取。 |
+| graph_commands / repeating_negative_ids_requests_new_blocks_each_time | R，flat command 的跨提交身份与 Stars reconcile 相反。 |
+| graph_commands / recursive_stars_authoring_retains_reconciliation_and_direction | R，三节点出入向及多次提交保持同一身份。 |
+| graph_commands / composed_graph_failure_rolls_back_earlier_graph | R，真实 FK 拒绝，独立读取消除先前写。 |
+| graph_commands / cancelled_graph_operation_rolls_back_and_releases_connection | R，取消后复用池，重新读取唯一提交。 |
+| graph_commands / blob_graph_transaction_and_hydration | R，PostgreSQL 字节以真实指针读取；故障事务没有留下 blob。 |
+| graph_commands / github_stars_retain_node_identity_and_reject_ambiguity | R，node ID 与 login 改名后的 Stars 身份，歧义按类型和原因失败。 |
+| graph_commands / async_entity_routes_preserve_crud_and_hydrated_projection | R，HTTP 更改后读 hydrated projection，有独立 HTTP body/status/transport 回归。 |
+| mcp_discovery / metadata_and_condition_pages_never_load_secrets_or_handlers | R，实际只读 PG 身份和 SQL 选列、跨 collection/filter cursor 拒绝、handler 未运行，与 TCP 生命周期区别。 |
+| mcp_http_journey / mounted_http_metadata_query_read_and_prefiltered_ranking | R，真实 TCP 重挂载、关闭、筛选先于排序的反例及模型校验分支；保留协议工具集合。 |
+| graph_navigation / neighborhood_pages_keep_direction_and_close_endpoints | R，方向、游标重叠、端点闭合、自环与孤立节点。 |
+| graph_navigation / paths_preserve_persisted_direction_and_distinguish_exhaustion_from_limits | F，块路径有序，Relation 路径仅比较集合，倒序仍绿；在正逆遍历中沿块路径检查每个 Relation ID。 |
+| graph_navigation / parallel_relations_do_not_hide_an_older_shortest_path | R，真正越过 10000 条分页，有限 Block 中较旧单跳可达。 |
+| lexical / literal_chinese_ranking_freshness_and_cascade | F，原测试持久化索引与级联正确，现有 oracle 未读 excerpt。多语言正文中的大小写折叠长度变化可能把结果摘录移动到命中之后。用 SQL 命中结果回读原文观察。 |
+| lexical / unknown_resolver_is_bounded_unavailable_diagnostic | F，1 行、limit=1 无法证明 bounded；使用高于限量的真实未知 resolver，核对准确总数与有界诊断。 |
+| lexical / direct_and_cron_created_jobs_share_exact_handler_path | R，真实执行器、Job state 与重建 count，这两次分別保护 maintain/rebuild handler dispatch。 |
+| semantic / real_maintenance_freshness_and_global_retrieval | R，真实批写、跨实体排名、编辑失效与修复、profile 与向量维度、两类独立失败原因和后续重试；可移除与事务无关的本机 sleep。 |
+| behavior_graph / exact_behaviors_compose_into_replayable_graph_use | F，数种行为仅断言 created / ID，组合独立 session 的图事实，尤其 detail→old 的 refines、old synthesis→new 的 edited 和 duplicate 归一化。 |
+| behavior_graph / connected_component_reports_missing_and_bounded_incomplete_proof | F，正反预算均有可信含义；把“至多 1”改为给定链上的实际一条 proof，缺失 seed 和截断仍独立。 |
+| behavior_graph / synthesis_rolls_back_block_and_basis_on_write_failure | R，第二次实际写后注入异常，再次事务查所有 source 出边和图块。 |
+| rumination_graph / explicit_rumination_runs_real_agent_tools_and_repeats_additively | R，真实 Agent 参数、MCP 以外的协议、负局部 ID 及返回正 ID、读回数据、双次可加，不重复先前删除的私有 helper。 |
+| media_interpretation / media_textualization_interpretation_and_lexical_recall | F，fixture 路径自比删除；换成直接消费 fixture 给出的资产目录，保留持久化和无重复付费调用的检验。 |
+| vertical_quality / real_producer_corpus_supports_exact_and_chinese_lexical_recall | R，独立 HTTP producer 与模型无关的语料摘要/中文近似干扰物。 |
+| vertical_quality / vertical_quality_control_flow_with_deterministic_ai | R，真实 schema→draft→submit、生产者、语义写入及判断代码可运行；固定向量只证明 wiring。 |
+| vertical_quality / real_provider_quality_and_rumination_gain | R，现场模型质量 top3/干扰/胜源文与 deterministic 依赖不同。 |
+| multimodal_live / real_multimodal_materialization_interpretation_and_recall | R，固定 NASA 字节与自然识别的 OCR/ASR、真实对话提交；固定 interpretation 文本只用于验证工具路径。 |
+| black_box / two_information_worlds_are_organized_for_human_review | R，独立语料+二轮 Job 与 Human review；镜像工具名单、未读取的 mutation_tools 字段占据另一套配置权威，可删。 |
+
+**层级和切换计划。** 保留 Domain、Application HTTP、MCP 客户端与真实模型四处独立风险，不搬运同一断言。在原 keeper 内补上述缺口。词法 excerpt 的真实使用者为 MCP query 的 evidence 以及 TS SDK 的 lexical presentation；使用原始文本索引作为期望。Graph proof 的事实来自 Unit TDD organization 与 graph-navigation-retrieval 的持久化方向、路径顺序，终端 Job 状态无法证明它们。素材发生器、Memos 分类、RSS 分类和真正的解释器各自核对：cases.json 曾被前期设计列作 manifest，当前唯一执行消费者只检查文件存在，从不读取 resolver_id 或 media_family；plain.txt / document.html 也无现行消费者。删除该无效自检与两个未使用样本的生成，仅保留真实协议所消费的八种文件。保留 HTML/文本 reader 和生产者客观行为验证。组织 live 的实际工具来自 agent_definitions.json，逐个 behavior 的死工具名单可移除。Resolver.set_solved_content 有六种 extension 生产用户，_register_tools 供 MCPSink.start 使用，AIManager.embed/chat 均为真实 I/O 边界。查找上述删除项、导出、private、注入/测试 getter 的全仓引用，没有被本轮清理孤立的生产接口。
+
+### 切换结果与控制
+
+- **test-hygiene**。修复前 P1，现有确定性证据通过。三处整表清空影响同库的其他测试，语义 producer 的清理还会沿任意图关系删除连通块。6 个确实扫描全库的模块现用同一 `isolated_database_runtime`。每次 pytest session 用运行时初始化入口建立一次空模板，每个场景克隆私库，绑定普通 Core 角色、测试写入和实际 MCP/ASGI 调用所在的 Core，用完删除数据库。删除了 TRUNCATE、按前后差集/连通图删除、逐模型/配置备份恢复、重复 Job fixture，仍由真正的 JobManager 执行。两个历史迁移 fixture 复用同一个临时数据库 context manager，继续执行自己的历史版本迁移。两个 Memos/RSS 分类表仍由对应协议拥有；删除了不读取分类字段的素材 case 表、两种无人使用的 fixture 生成及 organization live 不消费的工具白名单和 wrapper。
+- **test-adequacy**。修复前 P1，新的知识域确定性证据通过。PostgreSQL 的 lexical `text_substring` 命中词 QuarzFund；正文之前含 120 个 ß，旧实现对折叠后的匹配位置切原文，返回的摘录只剩“记录”。`knowledge-redo-excerpt-before.log` 在 excerpt 断言失败；保留原有 casefold 及多词 fallback，仅扩展字符出现时把偏移换回原文，候选在同一场景通过。其余增强均放在原 owner 的用例：检查整理后新 session 所见的精确方向与去重、有限 proof 的实际关系、出入路径中关系的顺序、读取新 UTF-16 正文、诊断上限、部分检索报错时另一路的完整 evidence。
+- 当前 head 修改前本组 26 passed / 3 deselected，20.89s。最终本组加两个复用建库工具的迁移模块 **34 passed / 3 credentialed deselected，250.04s**。执行记录为 `knowledge-redo-final.log` 及 JUnit；远程共享测试集群中 PostgreSQL DROP DATABASE 等待 checkpoint，单次最慢知识用例 teardown 30.84s。本次为隔离真实迁移、FK 与时钟保留成本，没有设统一时间阈值。外层 PG 的 218 号 sentinel 在整组和负对照之后值相同，集群中的本次临时库均已退场，随后只删 sentinel；见 `knowledge-redo-isolation.log`。
+- `knowledge-redo-mutations.log` 的 6 个红灯分别命中：旧缓存正文、倒序 relation_path、写反的 refines、空的截断 proof、多一条未知 resolver 诊断、与真实错误 mode 同时丢失的成功候选。控制只在独立 Python 进程替换 owner，未写工作树，正常运行全绿。对未实际提供凭证的三个现场入口单独核实标记与明确 skip；`knowledge-redo-live-gates.log` 记录 3 skipped，无法据此判断现场模型或人工质量。
+- 14 个知识测试模块代码行（含文件内 fixture/helper）为 `9f75cbb` 的 4693、`6096624` 的 4864、目前 4349；本域独立 Python/JSON fixture、manifest 和 generator 从 793 到 718 行。共用的 `tests/conftest.py` 和 `tests/database.py` 另外增加了 75 行数据库生命周期工具；本轮知识产品代码净加 9 行。17 个相关 Python 文件通过 Ruff 检查、格式和 Pyrefly（0 errors，4 个既有 suppression）。本地凭证型验收及真实模型质量仍由显式现场流程判定。
