@@ -190,20 +190,41 @@ def test_native_roundtrip_graph_conflicts_and_sync_recovery(dav):
       "<D:sync-level>1</D:sync-level><D:prop><D:getetag/></D:prop>"
       "</D:sync-collection>"
     )
+    survivor = path + "surviving.ics"
+    assert (
+      dav.put(
+        survivor,
+        content=calendar("仍应列出").replace("UID:inkcre-roundtrip", "UID:surviving"),
+        headers={"If-None-Match": "*"},
+      ).status_code
+      == 201
+    )
     initial = dav.request("REPORT", path, content=report)
     assert initial.status_code == 207
-    token = ET.fromstring(initial.content).findtext("{DAV:}sync-token")
+    initial_result = ET.fromstring(initial.content)
+    assert {r.findtext("{DAV:}href") for r in initial_result.findall("{DAV:}response")} == {
+      resource,
+      survivor,
+    }
+    token = initial_result.findtext("{DAV:}sync-token")
     assert token
     same_report = report.replace("<D:sync-token/>", f"<D:sync-token>{token}</D:sync-token>")
     same = dav.request("REPORT", path, content=same_report)
-    assert not ET.fromstring(same.content).findall("{DAV:}response")
+    assert same.status_code == 207
+    same_result = ET.fromstring(same.content)
+    assert same_result.findtext("{DAV:}sync-token") == token
+    assert not same_result.findall("{DAV:}response")
     assert dav.delete(
       resource, headers={"If-Match": dav.get(resource).headers["etag"]}
     ).is_success
     expired = dav.request("REPORT", path, content=same_report)
     assert expired.status_code == 403 and "valid-sync-token" in expired.text
     rescan = dav.request("PROPFIND", path, headers={"Depth": "1"})
-    assert "event.ics" not in rescan.text
+    assert rescan.status_code == 207
+    assert {
+      r.findtext("{DAV:}href")
+      for r in ET.fromstring(rescan.content).findall("{DAV:}response")
+    } == {path, survivor}
     assert dav.get(resource).status_code == 404
   finally:
     dav.delete(path)
@@ -249,6 +270,32 @@ def test_commit_failure_rolls_back_and_never_reports_success(dav):
     assert restored.headers["etag"] == original.headers["etag"]
   finally:
     dav.delete(path)
+
+
+def test_connection_exposes_the_public_dav_url_and_login_name(dav, monkeypatch):
+  from types import SimpleNamespace
+  from app.middleware import create_peer_jwt
+  from app.settings import settings
+  from inkcre_core.business.peer import PeerManager
+
+  config = SimpleNamespace(http_public_base_url=None)
+
+  async def current_config():
+    return config
+
+  monkeypatch.setattr(PeerManager, "get_current_config_async", current_config)
+  headers = {"Authorization": f"Bearer {create_peer_jwt(settings.jwt_secret)}"}
+  missing = dav.get("/caldav/connection", headers=headers, auth=None)
+  assert missing.status_code == 409
+  assert "Public HTTP Base URL" in missing.json()["detail"]
+
+  config.http_public_base_url = "https://calendar.example/team"
+  advertised = dav.get("/caldav/connection", headers=headers, auth=None)
+  assert advertised.status_code == 200
+  assert advertised.json() == {
+    "server_url": "https://calendar.example/team/caldav/",
+    "username": "inkcre",
+  }
 
 
 def test_tasks_contacts_and_credential_revocation(dav):

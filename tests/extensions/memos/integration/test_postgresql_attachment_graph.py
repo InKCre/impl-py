@@ -34,13 +34,6 @@ pytestmark = pytest.mark.skipif(
   reason="requires an explicitly selected migrated PostgreSQL runtime",
 )
 
-SEMANTIC_ASSETS = Path(__file__).parents[3] / "assets" / "semantic-content"
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _generated_semantic_content_assets(semantic_content_assets: Path) -> None:
-  assert semantic_content_assets == SEMANTIC_ASSETS
-
 
 def _cleanup(tracked_block_ids: set[int], tracked_blob_ids: set) -> None:
   with TestSession() as db_session:
@@ -87,7 +80,7 @@ def _track_attachment(solved, tracked_block_ids: set[int], tracked_blob_ids: set
 
 
 @pytest.fixture
-def memo_client():
+def memo_client(isolated_database_runtime):
   from app.engine import ASYNC_DB_ENGINE
 
   published = publish_extension(
@@ -186,6 +179,7 @@ def test_connection_address_preserves_public_prefix_and_requires_peer_auth(memo_
 )
 def test_memos_declared_media_type_selects_exact_semantic_content(
   async_runner,
+  semantic_content_assets: Path,
   filename,
   media_type,
   resolver_id,
@@ -200,7 +194,7 @@ def test_memos_declared_media_type_selects_exact_semantic_content(
       AttachmentApplicationService.create(
         filename=filename,
         media_type=media_type,
-        content=(SEMANTIC_ASSETS / filename).read_bytes(),
+        content=(semantic_content_assets / filename).read_bytes(),
       )
     )
     _track_attachment(solved, tracked_block_ids, tracked_blob_ids)
@@ -223,7 +217,7 @@ def test_memos_declared_media_type_selects_exact_semantic_content(
       )
     assert async_runner.run(
       AttachmentApplicationService.download(solved.block_id, filename)
-    ) == (media_type, (SEMANTIC_ASSETS / filename).read_bytes())
+    ) == (media_type, (semantic_content_assets / filename).read_bytes())
   finally:
     _cleanup(tracked_block_ids, tracked_blob_ids)
 

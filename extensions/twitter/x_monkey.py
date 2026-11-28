@@ -20,7 +20,7 @@ from .model import TwitterBatch, TwitterRecord
 from .reconcile import (
   KINDS,
   TwitterReadResult,
-  TwitterWriteResult,
+  Identity,
   read_twitter,
   write_twitter,
 )
@@ -43,12 +43,12 @@ def export_record(kind: str, record: TwitterRecord) -> JsonValue:
   return projected.model_dump(mode="json", exclude_unset=True)
 
 
-def encode_submission(batch: ArchiveBatch, result: TwitterWriteResult) -> SubmitResponse:
+def encode_submission(batch: ArchiveBatch, changed: frozenset[Identity]) -> SubmitResponse:
   results = {
     kind: [
       SubmitResult(
         id=record.id,
-        status="accepted" if (kind, record.id) in result.changed else "unchanged",
+        status="accepted" if (kind, record.id) in changed else "unchanged",
       )
       for record in getattr(batch, kind)
     ]

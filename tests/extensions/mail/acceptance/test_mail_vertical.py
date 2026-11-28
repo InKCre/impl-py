@@ -1,7 +1,6 @@
 """J1–J3: real IMAP -> Job -> graph -> Resolver/Storage acceptance."""
 
 from __future__ import annotations
-from inkcre_core import current_core
 
 import collections.abc
 import datetime
@@ -10,16 +9,13 @@ import os
 from pathlib import Path
 
 import pytest
-import sqlalchemy
 import sqlmodel
 
 from inkcre_core.business.info_base.resolver import ResolverManager, register_core_resolvers
 from inkcre_core.business.info_base.storage import StorageManager
-from inkcre_core.business.job import JobManager
 from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
 from inkcre_core.business.source import (
   SOURCE_BACKFILL_JOB_TYPE,
-  SOURCE_COLLECT_JOB_TYPE,
   SourceManager,
 )
 from tests.database import TestSession
@@ -27,7 +23,7 @@ from inkcre_core.schemas.extension import ExtensionModel
 from inkcre_core.schemas.info_base.block import BlockModel
 from inkcre_core.schemas.info_base.relation import RelationModel
 from inkcre_core.schemas.info_base.storage import StorageBlobModel
-from inkcre_core.schemas.job import JobModel, JobStatus
+from inkcre_core.schemas.job import JobStatus
 from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceOptions
 from inkcre_core.schemas.source import SourceModel
 from extensions.mail import Extension
@@ -54,7 +50,11 @@ from extensions.mail.source import Source
 from .imap_harness import DovecotHarness
 
 
-pytestmark = [pytest.mark.acceptance, pytest.mark.integration]
+pytestmark = [
+  pytest.mark.acceptance,
+  pytest.mark.integration,
+  pytest.mark.usefixtures("isolated_database_runtime"),
+]
 
 CORPUS = Path(__file__).parent / "corpus"
 MAIL_SOURCE_TYPE = f"{Source.__module__}.{Source.__qualname__}"
@@ -69,26 +69,15 @@ def dovecot() -> collections.abc.Iterator[DovecotHarness]:
     pytest.skip("requires INKCRE_DOVECOT_ACCEPTANCE_ROOT and INKCRE_ACCEPTANCE_WORK_ROOT")
   harness = DovecotHarness(Path(distribution), Path(work_root))
   harness.start()
-  assert {"UIDPLUS", "CONDSTORE", "QRESYNC"} <= harness.capabilities()
   try:
+    assert {"UIDPLUS", "CONDSTORE", "QRESYNC"} <= harness.capabilities()
     yield harness
   finally:
     harness.stop()
 
 
-def _reset_acceptance_database() -> None:
-  database_url = os.getenv("INKCRE_TEST_DATABASE_URL", "")
-  if "mail_acceptance" not in database_url:
-    raise RuntimeError("Mail acceptance requires an explicitly named disposable database")
+def _configure_mail_extension() -> None:
   with TestSession() as db:
-    db.connection().execute(
-      sqlalchemy.text(
-        "TRUNCATE TABLE "
-        "inkcre.crons, inkcre.jobs, inkcre.relation_embeddings, "
-        "inkcre.block_embeddings, inkcre.relations, inkcre.sources, "
-        "inkcre.storage_blobs, inkcre.blocks RESTART IDENTITY CASCADE"
-      )
-    )
     extension = db.get(ExtensionModel, "inkcre/mail")
     if extension is None:
       extension = ExtensionModel(
@@ -103,7 +92,6 @@ def _reset_acceptance_database() -> None:
     }
     db.add(extension)
     db.commit()
-  current_core().sources.clear()
 
 
 async def _bootstrap_runtime_catalogs() -> None:
@@ -111,24 +99,6 @@ async def _bootstrap_runtime_catalogs() -> None:
   Extension.load_decoders()
   await StorageManager.setup_builtin_storages_async()
   await SourceManager.sync_source_types_async()
-  await JobManager.sync_job_types()
-
-
-async def _run_job(
-  job_type: str,
-  source_id: int,
-  config: dict | None = None,
-) -> JobModel:
-  job = await JobManager.create(
-    job_type,
-    {"source": source_id, "config": config or {}},
-  )
-  assert job.id is not None
-  assert await JobManager.run(job.id)
-  with TestSession() as db:
-    persisted = db.get(JobModel, job.id)
-    assert persisted is not None
-    return persisted
 
 
 def _email(message_id: str) -> BlockModel | None:
@@ -240,9 +210,9 @@ def _set_extension_exclusion(name: str) -> None:
 
 
 def test_mail_collection_backfill_and_materialization(
-  async_runner, dovecot: DovecotHarness
+  async_runner, dovecot: DovecotHarness, run_source_job
 ) -> None:
-  _reset_acceptance_database()
+  _configure_mail_extension()
   async_runner.run(_bootstrap_runtime_catalogs())
   dovecot.create_mailbox("Excluded")
 
@@ -292,7 +262,7 @@ def test_mail_collection_backfill_and_materialization(
 
   async def journeys() -> None:
     # J1 — ordinary collection, repeatability, reference completion and flags.
-    first = await _run_job(SOURCE_COLLECT_JOB_TYPE, source.id)
+    first = await run_source_job(source.id)
     assert first.status == JobStatus.FINISHED
     assert first.state["diagnostics"] == []
     assert first.state["counts"]["messages"] == 2
@@ -337,7 +307,7 @@ def test_mail_collection_backfill_and_materialization(
     assert participant_roles == {"from", "to", "cc"}
 
     before_repeat = _graph_counts()
-    repeated = await _run_job(SOURCE_COLLECT_JOB_TYPE, source.id)
+    repeated = await run_source_job(source.id)
     assert repeated.status == JobStatus.FINISHED
     assert repeated.state["diagnostics"] == []
     assert _graph_counts() == before_repeat
@@ -348,7 +318,7 @@ def test_mail_collection_backfill_and_materialization(
       internal_date=current_date + datetime.timedelta(seconds=2),
     )
     dovecot.replace_flags("INBOX", reply_uid, ("\\Answered",))
-    changed = await _run_job(SOURCE_COLLECT_JOB_TYPE, source.id)
+    changed = await run_source_job(source.id)
     assert changed.status == JobStatus.FINISHED
     completed_parent = _email("deep-module-parent@inkcre.acceptance")
     assert completed_parent is not None and completed_parent.id == sparse_parent.id
@@ -414,16 +384,16 @@ def test_mail_collection_backfill_and_materialization(
     )
     existing = await ResolverManager.get(inline).get_solved_content()
     assert isinstance(existing, SolvedMimePart) and existing.content is not None
-    with pytest.raises(MailMaterializationUnavailable):
+    with pytest.raises(MailMaterializationUnavailable, match=r"(?i)authentication failed"):
       await ResolverManager.get(attachment).get_solved_content()
     _set_source_config(source.id, configured)
 
     # J2 — exact backfill, inherited policy snapshot and prospective removal.
     checkpoint_before = MailSourceState.model_validate(_source(source.id).state)
-    backfill = await _run_job(
-      SOURCE_BACKFILL_JOB_TYPE,
+    backfill = await run_source_job(
       source.id,
       {"since": "2026-08-01", "before": "2026-08-02"},
+      job_type=SOURCE_BACKFILL_JOB_TYPE,
     )
     assert backfill.status == JobStatus.FINISHED
     assert backfill.state["diagnostics"] == []
@@ -433,17 +403,17 @@ def test_mail_collection_backfill_and_materialization(
     assert MailSourceState.model_validate(_source(source.id).state) == checkpoint_before
 
     graph_after_backfill = _graph_counts()
-    repeated_backfill = await _run_job(
-      SOURCE_BACKFILL_JOB_TYPE,
+    repeated_backfill = await run_source_job(
       source.id,
       {"since": "2026-08-01", "before": "2026-08-02"},
+      job_type=SOURCE_BACKFILL_JOB_TYPE,
     )
     assert repeated_backfill.status == JobStatus.FINISHED
     assert _graph_counts() == graph_after_backfill
-    empty = await _run_job(
-      SOURCE_BACKFILL_JOB_TYPE,
+    empty = await run_source_job(
       source.id,
       {"since": "2026-08-02", "before": "2026-08-03"},
+      job_type=SOURCE_BACKFILL_JOB_TYPE,
     )
     assert empty.status == JobStatus.FINISHED and empty.state["messages"] == 0
 
@@ -451,25 +421,25 @@ def test_mail_collection_backfill_and_materialization(
     assert inherited.excluded_mailboxes is not None
     assert inherited.excluded_mailboxes.names == ["Excluded"]
     _set_extension_exclusion("Archive")
-    await _run_job(SOURCE_COLLECT_JOB_TYPE, source.id)
+    await run_source_job(source.id)
     unchanged = MailSourceConfig.model_validate(_source(source.id).config)
     assert unchanged.excluded_mailboxes is not None
     assert unchanged.excluded_mailboxes.names == ["Excluded"]
     _set_source_config(source.id, unchanged.model_copy(update={"excluded_mailboxes": None}))
-    await _run_job(SOURCE_COLLECT_JOB_TYPE, source.id)
+    await run_source_job(source.id)
     rematerialized = MailSourceConfig.model_validate(_source(source.id).config)
     assert rematerialized.excluded_mailboxes is not None
     assert rematerialized.excluded_mailboxes.names == ["Archive"]
 
     dovecot.expunge("INBOX", removal_uid)
-    ignored_removal = await _run_job(SOURCE_COLLECT_JOB_TYPE, source.id)
+    ignored_removal = await run_source_job(source.id)
     assert ignored_removal.status == JobStatus.FINISHED
     assert _locator(inbox.id, removal_uid) is not None
 
     synchronized = rematerialized.model_copy(update={"synchronize_deletions": True})
     _set_source_config(source.id, synchronized)
     dovecot.expunge("INBOX", parent_uid)
-    applied_removal = await _run_job(SOURCE_COLLECT_JOB_TYPE, source.id)
+    applied_removal = await run_source_job(source.id)
     assert applied_removal.status == JobStatus.FINISHED
     assert _locator(inbox.id, parent_uid) is None
     assert _locator(inbox.id, removal_uid) is not None

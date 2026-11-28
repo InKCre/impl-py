@@ -37,12 +37,6 @@ Record = dict[str, typing.Any]
 Identity = tuple[str, str]
 
 
-@dataclass(frozen=True)
-class TwitterWriteResult:
-  changed: frozenset[Identity]
-  block_ids: dict[str, dict[str, int]]
-
-
 def _json(value: object) -> str:
   return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
@@ -128,7 +122,7 @@ async def persist_twitter(
   uow: GraphUnitOfWork,
   *,
   text_policy: TextPolicy = "replace",
-) -> TwitterWriteResult:
+) -> frozenset[Identity]:
   """Merge a complete batch without committing the caller's graph transaction.
 
   Supplement captures retain an already known body while adding other facts.
@@ -223,20 +217,10 @@ async def persist_twitter(
     RelationCreateForm(from_=source, to_=target, content=content)
     for source, target, content in sorted(desired)
   )
-  return TwitterWriteResult(
-    changed=frozenset(changed),
-    block_ids={
-      kind: {
-        native_id: _block_id(root)
-        for (candidate_kind, native_id), root in roots.items()
-        if candidate_kind == kind
-      }
-      for kind in KINDS
-    },
-  )
+  return frozenset(changed)
 
 
-async def write_twitter(batch: TwitterBatch) -> TwitterWriteResult:
+async def write_twitter(batch: TwitterBatch) -> frozenset[Identity]:
   async with graph_uow() as uow:
     return await persist_twitter(batch, uow)
 

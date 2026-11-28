@@ -1,10 +1,6 @@
 """Real RSS/Atom HTTP doubles collected through PostgreSQL source jobs."""
 
 from __future__ import annotations
-from inkcre_core import current_core
-
-from tests.database import read_block, read_relations
-
 
 import asyncio
 import os
@@ -20,13 +16,11 @@ import sqlmodel
 
 from inkcre_core.business.info_base.resolver import ResolverManager, register_core_resolvers
 from inkcre_core.business.info_base.storage import StorageManager
-from inkcre_core.business.info_base.storage.postgresql import PostgreSQLBlobPointer
 from inkcre_core.business.job import JobManager
 from inkcre_core.business.source import SOURCE_COLLECT_JOB_TYPE, SourceManager
-from tests.database import TestSession
+from tests.database import TestSession, read_block, read_relations
 from inkcre_core.schemas.info_base.block import BlockModel
 from inkcre_core.schemas.info_base.relation import RelationModel
-from inkcre_core.schemas.info_base.storage import StorageBlobModel
 from inkcre_core.schemas.job import JobModel, JobStatus
 from inkcre_core.schemas.source import SourceModel
 from extensions.rss import Extension
@@ -47,29 +41,24 @@ from extensions.rss.schema import (
 )
 
 
-pytestmark = pytest.mark.skipif(
-  not os.getenv("INKCRE_TEST_DATABASE_URL"),
-  reason="requires an explicitly selected migrated PostgreSQL runtime",
-)
-
-ASSETS = Path(__file__).parents[3] / "assets" / "semantic-content"
-
-
-@pytest.fixture(scope="module", autouse=True)
-def _generated_semantic_content_assets(semantic_content_assets: Path) -> None:
-  assert semantic_content_assets == ASSETS
+pytestmark = [
+  pytest.mark.usefixtures("isolated_database_runtime"),
+  pytest.mark.skipif(
+    not os.getenv("INKCRE_TEST_DATABASE_URL"),
+    reason="requires an explicitly selected migrated PostgreSQL runtime",
+  ),
+]
 
 
 class FeedHTTPDouble:
-  def __init__(self):
+  def __init__(self, assets: Path):
+    self.assets = assets
     self.base_url = ""
     self.rss_revision = 1
     self.rss_etag = '"rss-v1"'
     self.omit_first_rss_item = False
     self.atom_returns_wrong_family = True
     self.feed_requests = 0
-    self.article_requests = 0
-    self.enclosure_requests = 0
     self._runner: web.AppRunner | None = None
 
   async def start(self) -> None:
@@ -186,7 +175,6 @@ class FeedHTTPDouble:
     return web.Response(body=body.encode(), content_type="application/xml")
 
   async def _article(self, request: web.Request) -> web.Response:
-    self.article_requests += 1
     name = request.match_info["name"]
     return web.Response(
       text=f"""<!doctype html><html><body><nav>Navigation</nav><article>
@@ -197,13 +185,12 @@ class FeedHTTPDouble:
     )
 
   async def _enclosure(self, request: web.Request) -> web.Response:
-    self.enclosure_requests += 1
     name = request.match_info["name"]
     content_type = (
       "image/png" if name in {"document.pdf", "image.png"} else "application/octet-stream"
     )
     return web.Response(
-      body=(ASSETS / name).read_bytes(),
+      body=(self.assets / name).read_bytes(),
       content_type=content_type,
     )
 
@@ -220,21 +207,6 @@ def _create_source(source_type: str, config: FeedSourceConfig) -> int:
     db_session.refresh(source)
     assert source.id is not None
     return source.id
-
-
-def _reload_job(job_id: int) -> JobModel:
-  with TestSession() as db_session:
-    return db_session.exec(sqlmodel.select(JobModel).where(JobModel.id == job_id)).one()
-
-
-async def _run_job(source_id: int, config: dict | None = None) -> JobModel:
-  job = await JobManager.create(
-    SOURCE_COLLECT_JOB_TYPE,
-    {"source": source_id, "config": config or {}},
-  )
-  assert job.id is not None
-  assert await JobManager.run(job.id)
-  return _reload_job(job.id)
 
 
 def _feed_roots(source_id: int) -> list[tuple[BlockModel, CanonicalFeed]]:
@@ -274,70 +246,14 @@ def _feed_items(feed_block_id: int) -> list[tuple[BlockModel, CanonicalFeedItem]
     ]
 
 
-def _graph_block_ids(source_id: int) -> tuple[set[int], set[object]]:
-  feed_roots = _feed_roots(source_id)
-  if not feed_roots:
-    return set(), set()
-  block_ids = {block.id for block, _ in feed_roots if block.id is not None}
-  blob_ids: set[object] = set()
-  with TestSession() as db_session:
-    frontier = list(block_ids)
-    while frontier:
-      current = frontier.pop()
-      relations = read_relations(current, db_session=db_session)
-      for relation in relations:
-        other = relation.to_ if relation.from_ == current else relation.from_
-        if other not in block_ids:
-          block_ids.add(other)
-          frontier.append(other)
-    for block_id in block_ids:
-      block = db_session.get(BlockModel, block_id)
-      if block is not None and block.storage == -4:
-        blob_ids.add(PostgreSQLBlobPointer.model_validate_json(block.content).blob_id)
-  return block_ids, blob_ids
-
-
-def _cleanup(source_ids: set[int]) -> None:
-  all_block_ids: set[int] = set()
-  all_blob_ids: set[object] = set()
-  for source_id in source_ids:
-    block_ids, blob_ids = _graph_block_ids(source_id)
-    all_block_ids.update(block_ids)
-    all_blob_ids.update(blob_ids)
-  with TestSession() as db_session:
-    if all_block_ids:
-      for block in db_session.exec(
-        sqlmodel.select(BlockModel).where(
-          BlockModel.id.in_(all_block_ids)  # pyrefly: ignore[missing-attribute]
-        )
-      ).all():
-        db_session.delete(block)
-    for source_id in source_ids:
-      source = db_session.get(SourceModel, source_id)
-      if source is not None:
-        db_session.delete(source)
-    if all_blob_ids:
-      for blob in db_session.exec(
-        sqlmodel.select(StorageBlobModel).where(
-          StorageBlobModel.id.in_(all_blob_ids)  # pyrefly: ignore[missing-attribute]
-        )
-      ).all():
-        db_session.delete(blob)
-    db_session.commit()
-  for source_id in source_ids:
-    current_core().sources.pop(source_id, None)
-
-
-async def _exercise_rss() -> None:
-  server = FeedHTTPDouble()
+async def _exercise_rss(run_source_job, assets: Path) -> None:
+  server = FeedHTTPDouble(assets)
   await server.start()
-  source_ids: set[int] = set()
   try:
     source_id = _create_source(
       "extensions.rss.rss.Source",
       FeedSourceConfig(feed_url=f"{server.base_url}/rss.xml"),
     )
-    source_ids.add(source_id)
 
     first_job = await JobManager.create(
       SOURCE_COLLECT_JOB_TYPE,
@@ -349,7 +265,8 @@ async def _exercise_rss() -> None:
       JobManager.run(first_job.id),
     )
     assert sorted(claims) == [False, True]
-    first_job = _reload_job(first_job.id)
+    with TestSession() as db:
+      first_job = db.get_one(JobModel, first_job.id)
     assert first_job.status == JobStatus.FINISHED
     assert first_job.state["items"] == {
       "created": 2,
@@ -380,14 +297,14 @@ async def _exercise_rss() -> None:
       await ResolverManager.get(exact_item[0]).get_text(materialize_missing=False) or ""
     )
 
-    not_modified_job = await _run_job(source_id)
+    not_modified_job = await run_source_job(source_id)
     assert not_modified_job.status == JobStatus.FINISHED
     assert not_modified_job.state["not_modified"] is True
     assert len(_feed_items(feed_block.id)) == 2
 
     server.rss_revision = 2
     server.rss_etag = '"rss-v2"'
-    update_job = await _run_job(source_id)
+    update_job = await run_source_job(source_id)
     assert update_job.status == JobStatus.FINISHED
     assert update_job.state["items"] == {
       "created": 1,
@@ -449,12 +366,13 @@ async def _exercise_rss() -> None:
         "existing",
       ]
       ordered_names = tuple(expected_resolvers)
+      missing_id = 2_147_000_000
       response = await client.post(
         "/rss/enclosures/materialize",
         json={
           "enclosure_block_ids": [
             *(enclosure_ids[name] for name in ordered_names),
-            2_147_000_000,
+            missing_id,
           ]
         },
       )
@@ -463,7 +381,9 @@ async def _exercise_rss() -> None:
     assert [result["resolver_id"] for result in results[:-1]] == [
       expected_resolvers[name] for name in ordered_names
     ]
-    assert results[-1]["status"] == "failed"
+    missing = results[-1]
+    assert (missing["enclosure_block_id"], missing["status"]) == (missing_id, "failed")
+    assert missing["error"] == f"enclosure block {missing_id} not found"
     for name in ordered_names:
       content_relations = read_relations(
         enclosure_ids[name],
@@ -474,11 +394,11 @@ async def _exercise_rss() -> None:
       assert len(content_relations) == 1
       content_block = read_block(content_relations[0].to_)
       assert content_block is not None
-      assert await content_block.get_hydrated_content() == (ASSETS / name).read_bytes()
+      assert await content_block.get_hydrated_content() == (assets / name).read_bytes()
       assert await ResolverManager.get(content_block).get_solved_content() is not None
 
     server.rss_etag = '"rss-v3"'
-    replay_job = await _run_job(source_id)
+    replay_job = await run_source_job(source_id)
     assert replay_job.state["items"] == {
       "created": 0,
       "updated": 0,
@@ -488,7 +408,7 @@ async def _exercise_rss() -> None:
 
     server.omit_first_rss_item = True
     server.rss_etag = '"rss-v4"'
-    missing_old_job = await _run_job(source_id)
+    missing_old_job = await run_source_job(source_id)
     assert missing_old_job.status == JobStatus.FINISHED
     assert len(_feed_items(feed_block.id)) == 3
 
@@ -498,7 +418,7 @@ async def _exercise_rss() -> None:
       source.config = {**source.config, "feed_url": alternate_feed_url}
       db_session.add(source)
       db_session.commit()
-    changed_url_job = await _run_job(source_id)
+    changed_url_job = await run_source_job(source_id)
     assert changed_url_job.status == JobStatus.FINISHED
     assert changed_url_job.state.get("not_modified") is not True
     assert len(_feed_items(feed_block.id)) == 3
@@ -508,7 +428,7 @@ async def _exercise_rss() -> None:
       assert state["snapshot_feed_block_id"] == feed_block.id
 
     before_scheduled = server.feed_requests
-    await _run_job(source_id)
+    await run_source_job(source_id)
     assert server.feed_requests == before_scheduled + 1
 
     no_self_feed_url = f"{server.base_url}/rss-no-self.xml"
@@ -517,7 +437,7 @@ async def _exercise_rss() -> None:
       source.config = {**source.config, "feed_url": no_self_feed_url}
       db_session.add(source)
       db_session.commit()
-    new_feed_job = await _run_job(source_id)
+    new_feed_job = await run_source_job(source_id)
     assert new_feed_job.status == JobStatus.FINISHED
     roots_after_identity_change = _feed_roots(source_id)
     assert len(roots_after_identity_change) == 2
@@ -533,8 +453,7 @@ async def _exercise_rss() -> None:
         unidentified_item_behavior="discard",
       ),
     )
-    source_ids.add(discard_source_id)
-    discard_job = await _run_job(discard_source_id)
+    discard_job = await run_source_job(discard_source_id)
     assert discard_job.state["items"] == {
       "created": 1,
       "updated": 0,
@@ -551,7 +470,6 @@ async def _exercise_rss() -> None:
         unidentified_item_behavior="discard",
       ),
     )
-    source_ids.add(retry_source_id)
     original_reconcile_item = FeedGraphReconciler.reconcile_item
     reconcile_calls = 0
 
@@ -567,7 +485,7 @@ async def _exercise_rss() -> None:
       "reconcile_item",
       side_effect=fail_second_primary,
     ):
-      failed_job = await _run_job(retry_source_id)
+      failed_job = await run_source_job(retry_source_id)
     assert failed_job.status == JobStatus.FAILED
     assert any(
       diagnostic["code"] == "primary_persistence_failed"
@@ -575,7 +493,7 @@ async def _exercise_rss() -> None:
     )
     with TestSession() as db_session:
       assert db_session.get_one(SourceModel, retry_source_id).state == {}
-    retry_job = await _run_job(retry_source_id)
+    retry_job = await run_source_job(retry_source_id)
     assert retry_job.status == JobStatus.FINISHED
     assert retry_job.state["items"] == {
       "created": 1,
@@ -584,14 +502,12 @@ async def _exercise_rss() -> None:
       "skipped": 1,
     }
   finally:
-    _cleanup(source_ids)
     await server.close()
 
 
-async def _exercise_atom_and_failures() -> None:
-  server = FeedHTTPDouble()
+async def _exercise_atom_and_failures(run_source_job, assets: Path) -> None:
+  server = FeedHTTPDouble(assets)
   await server.start()
-  source_ids: set[int] = set()
   try:
     source_id = _create_source(
       "extensions.rss.atom.Source",
@@ -601,9 +517,8 @@ async def _exercise_atom_and_failures() -> None:
         download_enclosures=True,
       ),
     )
-    source_ids.add(source_id)
 
-    wrong_family_job = await _run_job(source_id)
+    wrong_family_job = await run_source_job(source_id)
     assert wrong_family_job.status == JobStatus.FAILED
     assert wrong_family_job.state["error"] == "expected atom, parsed rss feed family"
     with TestSession() as db_session:
@@ -611,7 +526,7 @@ async def _exercise_atom_and_failures() -> None:
       assert source.state == {}
 
     server.atom_returns_wrong_family = False
-    atom_job = await _run_job(source_id)
+    atom_job = await run_source_job(source_id)
     assert atom_job.status == JobStatus.FINISHED
     feed_block, feed = _feed_root(source_id)
     assert feed.family == "atom"
@@ -643,38 +558,37 @@ async def _exercise_atom_and_failures() -> None:
     semantic = read_block(content[0].to_)
     assert semantic is not None
     assert semantic.resolver == "core.image.v1"
-    assert await semantic.get_hydrated_content() == (ASSETS / "image.png").read_bytes()
+    assert await semantic.get_hydrated_content() == (assets / "image.png").read_bytes()
 
     requests_before_invalid_job = server.feed_requests
     with pytest.raises(pydantic.ValidationError, match="config.full"):
-      await _run_job(source_id, {"full": True})
+      await run_source_job(source_id, {"full": True})
     assert server.feed_requests == requests_before_invalid_job
   finally:
-    _cleanup(source_ids)
     await server.close()
 
 
 def test_rss_collection_reconciliation_watermark_conditional_and_manual_enclosure(
   async_runner,
+  run_source_job,
+  semantic_content_assets,
 ):
-  JobManager.start()
   register_core_resolvers()
   Extension._init_resolvers()
   Extension._init_sources()
   async_runner.run(SourceManager.sync_source_types_async())
-  async_runner.run(JobManager.sync_job_types())
   async_runner.run(StorageManager.setup_builtin_storages_async())
-  async_runner.run(_exercise_rss())
+  async_runner.run(_exercise_rss(run_source_job, semantic_content_assets))
 
 
 def test_atom_family_failure_and_automatic_enclosure_materialization(
   async_runner,
+  run_source_job,
+  semantic_content_assets,
 ):
-  JobManager.start()
   register_core_resolvers()
   Extension._init_resolvers()
   Extension._init_sources()
   async_runner.run(SourceManager.sync_source_types_async())
-  async_runner.run(JobManager.sync_job_types())
   async_runner.run(StorageManager.setup_builtin_storages_async())
-  async_runner.run(_exercise_atom_and_failures())
+  async_runner.run(_exercise_atom_and_failures(run_source_job, semantic_content_assets))

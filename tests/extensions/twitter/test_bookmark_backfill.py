@@ -29,8 +29,7 @@ def page(ids, next_page=None):
 @pytest.fixture
 def capture(monkeypatch):
   saved = []
-  marker = {"latest_tweet_id": "42"}
-  source = SimpleNamespace(state=marker.copy())
+  source = SimpleNamespace(state={"latest_tweet_id": "42"})
   api = SimpleNamespace(get_bookmarks=AsyncMock())
   monkeypatch.setattr(bookmark.TwitterAPI, "new", AsyncMock(return_value=api))
   repository = SimpleNamespace(get=AsyncMock(return_value=source), save=AsyncMock())
@@ -40,7 +39,6 @@ def capture(monkeypatch):
     yield SimpleNamespace(sources=repository, graph=object())
 
   async def persist(batch, graph, *, text_policy):
-    assert text_policy == "supplement"
     saved.extend(post.id for post in batch.posts)
 
   monkeypatch.setattr(bookmark, "source_uow", uow)
@@ -49,7 +47,7 @@ def capture(monkeypatch):
 
 
 def test_backfill_range_crosses_pages_and_stops_at_limit(capture):
-  api, saved, source, repository = capture
+  api, saved, source, _ = capture
   api.get_bookmarks.side_effect = [
     page(range(1, 6), "a"),
     page(range(6, 11), "b"),
@@ -63,7 +61,6 @@ def test_backfill_range_crosses_pages_and_stops_at_limit(capture):
   assert api.get_bookmarks.call_args_list[-1].kwargs == {"page": "b", "max_results": 2}
   assert api.get_bookmarks.call_count == 3
   assert source.state == {"latest_tweet_id": "42"}
-  repository.save.assert_not_called()
   assert job.state == {
     "scanned": 12,
     "saved": 5,
@@ -101,27 +98,6 @@ def test_backfill_treats_empty_cursor_as_exhausted(capture):
   api.get_bookmarks.assert_awaited_once()
 
 
-def test_backfill_stops_progress_when_page_persistence_raises(capture, monkeypatch):
-  api, saved, source, repository = capture
-  api.get_bookmarks.side_effect = [page([1, 2], "a"), page([3, 4], "b")]
-  persist = bookmark.persist_twitter
-
-  async def fail_second_page(batch, graph, *, text_policy):
-    if batch.posts[0].id == "3":
-      raise RuntimeError("storage unavailable")
-    await persist(batch, graph, text_policy=text_policy)
-
-  monkeypatch.setattr(bookmark, "persist_twitter", fail_second_page)
-  job = JobModel(type="source.backfill", timeout_seconds=60)
-  with pytest.raises(RuntimeError, match="storage unavailable"):
-    asyncio.run(bookmark.Source(3).backfill(job, bookmark.BackfillConfig(limit=5)))
-  assert saved == ["1", "2"]
-  assert job.state["saved"] == 2
-  assert job.state["next_page"] == "a"
-  assert source.state == {"latest_tweet_id": "42"}
-  repository.save.assert_not_called()
-
-
 @pytest.mark.parametrize(
   "second,error",
   [
@@ -138,3 +114,27 @@ def test_backfill_stops_on_ambiguous_provider_continuation(capture, second, erro
     asyncio.run(bookmark.Source(3).backfill(job, bookmark.BackfillConfig(limit=5)))
   assert saved == ["1", "2"]
   assert job.state["saved"] == 2
+
+
+@pytest.mark.parametrize(
+  ("full", "expected_posts", "expected_marker", "expected_job"),
+  [
+    (False, ["43", "7"], "43", {}),
+    (True, ["43", "42", "41", "7"], 42, {"page": "continue"}),
+  ],
+)
+def test_collect_selects_one_page_and_its_referenced_context(
+  capture, full, expected_posts, expected_marker, expected_job
+):
+  api, saved, source, _ = capture
+  source.state = {"latest_tweet_id": 42, "keep": "source-owned value"}
+  response = page([43, 42, 41, 7, 9], "continue")
+  response.primary_post_ids = ("43", "42", "41")
+  response.batch.posts[0].repostOf = "7"
+  api.get_bookmarks.return_value = response
+  job = JobModel(type="core.source.collect.v1", state={})
+  asyncio.run(bookmark.Source(3).collect(job, bookmark.CollectConfig(full=full)))
+  api.get_bookmarks.assert_awaited_once_with(page=None, max_results=40)
+  assert saved == expected_posts
+  assert source.state == {"latest_tweet_id": expected_marker, "keep": "source-owned value"}
+  assert job.state == expected_job

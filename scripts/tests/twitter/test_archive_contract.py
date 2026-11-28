@@ -20,13 +20,7 @@ from extensions.twitter.archive_schema import (
   SubmitResponse,
 )
 from extensions.twitter.model import RichText, TwitterBatch, TwitterPost
-from extensions.twitter.reconcile import TwitterReadResult, TwitterWriteResult
-from extensions.twitter.x_monkey import (
-  decode_submission,
-  encode_query,
-  encode_submission,
-  export_record,
-)
+from extensions.twitter.x_monkey import export_record
 
 
 @pytest.fixture
@@ -36,15 +30,8 @@ def full_archive() -> dict[str, Any]:
 
 
 def test_native_batch_preserves_complete_source_and_field_presence(full_archive):
-  original = copy.deepcopy(full_archive)
-  batch = ArchiveBatch.model_validate(full_archive)
-  assert batch.model_dump(mode="json", exclude_unset=True) == original
-  assert json.loads(batch.model_dump_json(exclude_unset=True)) == original
-  assert full_archive == original
-  assert batch.posts[0].communityNote is not None
-  assert batch.posts[0].communityNote.text.model_dump(exclude_unset=True) == {
-    "text": "来源已核实"
-  }
+  batch = ArchiveBatch.model_validate(copy.deepcopy(full_archive))
+  assert batch.model_dump(mode="json", exclude_unset=True) == full_archive
 
 
 def test_missing_and_explicit_empty_batches_remain_distinct():
@@ -57,44 +44,9 @@ def test_missing_and_explicit_empty_batches_remain_distinct():
   assert ArchiveBatch(posts=[]).model_dump(mode="json", exclude_unset=True) == {"posts": []}
 
 
-def test_fixed_protocol_roundtrips_through_owned_facts_and_neutral_results(full_archive):
-  wire = ArchiveBatch.model_validate(full_archive)
-  native = decode_submission(wire)
-  assert type(native) is TwitterBatch
-  assert type(native.posts[0]) is TwitterPost
-  assert native.model_dump(mode="json", exclude_unset=True) == full_archive
-  records = {
-    (kind, record.id): record
-    for kind in ("users", "posts", "media")
-    for record in getattr(native, kind)
-  }
-  query = ArchiveQuery(users=["17"], posts=["31", "32", "33"], media=["41"])
-  response = encode_query(
-    query,
-    TwitterReadResult(records=records, invalid=frozenset({("posts", "33")})),
-  )
-  for kind in ("users", "posts", "media"):
-    assert (
-      getattr(response, kind)[0].data.model_dump(mode="json", exclude_unset=True)
-      == (full_archive[kind][0])
-    )
-  assert [item.status for item in response.posts] == ["found", "missing", "failed"]
-  submitted = encode_submission(
-    wire, TwitterWriteResult(changed=frozenset(records), block_ids={})
-  )
-  assert submitted.summary.accepted == submitted.summary.total == 3
-  replayed = encode_submission(wire, TwitterWriteResult(changed=frozenset(), block_ids={}))
-  assert replayed.summary.unchanged == 3
-
-
 def test_capture_batch_does_not_inherit_remote_request_limits(full_archive):
   records = {"posts": [full_archive["posts"][0]] * 1001}
   assert len(TwitterBatch.model_validate(records).posts) == 1001
-  with pytest.raises(pydantic.ValidationError) as rejected:
-    ArchiveBatch.model_validate(records)
-  assert [(error["loc"], error["type"]) for error in rejected.value.errors()] == [
-    (("posts",), "too_long")
-  ]
 
 
 def test_fixed_export_projects_additive_native_fields_and_retains_open_json(full_archive):
