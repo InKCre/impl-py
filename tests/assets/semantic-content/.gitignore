@@ -1,5 +1,4 @@
 *
 !.gitignore
 !README.md
-!cases.json
 !generate_assets.py

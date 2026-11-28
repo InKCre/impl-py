@@ -88,6 +88,9 @@ and complete cleanup. It is not semantic-quality authority. Real quality require
 
 ```bash
 INKCRE_TEST_DATABASE_URL=... \
+INKCRE_TEST_POSTGRES_ADMIN_URL=... \
+CORE_DATABASE_PASSWORD=... \
+POSTGREST_DATABASE_PASSWORD=... \
 INKCRE_ACCEPTANCE_AI_API_KEY=... \
 INKCRE_ACCEPTANCE_AI_BASE_URL=... \
 INKCRE_ACCEPTANCE_EMBEDDING_MODEL=... \

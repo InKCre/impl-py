@@ -98,4 +98,25 @@ def test_query_labels_preserve_evidence_and_unreadable_candidates(monkeypatch):
       assert candidates["relation:4"]["label"] == "block:1 → supports → block:2"
       assert data["mode_errors"] == []
 
+      async def unavailable(*_args, **_kwargs):
+        raise RuntimeError("embedding provider offline")
+
+      monkeypatch.setattr(SemanticRetrievalManager, "retrieve", unavailable)
+      partial = await client.call_tool(
+        "query", {"query": "document", "modes": ["semantic", "lexical"]}
+      )
+      assert not partial.is_error and partial.structured_content is not None
+      assert partial.structured_content == {
+        "results": [
+          {
+            "entity": "block:1",
+            "label": "Alpha",
+            "evidence": [
+              {"mode": "lexical", "rank": 1, "kind": "terms", "excerpt": "Alpha document"}
+            ],
+          }
+        ],
+        "mode_errors": [{"mode": "semantic", "message": "embedding provider offline"}],
+      }
+
   asyncio.run(scenario())

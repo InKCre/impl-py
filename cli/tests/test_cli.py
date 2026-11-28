@@ -12,6 +12,32 @@ from pathlib import Path
 
 import jwt
 
+CORE_PEER = "00000000-0000-4000-8000-000000000011"
+WEB_PEER = "00000000-0000-4000-8000-000000000012"
+
+
+def extension_status(peer, supported, selected=None, schema=None):
+    return {
+        "peer_id": peer,
+        "supported_distributions": [supported],
+        "extensions": [
+            {
+                "name": "inkcre/rss",
+                "peer_id": peer,
+                "supported_distributions": [supported],
+                "distribution": selected,
+                "version": "1.2.3" if selected else None,
+                "enabled": schema is not None,
+                "config_schema": schema,
+                "loaded_version": "1.2.3" if schema else None,
+                "running": schema is not None,
+                "restart_required": False,
+                "operation": None,
+                "error": None,
+            }
+        ],
+    }
+
 
 class CLIContracts(unittest.TestCase):
     @classmethod
@@ -26,10 +52,8 @@ class CLIContracts(unittest.TestCase):
                         "body": self.rfile.read(int(self.headers.get("Content-Length", "0"))),
                     }
                 )
-                status, content, media_type = (
-                    cls.responses.pop(0)
-                    if cls.responses
-                    else (500, b'{"detail":"unexpected request"}', "application/json")
+                status, content, media_type = cls.responses.get(
+                    self.path, (500, b'{"detail":"unexpected request"}', "application/json")
                 )
                 cls.release_response.wait()
                 try:
@@ -41,7 +65,7 @@ class CLIContracts(unittest.TestCase):
                 except (BrokenPipeError, ConnectionResetError):
                     pass  # A cancelled Job observation deliberately closes the response socket.
 
-            do_GET = do_POST = respond
+            do_GET = do_POST = do_DELETE = respond
 
             def log_message(self, *args):
                 pass
@@ -59,7 +83,7 @@ class CLIContracts(unittest.TestCase):
 
     def setUp(self):
         type(self).requests = []
-        type(self).responses = []
+        type(self).responses = {}
         type(self).release_response = threading.Event()
         self.release_response.set()
         self.temporary = tempfile.TemporaryDirectory()
@@ -100,8 +124,8 @@ class CLIContracts(unittest.TestCase):
             check=False,
         )
 
-    def json_response(self, value, status=200):
-        self.responses.append((status, json.dumps(value).encode(), "application/json"))
+    def json_response(self, path, value, status=200):
+        self.responses[path] = (status, json.dumps(value).encode(), "application/json")
 
     def success(self, result):
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -131,7 +155,7 @@ class CLIContracts(unittest.TestCase):
             (("--connection", "personal"), "personal", self.personal["jwt_secret"]),
             ((), "work", self.work["jwt_secret"]),
         ):
-            self.json_response({"id": prefix})
+            self.json_response(f"/{prefix}/peers/self", {"id": prefix})
             self.assertEqual(self.success(self.invoke(*options, "peer", "get")), {"id": prefix})
             request = self.requests[-1]
             self.assertEqual(request["path"], f"/{prefix}/peers/self")
@@ -168,7 +192,7 @@ class CLIContracts(unittest.TestCase):
         self.assertEqual(self.requests, [])
 
     def test_http_failure_and_failed_job_have_distinct_exit_contracts(self):
-        self.json_response({"detail": "invalid credentials"}, status=401)
+        self.json_response("/personal/jobs/17", {"detail": "invalid credentials"}, status=401)
         rejected = self.invoke("job", "get", "17")
         self.assertEqual(rejected.returncode, 1)
         self.assertEqual(rejected.stdout, "")
@@ -176,7 +200,7 @@ class CLIContracts(unittest.TestCase):
             json.loads(rejected.stderr), {"detail": "invalid credentials", "http_status": 401}
         )
         record = {"id": 17, "status": "failed", "state": {"error": "source unavailable"}}
-        self.json_response(record)
+        self.json_response("/personal/jobs/17", record)
         self.assertEqual(self.success(self.invoke("job", "get", "17")), record)
         self.assertEqual([item["path"] for item in self.requests], ["/personal/jobs/17"] * 2)
 
@@ -189,7 +213,7 @@ class CLIContracts(unittest.TestCase):
                 "error": {"code": "not_found", "message": "relation 8 not found"},
             },
         ]
-        self.json_response(records)
+        self.json_response("/personal/entities/get", records)
         result = self.invoke("get", "block:42", "relation:8")
         self.assertEqual(result.returncode, 1)
         self.assertEqual(json.loads(result.stdout), records)
@@ -206,7 +230,7 @@ class CLIContracts(unittest.TestCase):
         )
 
     def test_job_wait_budget_cancels_inflight_read_without_aborting_job(self):
-        self.json_response({"id": 17, "status": "running"})
+        self.json_response("/personal/jobs/17", {"id": 17, "status": "running"})
         # Hold the HTTP response until the CLI exits, so only its total observation
         # budget can finish the command. The fixture uses no sleeps or timeout response.
         self.release_response.clear()
@@ -220,6 +244,165 @@ class CLIContracts(unittest.TestCase):
         self.assertEqual(
             [(request["method"], request["path"]) for request in self.requests],
             [("GET", "/personal/jobs/17")],
+        )
+
+    def test_extension_selections_target_the_requested_peer_and_return_its_receipt(self):
+        path = "/personal/extensions/inkcre/rss/selection"
+        receipt = extension_status(WEB_PEER, "module_federation")
+        for distribution, suffix, options in (
+            ("python", "", []),
+            ("module_federation", f"?route_to_peer={WEB_PEER}", ["--peer", WEB_PEER]),
+        ):
+            with self.subTest(distribution=distribution):
+                selected = extension_status(
+                    WEB_PEER if options else CORE_PEER, distribution, distribution
+                )
+                self.json_response(path + suffix, selected)
+                self.assertEqual(
+                    self.success(
+                        self.invoke(
+                            "extension",
+                            "select",
+                            "inkcre/rss",
+                            "--distribution",
+                            distribution,
+                            "--version",
+                            "1.2.3",
+                            *options,
+                        )
+                    ),
+                    selected,
+                )
+                self.assertEqual(
+                    json.loads(self.requests[-1]["body"]),
+                    {"distribution": distribution, "version": "1.2.3"},
+                )
+        self.json_response(path + f"?route_to_peer={WEB_PEER}", receipt)
+        self.assertEqual(
+            self.success(self.invoke("extension", "unselect", "inkcre/rss", "--peer", WEB_PEER)),
+            receipt,
+        )
+        self.assertEqual(
+            [(r["method"], r["path"]) for r in self.requests],
+            [
+                ("POST", path),
+                ("POST", path + f"?route_to_peer={WEB_PEER}"),
+                ("DELETE", path + f"?route_to_peer={WEB_PEER}"),
+            ],
+        )
+
+    def test_extension_schema_and_status_read_the_current_peer(self):
+        schema = {"type": "object", "properties": {"token": {"type": "string"}}}
+        status = extension_status(CORE_PEER, "python", "python", schema)
+        self.json_response("/personal/extension-management/v2", status)
+        for command, expected in (
+            (["config", "replace", "inkcre/rss", "--schema"], schema),
+            (["status", "inkcre/rss"], status),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(self.success(self.invoke("extension", *command)), expected)
+                self.assertEqual(self.requests[-1]["method"], "POST")
+                self.assertEqual(
+                    json.loads(self.requests[-1]["body"]),
+                    {"action": "status", "extension": "inkcre/rss"},
+                )
+
+    def test_source_schema_embeds_usable_local_refs_and_omits_the_type_selector(self):
+        endpoint_schema = {
+            "properties": {"type": {"type": "string"}, "config": {}},
+            "required": ["type", "config"],
+        }
+        owner_schema = {
+            "$defs": {"Mailbox": {"enum": ["inbox", "archive"]}},
+            "properties": {"folder": {"$ref": "#/$defs/Mailbox"}},
+        }
+        self.json_response(
+            "/personal/openapi.json",
+            {
+                "paths": {
+                    "/sources": {
+                        "post": {
+                            "requestBody": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {"$ref": "#/components/schemas/NewSource"}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "components": {"schemas": {"NewSource": endpoint_schema}},
+            },
+        )
+        self.json_response("/personal/source-types/example.mail", {"config_schema": owner_schema})
+        form = self.success(self.invoke("source", "create", "--type", "example.mail", "--schema"))
+        self.assertEqual(set(form["properties"]), {"config"})
+        self.assertEqual(form["required"], ["config"])
+        pointer = form["properties"]["config"]["properties"]["folder"]["$ref"]
+        self.assertTrue(pointer.startswith("#/"))
+        resolved = form
+        for key in pointer[2:].split("/"):
+            resolved = resolved[key]
+        self.assertEqual(resolved, {"enum": ["inbox", "archive"]})
+        self.assertCountEqual(
+            [(r["method"], r["path"]) for r in self.requests],
+            [("GET", "/personal/openapi.json"), ("GET", "/personal/source-types/example.mail")],
+        )
+
+    def test_mixed_recall_keeps_second_mode_results_when_first_request_fails(self):
+        suffix = f"?route_to_peer={CORE_PEER}"
+        self.json_response("/personal/retrieval/lexical" + suffix, {"detail": "unavailable"}, 503)
+        ranked = [
+            {
+                "type": "block",
+                "entity": {
+                    "id": id_,
+                    "resolver": "core.text.v1",
+                    "content": content,
+                    "storage": None,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                },
+                "score": score,
+            }
+            for id_, content, score in ((8, "archive", 0.95), (5, "prior notes", 0.8))
+        ]
+        semantic = {"profile": 7, "metric": "cosine", "matches": ranked}
+        self.json_response("/personal/retrieval/semantic" + suffix, semantic)
+        result = self.invoke(
+            "recall",
+            "archive",
+            "--mode",
+            "lexical",
+            "--mode",
+            "semantic",
+            "--limit",
+            "2",
+            "--profile",
+            "7",
+            "--peer",
+            CORE_PEER,
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("逐项错误", json.loads(result.stderr)["detail"])
+        self.assertEqual(
+            json.loads(result.stdout),
+            [
+                {"mode": "lexical", "error": {"detail": "unavailable", "http_status": 503}},
+                {"mode": "semantic", **semantic},
+            ],
+        )
+        self.assertEqual(
+            [(r["method"], r["path"], json.loads(r["body"])) for r in self.requests],
+            [
+                ("POST", "/personal/retrieval/lexical" + suffix, {"query": "archive", "limit": 2}),
+                (
+                    "POST",
+                    "/personal/retrieval/semantic" + suffix,
+                    {"query": "archive", "profile": 7, "options": {"limit": 2}},
+                ),
+            ],
         )
 
     def test_binary_export_remains_readable_after_directory_move_without_refetch(self):
@@ -236,7 +419,11 @@ class CLIContracts(unittest.TestCase):
             (b"\x00\xffwhole", "application/octet-stream", False),
         ):
             with self.subTest(media_type=media_type):
-                self.responses.append((200, content, media_type))
+                self.responses["/personal/blocks/42/resolver/methods/get_solved_content"] = (
+                    200,
+                    content,
+                    media_type,
+                )
                 result = self.invoke(
                     "resolver",
                     "invoke",

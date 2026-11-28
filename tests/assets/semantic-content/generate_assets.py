@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from io import BytesIO
 from pathlib import Path
 import wave
@@ -153,28 +152,6 @@ def _write_zip() -> None:
     archive.writestr("hello.txt", "InKCre semantic content\n")
 
 
-def _write_textual_and_generic_files() -> None:
-  (ASSET_DIRECTORY / "plain.txt").write_text(
-    "InKCre semantic content\n",
-    encoding="utf-8",
-  )
-  (ASSET_DIRECTORY / "document.html").write_text(
-    "<!doctype html><html><head><title>InKCre</title></head>"
-    "<body><main>Semantic content</main></body></html>\n",
-    encoding="utf-8",
-  )
-  (ASSET_DIRECTORY / "unknown.bin").write_bytes(b"InKCre\x00semantic-content\n")
-
-
-def _verify_case_table() -> None:
-  cases = json.loads((ASSET_DIRECTORY / "cases.json").read_text(encoding="utf-8"))
-  missing = [
-    case["file"] for case in cases if not (ASSET_DIRECTORY / case["file"]).is_file()
-  ]
-  if missing:
-    raise RuntimeError(f"semantic-content assets missing after generation: {missing}")
-
-
 def main() -> None:
   _write_image()
   _write_audio()
@@ -183,8 +160,7 @@ def main() -> None:
   _write_pdf()
   _write_epub()
   _write_zip()
-  _write_textual_and_generic_files()
-  _verify_case_table()
+  (ASSET_DIRECTORY / "unknown.bin").write_bytes(b"InKCre\x00semantic-content\n")
 
 
 if __name__ == "__main__":

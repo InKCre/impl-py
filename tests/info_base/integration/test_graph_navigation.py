@@ -126,12 +126,16 @@ def test_paths_preserve_persisted_direction_and_distinguish_exhaustion_from_limi
       assert {block.id for block in result.graph.blocks} == set(result.block_path)
       assert {edge.id for edge in result.graph.relations} == set(result.relation_path)
       if start != target:
-        assert {
-          (edge.from_, edge.to_, edge.content) for edge in result.graph.relations
-        } == {
+        edges = {edge.id: edge for edge in result.graph.relations}
+        persisted_path = [
+          (edges[edge_id].from_, edges[edge_id].to_, edges[edge_id].content)
+          for edge_id in result.relation_path
+        ]
+        forward = [
           (ids["start"], ids["bridge"], "links"),
           (ids["bridge"], ids["target"], "links"),
-        }
+        ]
+        assert persisted_path == (forward if direction == "out" else forward[::-1])
     bounded = await GraphNavigationRetrievalManager.find_path(
       ids["start"], ids["target"], direction="out", max_hops=1
     )

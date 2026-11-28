@@ -4,7 +4,6 @@ import datetime
 from unittest.mock import AsyncMock
 
 from inkcre_core.business.info_base.resolver import (
-  MarkdownResolver,
   ResolverManager,
   register_core_resolvers,
 )
@@ -29,9 +28,9 @@ def test_markdown_keeps_source_and_unicode(async_runner, monkeypatch):
     updated_at=now,
   )
   reader = ResolverManager.get(block)
-  assert isinstance(reader, MarkdownResolver)
   assert async_runner.run(reader.get_text()) == source
+  updated = "# 存储中的更新\n\n" + source
   monkeypatch.setattr(
-    BlockModel, "get_hydrated_content", AsyncMock(return_value=source.encode("utf-16"))
+    BlockModel, "get_hydrated_content", AsyncMock(return_value=updated.encode("utf-16"))
   )
-  assert async_runner.run(reader.get_text(refresh=True)) == source
+  assert async_runner.run(reader.get_text(refresh=True)) == updated

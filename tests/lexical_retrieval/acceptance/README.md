@@ -11,11 +11,13 @@ authored WebVTT into Matroska without changing the source streams. NASA's media
 usage guidance remains the license and attribution authority:
 <https://www.nasa.gov/nasa-brand-center/images-and-media/>.
 
-Run against an explicitly selected disposable, fully migrated PostgreSQL
-database and a real Alibaba Model Studio model:
+选用独占的临时 PostgreSQL 集群和真实 Alibaba Model Studio 模型。测试用初始化该集群的角色密码创建已迁移的模板，并从模板克隆本次场景的数据库。使用 Core 角色连接、同一集群的管理员连接及以下变量运行。
 
 ```shell
 INKCRE_TEST_DATABASE_URL='...' \
+INKCRE_TEST_POSTGRES_ADMIN_URL='...' \
+CORE_DATABASE_PASSWORD='...' \
+POSTGREST_DATABASE_PASSWORD='...' \
 INKCRE_ACCEPTANCE_AI_API_KEY='...' \
 INKCRE_ACCEPTANCE_AI_BASE_URL='https://dashscope.aliyuncs.com/compatible-mode/v1' \
 INKCRE_ACCEPTANCE_MULTIMODAL_MODEL='qwen3.5-omni-flash' \

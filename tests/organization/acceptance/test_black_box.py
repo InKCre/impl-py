@@ -12,33 +12,14 @@ import typing
 from pathlib import Path
 
 import pytest
-import sqlalchemy
 import sqlmodel
 
 from inkcre_core.business.ai import AIManager
 from inkcre_core.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
-from inkcre_core.business.graph_navigation_retrieval.tools import (
-  FIND_PATH_TOOL,
-  GET_CONNECTED_COMPONENTS_TOOL,
-  GET_ENTITY_NEIGHBORHOOD_TOOL,
-)
-from inkcre_core.business.info_base.tools import GET_ENTITIES_TOOL, RETRIEVE_TOOL
 from inkcre_core.business.info_base.resolver import ResolverManager, register_core_resolvers
-from inkcre_core.business.info_base.resolver.tools import RESOLVER_TOOL
 from inkcre_core.business.job import JobManager
 from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
-from inkcre_core.business.organization import (
-  ANCHOR_EXISTING_REFERENT_TOOL,
-  CREATE_SYNTHESIS_TOOL,
-  DRAFT_GRAPH_TOOL,
-  GET_DRAFT_GRAPH_SCHEMA_TOOL,
-  RECORD_DUPLICATE_ASSERTION_TOOL,
-  RECORD_EVIDENCE_STANCE_TOOL,
-  RECORD_REFINEMENT_TOOL,
-  RECORD_SUPERSESSION_TOOL,
-  SUBMIT_GRAPH_TOOL,
-  register_core_organization_behaviors,
-)
+from inkcre_core.business.organization import register_core_organization_behaviors
 from inkcre_core.business.organization.duplicate_assertion import (
   DUPLICATE_ASSERTION_CONFIG_KEY,
   DUPLICATE_ASSERTION_CONFIG_SCHEMA,
@@ -85,10 +66,6 @@ from inkcre_core.business.organization.synthesis import (
 from tests.database import TestSession
 from inkcre_core.schemas import AgentDefinitionModel
 from inkcre_core.schemas.ai import AIModelModel, AIProviderModel, ChatCapability
-from inkcre_core.schemas.deployment_config import (
-  DeploymentConfigModel,
-  DeploymentConfigView,
-)
 from inkcre_core.schemas.info_base.block import BlockForm, BlockModel
 from inkcre_core.schemas.info_base.relation import RelationModel
 from inkcre_core.schemas.job import JobModel, JobStatus
@@ -97,30 +74,17 @@ from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceOptions
 from .corpus import CorpusManifest, load_manifest, read_artifact
 
 
-pytestmark = [pytest.mark.integration, pytest.mark.acceptance]
-
-
-@pytest.fixture(autouse=True)
-def job_execution(async_runner):
-  JobManager.start()
-  try:
-    yield
-  finally:
-    async_runner.run(JobManager.shutdown())
+pytestmark = [
+  pytest.mark.integration,
+  pytest.mark.acceptance,
+  pytest.mark.usefixtures("isolated_database_runtime"),
+]
 
 
 _REQUIRED_ENVIRONMENT = (
   "INKCRE_TEST_DATABASE_URL",
   "INKCRE_ORGANIZATION_ACCEPTANCE_AI_API_KEY",
   "INKCRE_ORGANIZATION_ACCEPTANCE_CHAT_MODEL",
-)
-_READ_TOOLS = (
-  RETRIEVE_TOOL,
-  RESOLVER_TOOL,
-  GET_ENTITIES_TOOL,
-  GET_ENTITY_NEIGHBORHOOD_TOOL,
-  FIND_PATH_TOOL,
-  GET_CONNECTED_COMPONENTS_TOOL,
 )
 
 
@@ -129,7 +93,6 @@ class _Behavior(typing.NamedTuple):
   config_key: str
   config_schema: str
   job_type: str
-  mutation_tools: tuple[str, ...]
 
 
 _BEHAVIORS = (
@@ -138,49 +101,42 @@ _BEHAVIORS = (
     RUMINATION_CONFIG_KEY,
     RUMINATION_CONFIG_SCHEMA,
     RUMINATION_JOB_TYPE,
-    (GET_DRAFT_GRAPH_SCHEMA_TOOL, DRAFT_GRAPH_TOOL, SUBMIT_GRAPH_TOOL),
   ),
   _Behavior(
     "supersession",
     SUPERSESSION_CONFIG_KEY,
     SUPERSESSION_CONFIG_SCHEMA,
     SUPERSESSION_JOB_TYPE,
-    (RECORD_SUPERSESSION_TOOL,),
   ),
   _Behavior(
     "refinement",
     REFINEMENT_CONFIG_KEY,
     REFINEMENT_CONFIG_SCHEMA,
     REFINEMENT_JOB_TYPE,
-    (RECORD_REFINEMENT_TOOL,),
   ),
   _Behavior(
     "evidence stance",
     EVIDENCE_STANCE_CONFIG_KEY,
     EVIDENCE_STANCE_CONFIG_SCHEMA,
     EVIDENCE_STANCE_JOB_TYPE,
-    (RECORD_EVIDENCE_STANCE_TOOL,),
   ),
   _Behavior(
     "synthesis",
     SYNTHESIS_CONFIG_KEY,
     SYNTHESIS_CONFIG_SCHEMA,
     SYNTHESIS_JOB_TYPE,
-    (CREATE_SYNTHESIS_TOOL,),
   ),
   _Behavior(
     "existing referent anchoring",
     REFERENT_ANCHORING_CONFIG_KEY,
     REFERENT_ANCHORING_CONFIG_SCHEMA,
     REFERENT_ANCHORING_JOB_TYPE,
-    (ANCHOR_EXISTING_REFERENT_TOOL,),
   ),
   _Behavior(
     "duplicate assertion",
     DUPLICATE_ASSERTION_CONFIG_KEY,
     DUPLICATE_ASSERTION_CONFIG_SCHEMA,
     DUPLICATE_ASSERTION_JOB_TYPE,
-    (RECORD_DUPLICATE_ASSERTION_TOOL,),
   ),
 )
 
@@ -222,7 +178,7 @@ async def _maintain_lexical_projection() -> None:
   assert report.failed == 0, report.diagnostics
 
 
-async def _create_provider_and_model() -> tuple[int, int]:
+async def _create_provider_and_model() -> int:
   await AIManager.sync_dialects_async()
   config = {"api_key": os.environ["INKCRE_ORGANIZATION_ACCEPTANCE_AI_API_KEY"]}
   if base_url := os.getenv("INKCRE_ORGANIZATION_ACCEPTANCE_AI_BASE_URL"):
@@ -248,7 +204,7 @@ async def _create_provider_and_model() -> tuple[int, int]:
     )
     db_session.add(model)
     db_session.commit()
-    return _required_id(provider.id), _required_id(model.id)
+    return _required_id(model.id)
 
 
 def _create_agents(model_id: int) -> dict[str, int]:
@@ -326,21 +282,14 @@ def _apply_upstream_change(
   aliases[change.alias] = block_id
 
 
-def _snapshot_graph(block_ids_before: set[int]) -> dict[str, typing.Any]:
+def _snapshot_graph() -> dict[str, typing.Any]:
   with TestSession() as db_session:
     blocks = db_session.exec(sqlmodel.select(BlockModel)).all()
     relations = db_session.exec(sqlmodel.select(RelationModel)).all()
-  new_blocks = [block for block in blocks if _required_id(block.id) not in block_ids_before]
-  visible_ids = {_required_id(block.id) for block in new_blocks}
-  visible_relations = [
-    relation
-    for relation in relations
-    if relation.from_ in visible_ids or relation.to_ in visible_ids
-  ]
   return {
     "blocks": [
       {"id": block.id, "resolver": block.resolver, "content": block.content}
-      for block in new_blocks
+      for block in blocks
     ],
     "relations": [
       {
@@ -349,7 +298,7 @@ def _snapshot_graph(block_ids_before: set[int]) -> dict[str, typing.Any]:
         "content": relation.content,
         "to": relation.to_,
       }
-      for relation in visible_relations
+      for relation in relations
     ],
   }
 
@@ -410,62 +359,6 @@ async def _use_readback() -> dict[str, typing.Any]:
   }
 
 
-async def _restore_config(key: str, backup: DeploymentConfigView | None) -> None:
-  with TestSession() as db_session:
-    record = db_session.get(DeploymentConfigModel, key)
-    if record is not None:
-      db_session.delete(record)
-      db_session.commit()
-  if backup is not None:
-    await DeploymentConfigService.replace(key, backup.schema_id, backup.value)
-
-
-async def _cleanup(  # noqa: PLR0913
-  *,
-  block_ids_before: set[int],
-  job_ids_before: set[int],
-  config_backups: dict[str, DeploymentConfigView | None],
-  agent_ids: typing.Collection[int],
-  model_id: int | None,
-  provider_id: int | None,
-) -> None:
-  for key, backup in config_backups.items():
-    await _restore_config(key, backup)
-  with TestSession() as db_session:
-    new_block_ids = (
-      set(db_session.exec(sqlmodel.select(BlockModel.id)).all()) - block_ids_before
-    )
-    if new_block_ids:
-      db_session.connection().execute(
-        sqlalchemy.text(
-          "DELETE FROM inkcre.relations WHERE from_ = ANY(:ids) OR to_ = ANY(:ids)"
-        ),
-        {"ids": list(new_block_ids)},
-      )
-      db_session.connection().execute(
-        sqlalchemy.text("DELETE FROM inkcre.blocks WHERE id = ANY(:ids)"),
-        {"ids": list(new_block_ids)},
-      )
-    new_job_ids = set(db_session.exec(sqlmodel.select(JobModel.id)).all()) - job_ids_before
-    for job_id in new_job_ids:
-      job = db_session.get(JobModel, job_id)
-      if job is not None:
-        db_session.delete(job)
-    for agent_id in agent_ids:
-      agent = db_session.get(AgentDefinitionModel, agent_id)
-      if agent is not None:
-        db_session.delete(agent)
-    if model_id is not None:
-      model = db_session.get(AIModelModel, model_id)
-      if model is not None:
-        db_session.delete(model)
-    if provider_id is not None:
-      provider = db_session.get(AIProviderModel, provider_id)
-      if provider is not None:
-        db_session.delete(provider)
-    db_session.commit()
-
-
 @pytest.mark.skipif(
   not _available(),
   reason=(
@@ -479,53 +372,20 @@ def test_two_information_worlds_are_organized_for_human_review(
   register_core_resolvers()
   register_core_organization_behaviors()
   async_runner.run(JobManager.sync_job_types())
-  with TestSession() as db_session:
-    block_ids_before = {
-      _required_id(block_id)
-      for block_id in db_session.exec(sqlmodel.select(BlockModel.id)).all()
-    }
-    job_ids_before = {
-      _required_id(job_id) for job_id in db_session.exec(sqlmodel.select(JobModel.id)).all()
-    }
+  aliases = _ingest(manifest)
+  async_runner.run(_maintain_lexical_projection())
+  model_id = async_runner.run(_create_provider_and_model())
+  agent_ids = _create_agents(model_id)
+  async_runner.run(_configure_agents(agent_ids))
+  job_results = async_runner.run(_run_round(1))
+  _apply_upstream_change(manifest, aliases)
+  async_runner.run(_maintain_lexical_projection())
+  job_results.extend(async_runner.run(_run_round(2)))
 
-  provider_id: int | None = None
-  model_id: int | None = None
-  agent_ids: dict[str, int] = {}
-  config_backups: dict[str, DeploymentConfigView | None] = {}
-  aliases: dict[str, int] = {}
-  job_results: list[dict[str, typing.Any]] = []
-  try:
-    aliases = _ingest(manifest)
-    async_runner.run(_maintain_lexical_projection())
-    provider_id, model_id = async_runner.run(_create_provider_and_model())
-    agent_ids = _create_agents(model_id)
-    config_backups = {
-      behavior.config_key: async_runner.run(
-        DeploymentConfigService.read(behavior.config_key)
-      )
-      for behavior in _BEHAVIORS
-    }
-    async_runner.run(_configure_agents(agent_ids))
-    job_results.extend(async_runner.run(_run_round(1)))
-    _apply_upstream_change(manifest, aliases)
-    async_runner.run(_maintain_lexical_projection())
-    job_results.extend(async_runner.run(_run_round(2)))
-
-    evidence = {
-      "aliases": aliases,
-      "jobs": job_results,
-      "graph": _snapshot_graph(block_ids_before),
-      "later_use": async_runner.run(_use_readback()),
-    }
-    print("ORGANIZATION_ACCEPTANCE_EVIDENCE=" + json.dumps(evidence, ensure_ascii=False))
-  finally:
-    async_runner.run(
-      _cleanup(
-        block_ids_before=block_ids_before,
-        job_ids_before=job_ids_before,
-        config_backups=config_backups,
-        agent_ids=agent_ids.values(),
-        model_id=model_id,
-        provider_id=provider_id,
-      )
-    )
+  evidence = {
+    "aliases": aliases,
+    "jobs": job_results,
+    "graph": _snapshot_graph(),
+    "later_use": async_runner.run(_use_readback()),
+  }
+  print("ORGANIZATION_ACCEPTANCE_EVIDENCE=" + json.dumps(evidence, ensure_ascii=False))
