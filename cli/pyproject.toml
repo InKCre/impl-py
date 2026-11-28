@@ -9,6 +9,7 @@ dependencies = [
   "click>=8.1,<9",
   "pydantic>=2.10,<3",
   "httpx>=0.28.1,<0.29",
+  "certifi>=2026.10.19",
   "PyJWT>=2.10,<3",
 ]
 

@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from inkcre_core.libs.obsrv.main import close_obsrv, setup_obsrv, start_obsrv
 
 from app.settings import settings
+from app.access_log import access_log_config
 
 logger = setup_obsrv(settings.obsrv)
 # Setup logging end
@@ -397,7 +398,9 @@ if __name__ == "__main__":
 
   async def serve() -> None:
     global _CURRENT_SERVER
-    config = uvicorn.Config(api_app, host=settings.host, port=settings.port)
+    config = uvicorn.Config(
+      api_app, host=settings.host, port=settings.port, log_config=access_log_config()
+    )
     _CURRENT_SERVER = uvicorn.Server(config)
     await _CURRENT_SERVER.serve()
     if process_restart_requested():
