@@ -39,7 +39,7 @@ freezing a model Tool sequence.
 
 ## Start Without IDs
 
-The eight tools are `meta_discover`, `query`, `open_entities`, `read_blocks`, `expand_entities`, `find_path`,
+The evidence tools are `meta_discover`, `query`, `open_entities`, `read_blocks`, `expand_entities`, `find_path`,
 `resolver_methods`, `invoke_resolver_methods`. There are no old-name aliases: refresh client tool snapshots after upgrading.
 Sink type, endpoint and Resource URIs are unchanged.
 
@@ -75,6 +75,37 @@ Automated disposable-database acceptance is part of `pdm run test:database`: mou
 Core/SinkManager lifecycle, real graph producers and retrieval maintenance, deterministic embedding dialect, metadata →
 query → open → read, adversarial pre-top-K filters, PAT rejection and shutdown cleanup. A skipped E2E is not acceptance;
 ChatGPT/tunnel remains separate manual verification.
+
+## System resources and keyword index maintenance
+
+Pass `collection="sources"` to `system_resources` to find a Source ID. For a Telegram Source, read its
+bound user, attachment setting, pinned bot ID and last update ID where present. To inspect the latest collection
+Jobs for Source 17, use:
+
+```json
+{"collection":"jobs","job_filters":{"source":17,"type":"core.source.collect.v1"},"limit":10}
+```
+
+Use `{"collection":"jobs","id":"19"}` for an exact Job. For lists, pass `next_cursor` unchanged with the same
+collection and filters. Pages contain at most 100 rows. The other collections are `crons`, `peers`,
+`extensions`, `sinks`, `agents`, `ai_models` and `embedding_profiles`. Registered Source code, an active Peer
+lease, an enabled Sink or Extension selection, and a running instance are different facts.
+
+Resource reads work with the existing PAT. They expose allowlisted operational fields. Raw config, generic Job
+payload/state, free-text provider errors, and credentials are omitted. For Telegram, Job counts and diagnostic scopes
+are available. Use the deployment's administrative diagnostics for full logs.
+
+Call `lexical_index_status` to see whether any Block has a missing or outdated projection and to read recent,
+pending and running jobs. Some Resolver types cannot produce a projection. Each Job's counters describe that batch.
+
+To let a trusted MCP client submit work, add `"allow_lexical_maintenance": true` beside its Sink's `pat`. It is
+false by default. `submit_lexical_maintenance(operation="maintain")` queues a bounded batch for missing or stale
+records. `operation="rebuild"` also refreshes existing records and may fetch external content. The tool returns a
+Job ID. A capable Core worker must claim it. Poll `system_resources` to read the true lifecycle and report. If
+`next_after_block` is present, submit the same operation with `continue_from_job` set to the completed Job's ID.
+Upgrade every Core worker that executes lexical Jobs before submitting continuation batches.
+Starting a fresh maintenance pass gives previously unavailable records another chance after their underlying
+problem is addressed.
 
 ## Diagnostics
 

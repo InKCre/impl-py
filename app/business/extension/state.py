@@ -140,6 +140,13 @@ class ExtensionStateService:
     async with extension_uow() as repository:
       return tuple(self._extension(row) for row in await repository.list())
 
+  async def page(
+    self, *, limit: int, cursor: str | None
+  ) -> tuple[typing.Sequence[InstalledExtension], str | None]:
+    async with extension_uow() as repository:
+      rows, next_cursor = await repository.page(limit, cursor)
+      return [self._extension(row) for row in rows], next_cursor
+
   async def get(self, name: str) -> InstalledExtension | None:
     async with extension_uow() as repository:
       row = await repository.get(name)
@@ -234,10 +241,10 @@ class ExtensionStateService:
       return dict(row.config), dict(row.state)
 
   async def list_participations(
-    self, peer_id: uuid.UUID
+    self, peer_id: uuid.UUID, *, names: tuple[str, ...] | None = None
   ) -> tuple[ExtensionParticipation, ...]:
     async with extension_uow() as repository:
-      rows = await repository.list_participations(peer_id)
+      rows = await repository.list_participations(peer_id, names)
       return tuple(self._participation(row) for row in rows)
 
   async def get_participation(

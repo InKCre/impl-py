@@ -7,6 +7,8 @@ The private schema lives exclusively in the explicitly selected disposable datab
 
 import asyncio
 from contextlib import asynccontextmanager
+import datetime
+import json
 import logging
 import os
 import socket
@@ -28,6 +30,7 @@ import uvicorn
 from app.business.sink import SinkManager
 from app.business.sink.mcp import MCPSink
 from app.core import CoreMiddleware
+from app.database_contract import INTERNAL_SCHEMA
 from app.database_contract.connection import normalized_database_url
 from app.routes import lexical_retrieval, retrieval, semantic_retrieval
 from inkcre_core import Core
@@ -39,10 +42,13 @@ from inkcre_core.business.info_base.resolver import ResolverManager, register_co
 from inkcre_core.business.info_base.resolver.text import TextResolver
 from inkcre_core.business.info_base.storage import StorageManager, WritableStorage
 from inkcre_core.business.lexical_retrieval import LexicalRetrievalManager
+from inkcre_core.business.lexical_retrieval import LEXICAL_REBUILD_JOB_TYPE
+from inkcre_core.business.job import JobManager
 from inkcre_core.business.semantic_retrieval import SemanticRetrievalManager
 from inkcre_core.business.source import SourceBase, SourceManager
 from inkcre_core.persistence.info_base.uow import graph_uow
 from inkcre_core.schemas import Base
+from inkcre_core.schemas.extension import ExtensionModel
 from inkcre_core.schemas.ai import (
   AIModelModel,
   AIProviderModel,
@@ -51,11 +57,13 @@ from inkcre_core.schemas.ai import (
 )
 from inkcre_core.schemas.info_base import GraphBlockForm, GraphForm, GraphRelationForm
 from inkcre_core.schemas.info_base.query import BlockQueryFilters
+from inkcre_core.schemas.job import JobModel, JobStatus
 from inkcre_core.schemas.lexical_retrieval import LexicalRetrievalRequest
 from inkcre_core.schemas.semantic_retrieval import (
   SemanticRetrievalRequest,
   VectorRetrievalOptions,
 )
+from inkcre_core.schemas.source import SourceModel, SourceTypesModel
 from tests.database import TEST_ENGINE
 
 pytestmark = [
@@ -75,6 +83,9 @@ TOOLS = {
   "find_path",
   "resolver_methods",
   "invoke_resolver_methods",
+  "system_resources",
+  "lexical_index_status",
+  "submit_lexical_maintenance",
 }
 NEEDLE = "quartzneedle"
 
@@ -94,6 +105,13 @@ def journey_database():
     with owner.begin() as connection:
       connection.execute(sqlalchemy.schema.CreateSchema(schema))
       Base.metadata.create_all(connection)
+      connection.execute(
+        sqlalchemy.text(
+          f'CREATE TRIGGER set_jobs_lifecycle_timestamps BEFORE UPDATE ON "{schema}".jobs '
+          f'FOR EACH ROW EXECUTE FUNCTION "{INTERNAL_SCHEMA}".'
+          "set_job_lifecycle_timestamps()"
+        )
+      )
       quote = connection.dialect.identifier_preparer.quote_identifier
       for grant in (
         f"USAGE ON SCHEMA {quote(schema)}",
@@ -171,6 +189,7 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
     )
     core = Core(engine)
     pat = uuid.uuid4().hex
+    source_secret = uuid.uuid4().hex
     server_task = None
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
@@ -205,6 +224,7 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
       with core.bind():
         await StorageManager.setup_builtin_storages_async()
         await SourceManager.sync_source_types_async()
+        await JobManager.sync_job_types()
         await AIManager.sync_dialects_async()
         # AI registry facts are fixtures, not graph/retrieval-index inserts.
         with owner.begin() as connection:
@@ -231,6 +251,55 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
             .values(name="MCP journey", ai_model=model, dimensions=3)
             .returning(sqlmodel.col(EmbeddingProfileModel.id))
           ).scalar_one()
+        with sqlmodel.Session(owner) as db:
+          db.add(
+            ExtensionModel(
+              name="test/telegram",
+              nickname="Telegram fixture",
+              config={"token": source_secret},
+              state={"private": source_secret},
+            )
+          )
+          telegram_type = "extensions.telegram.source.Source"
+          db.add(
+            SourceTypesModel(
+              id=telegram_type,
+              description="Telegram Source",
+              config_schema={},
+              collect_config_schema={},
+            )
+          )
+          db.flush()
+          source = SourceModel(
+            type=telegram_type,
+            config={"bot_token": source_secret, "bound_user_id": 17},
+            state={"bot_id": 91, "last_update_id": 200, "private": source_secret},
+          )
+          db.add(source)
+          db.flush()
+          assert source.id is not None
+          source_id = source.id
+          now = datetime.datetime.now(datetime.UTC)
+          collection_ids = []
+          for _ in range(2):
+            job = JobModel(
+              type="core.source.collect.v1",
+              parameters={"source": source_id, "config": {"token": source_secret}},
+              status=JobStatus.FINISHED,
+              timeout_seconds=30,
+              started_at=now,
+              closed_at=now,
+              state={
+                "counts": {"saved": 0, "failed": 0},
+                "diagnostics": [
+                  {"update_id": 200, "scope": "acknowledgement", "message": source_secret}
+                ],
+              },
+            )
+            db.add(job)
+            db.flush()
+            collection_ids.append(job.id)
+          db.commit()
         await DeploymentConfigService.replace(
           "semantic_retrieval",
           "core.semantic_retrieval.config.v1",
@@ -329,6 +398,65 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
               assert not response.is_error, response
               assert response.structured_content is not None
               return response.structured_content
+
+            sources = await call("system_resources", collection="sources")
+            assert [row["id"] for row in sources["results"]] == [source_id]
+            (telegram,) = (
+              await call("system_resources", collection="sources", id=str(source_id))
+            )["results"]
+            assert telegram["config"] == {"bound_user_id": 17}
+            assert telegram["state"] == {"bot_id": 91, "last_update_id": 200}
+            assert telegram["registered_locally"] is False
+            filters = {"source": source_id, "status": "finished"}
+            first_page = await call(
+              "system_resources", collection="jobs", limit=1, job_filters=filters
+            )
+            (first_job,) = first_page["results"]
+            assert first_job["id"] == collection_ids[1]
+            assert first_job["state"] == {
+              "counts": {"saved": 0, "failed": 0},
+              "diagnostics": [{"update_id": 200, "scope": "acknowledgement"}],
+            }
+            second_page = await call(
+              "system_resources",
+              collection="jobs",
+              limit=1,
+              job_filters=filters,
+              cursor=first_page["next_cursor"],
+            )
+            assert [row["id"] for row in second_page["results"]] == [collection_ids[0]]
+            assert second_page["next_cursor"] is None
+            sinks = await call("system_resources", collection="sinks", id=str(sink_id))
+            assert sinks["results"][0]["running_locally"]
+            extensions = await call("system_resources", collection="extensions")
+            assert extensions["results"] == [
+              {
+                "id": "test/telegram",
+                "nickname": "Telegram fixture",
+                "local_selection": None,
+                "running_version_locally": None,
+              }
+            ]
+            for value in (sources, telegram, first_page, second_page, sinks, extensions):
+              serialized = json.dumps(value)
+              assert all(secret not in serialized for secret in (source_secret, pat))
+            for collection in (
+              "crons",
+              "peers",
+              "extensions",
+              "agents",
+              "ai_models",
+              "embedding_profiles",
+            ):
+              assert "results" in await call("system_resources", collection=collection)
+            status = await call("lexical_index_status")
+            assert status["has_missing_or_stale_projection"] is True
+            assert status["maintain"]["latest"] is None
+            forbidden = await client.call_tool(
+              "submit_lexical_maintenance", {"operation": "maintain"}
+            )
+            assert forbidden.is_error
+            assert (await call("lexical_index_status"))["maintain"]["latest"] is None
 
             catalogs = {}
             for collection in ("resolvers", "source_types", "storage_types", "storages"):
@@ -455,6 +583,48 @@ def test_mounted_http_metadata_query_read_and_prefiltered_ranking(
               assert {
                 row["entity"]["id"] for row in response.json()["matches"]
               } == target_ids
+        async with httpx2.AsyncClient(headers={"Authorization": f"Bearer {pat}"}) as http:
+          async with Client(
+            streamable_http_client(url, http_client=http), mode="legacy"
+          ) as client:
+
+            async def call(tool, **arguments):
+              response = await client.call_tool(tool, arguments)
+              assert not response.is_error, response
+              assert response.structured_content is not None
+              return response.structured_content
+
+            await SinkManager.update_config(
+              sink_id, {"pat": pat, "allow_lexical_maintenance": True}
+            )
+            previous = await JobManager.create(
+              LEXICAL_REBUILD_JOB_TYPE, {"options": {"max_records": 1}}
+            )
+            assert previous.id is not None
+            JobManager.start()
+            try:
+              assert await JobManager.run(previous.id)
+              response = await call(
+                "submit_lexical_maintenance",
+                operation="rebuild",
+                continue_from_job=previous.id,
+              )
+              created = response["job"]
+              assert created["status"] == "pending"
+              async with asyncio.timeout(5):
+                while True:
+                  (executed,) = (
+                    await call("system_resources", collection="jobs", id=str(created["id"]))
+                  )["results"]
+                  if executed["status"] not in ("pending", "running"):
+                    break
+                  await asyncio.sleep(0.02)
+              assert executed["status"] == "finished"
+              assert executed["state"]["indexed"] > 0
+              assert executed["parameters"]["options"]["after_block"] > 0
+            finally:
+              await JobManager.shutdown()
+
         await SinkManager.disable(sink_id, core.options.peer_id)
         async with httpx.AsyncClient() as http:
           assert (

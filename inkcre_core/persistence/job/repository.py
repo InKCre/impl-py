@@ -52,7 +52,13 @@ class JobRepository:
     return rows, rows[-1].id if more else None
 
   async def list_jobs(
-    self, *, limit: int, cursor: int | None, type_: str | None, status: JobStatus | None
+    self,
+    *,
+    limit: int,
+    cursor: int | None,
+    type_: str | None,
+    status: JobStatus | None,
+    source: int | None = None,
   ):
     statement = sqlmodel.select(JobModel).order_by(sqlmodel.col(JobModel.id).desc())
     if cursor is not None:
@@ -61,6 +67,9 @@ class JobRepository:
       statement = statement.where(JobModel.type == type_)
     if status is not None:
       statement = statement.where(JobModel.status == status)
+    if source is not None:
+      parameters = typing.cast(typing.Any, JobModel.parameters)
+      statement = statement.where(parameters.contains({"source": source}))
     rows = list((await self._session.scalars(statement.limit(limit + 1))).all())
     more = len(rows) > limit
     rows = rows[:limit]

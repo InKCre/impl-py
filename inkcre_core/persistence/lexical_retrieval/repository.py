@@ -82,6 +82,21 @@ class LexicalRepository:
     page_size: int,
     rebuild_cutoff: datetime.datetime | None,
   ) -> tuple[tuple[BlockModel, ...], int, bool]:
+    key = sqlmodel.col(BlockModel.id)
+    statement = self._candidates(rebuild_cutoff).where(key > cursor)
+    candidates = tuple(
+      await self._session.scalars(statement.order_by(key).limit(page_size + 1))
+    )
+    blocks = candidates[:page_size]
+    next_cursor = typing.cast(int, blocks[-1].id) if blocks else cursor
+    return blocks, next_cursor, len(candidates) <= page_size
+
+  async def has_missing_or_stale_projection(self) -> bool:
+    statement = self._candidates(None).with_only_columns(sqlmodel.col(BlockModel.id))
+    return bool(await self._session.scalar(sqlalchemy.select(statement.exists())))
+
+  @staticmethod
+  def _candidates(rebuild_cutoff: datetime.datetime | None):
     block_columns = typing.cast(
       typing.Any,
       BlockModel.__table__.c,  # pyrefly: ignore[missing-attribute]
@@ -105,13 +120,11 @@ class LexicalRepository:
         BlockLexicalRecordModel,
         record_columns.block == block_columns.id,
       )
-      .where(block_columns.id > cursor, needs_projection)
-      .order_by(block_columns.id)
-      .limit(page_size)
+      .where(needs_projection)
     )
-    blocks = tuple(await self._session.scalars(statement))
-    next_cursor = typing.cast(int, blocks[-1].id) if blocks else cursor
-    return blocks, next_cursor, len(blocks) < page_size
+    if rebuild_cutoff is not None:
+      statement = statement.where(block_columns.created_at <= rebuild_cutoff)
+    return statement
 
   async def database_now(self) -> datetime.datetime:
     return (
