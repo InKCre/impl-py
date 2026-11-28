@@ -974,18 +974,19 @@ class ExtensionHost:
       try:
         await self._stop(running)
       except Exception as error:
+        self._operations[name] = (None, str(error))
         failures.append(error)
+      else:
+        self._operations.pop(name, None)
       if published:
         try:
           await PeerManager.refresh_self(settings.peer_lease_ttl_seconds)
         except Exception as error:
           failures.append(error)
+      if len(failures) == 1:
+        raise failures[0]
       if failures:
-        self._operations[name] = (None, "\n".join(str(error) for error in failures))
-        if len(failures) == 1:
-          raise failures[0]
         raise ExceptionGroup("Extension disable failed", failures)
-      self._operations.pop(name, None)
       return selection
 
   async def start_enabled(self, app: fastapi.FastAPI) -> None:

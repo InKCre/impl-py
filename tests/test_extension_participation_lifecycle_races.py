@@ -204,7 +204,7 @@ def test_disable_persists_intent_before_cleanup_and_retries_residual_runtime(
   status = async_runner.run(host.status(peer_id, name)).extensions[0]
   assert not status.enabled
   assert status.running
-  assert status.error == "close callback failed\nadvertisement refresh failed"
+  assert status.error == "close callback failed"
 
   cold = ExtensionHost(store=typing.cast(ExtensionStore, store))
 
@@ -249,6 +249,32 @@ def test_disable_persists_intent_before_cleanup_and_retries_residual_runtime(
   async_runner.run(host.manage(command, route_to_peer=peer_id))
   assert store.writes == [False]
   assert refresh_count == 2
+
+
+def test_disable_retry_does_not_report_a_stale_advertisement_error(
+  async_runner, monkeypatch
+):
+  peer_id = uuid.uuid4()
+  store = ParticipationStore(_participation(peer_id).model_copy(update={"enabled": True}))
+  name = store.participation.name
+  host = ExtensionHost(store=typing.cast(ExtensionStore, store))
+  candidate = RuntimeCandidate()
+  host.running[name] = _running(store.participation, candidate, RuntimeClaim())
+
+  async def refresh(_ttl: int) -> None:
+    raise RuntimeError("advertisement refresh failed")
+
+  monkeypatch.setattr(candidate, "peer_inbounds", lambda: True)
+  monkeypatch.setattr(extension_main.PeerManager, "get_current_peer_ref", lambda: peer_id)
+  monkeypatch.setattr(extension_main.PeerManager, "refresh_self", refresh)
+  command = DisableExtensionCommand(action="disable", extension=name)
+
+  with pytest.raises(RuntimeError, match="advertisement refresh failed"):
+    async_runner.run(host.manage(command, route_to_peer=peer_id))
+  retry = async_runner.run(host.manage(command, route_to_peer=peer_id)).extensions[0]
+  assert not retry.enabled
+  assert not retry.running
+  assert retry.error is None
 
 
 def test_disable_leaves_runtime_running_when_intent_write_fails(async_runner):
