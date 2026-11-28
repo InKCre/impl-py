@@ -82,12 +82,16 @@ class _ReportBuilder:
         LexicalMaintenanceDiagnostic(block=block, outcome=outcome, reason=reason)
       )
 
-  def build(self) -> LexicalMaintenanceReport:
+  def build(
+    self, next_after_block: int | None, rebuild_cutoff: datetime.datetime | None
+  ) -> LexicalMaintenanceReport:
     return LexicalMaintenanceReport(
       indexed=self.indexed,
       unavailable=self.unavailable,
       failed=self.failed,
       diagnostics=tuple(self.diagnostics or ()),
+      next_after_block=next_after_block,
+      rebuild_cutoff=rebuild_cutoff,
     )
 
 
@@ -150,6 +154,11 @@ class LexicalRetrievalManager:
     )
 
   @classmethod
+  async def has_missing_or_stale_projection(cls) -> bool:
+    async with lexical_uow() as repository:
+      return await repository.has_missing_or_stale_projection()
+
+  @classmethod
   async def maintain(
     cls,
     options: LexicalMaintenanceOptions | None = None,
@@ -164,12 +173,12 @@ class LexicalRetrievalManager:
     cls,
     options: LexicalMaintenanceOptions | None = None,
   ) -> LexicalMaintenanceReport:
-    async with lexical_uow() as repository:
-      cutoff = await repository.database_now()
-    return await cls._maintain(
-      options or LexicalMaintenanceOptions(),
-      rebuild_cutoff=cutoff,
-    )
+    options = options or LexicalMaintenanceOptions()
+    cutoff = options.rebuild_cutoff
+    if cutoff is None:
+      async with lexical_uow() as repository:
+        cutoff = await repository.database_now()
+    return await cls._maintain(options, rebuild_cutoff=cutoff)
 
   @classmethod
   async def _maintain(
@@ -179,7 +188,7 @@ class LexicalRetrievalManager:
     rebuild_cutoff: datetime.datetime | None,
   ) -> LexicalMaintenanceReport:
     report = _ReportBuilder(options.diagnostic_limit)
-    cursor = 0
+    cursor = options.after_block
     processed = 0
     while processed < options.max_records:
       async with lexical_uow() as repository:
@@ -223,8 +232,8 @@ class LexicalRetrievalManager:
         else:
           report.indexed += len(projections)
       if exhausted:
-        break
-    return report.build()
+        return report.build(None, rebuild_cutoff)
+    return report.build(cursor, rebuild_cutoff)
 
   @classmethod
   async def _project(cls, block: BlockModel) -> _Projection:

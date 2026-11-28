@@ -22,6 +22,7 @@ import pydantic
 from starlette.routing import Mount
 
 from inkcre_core.business.graph_navigation_retrieval import GraphNavigationRetrievalManager
+from inkcre_core.business.job import JobManager, UnknownJobTypeError
 from inkcre_core.business.info_base.services import BlockService, get_entity_records
 from inkcre_core.business.info_base.resolver import (
   ResolverManager,
@@ -33,6 +34,8 @@ from inkcre_core.business.semantic_retrieval import SemanticRetrievalManager
 from inkcre_core.schemas.graph_navigation_retrieval import GraphDirection, PathFound
 from inkcre_core.schemas.semantic_retrieval import VectorRetrievalOptions
 from inkcre_core.schemas.sink import SinkModel
+from inkcre_core.schemas.job import JobStatus
+from inkcre_core.schemas.lexical_retrieval import LexicalMaintenanceJobParameters
 from inkcre_core.schemas.info_base.block import BlockModel
 from inkcre_core.schemas.info_base.query import BlockQueryFilters
 
@@ -53,6 +56,16 @@ from .projection import (
   select_value,
 )
 from .skill import InkCreSkillsExtension, SKILL_CONTENT, SKILL_URI
+from .system_resources import (
+  LEXICAL_JOB_TYPES,
+  BigIntID,
+  JobFilters,
+  ResourceCollection,
+  ResourceID,
+  job_view,
+  lexical_job_status,
+  read_system_resources,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +74,7 @@ class MCPSinkConfig(pydantic.BaseModel):
   model_config = pydantic.ConfigDict(extra="forbid", frozen=True)
 
   pat: str = pydantic.Field(min_length=1)
+  allow_lexical_maintenance: bool = False
 
 
 class _BearerPAT:
@@ -268,6 +282,7 @@ class MCPSink(SinkBase[MCPSinkConfig], sink_type="core.mcp.v1", config_cls=MCPSi
   def _register_tools(self, server: MCPServer) -> None:
     annotations = _read_annotations()
     materializing_annotations = _read_annotations(may_materialize=True)
+    self._register_management_tools(server)
 
     @server.tool(
       name="meta_discover",
@@ -667,6 +682,103 @@ class MCPSink(SinkBase[MCPSinkConfig], sink_type="core.mcp.v1", config_cls=MCPSi
         {"results": [result for result, _ in results]},
         [content_block for _, blocks in results for content_block in blocks],
       )
+
+  def _register_management_tools(self, server: MCPServer) -> None:
+    @server.tool(
+      name="system_resources",
+      description=(
+        "Read system resource identities and operational state. Omit id to list; "
+        "pass its string form to read one resource. For jobs, filter by source ID, "
+        "exact type or status. Follow next_cursor with the same collection and filters. "
+        "Configuration, job state and diagnostics are allowlisted; use the deployment's "
+        "administration tools for full logs. No management writes."
+      ),
+      annotations=_read_annotations(),
+    )
+    async def system_resources(
+      collection: ResourceCollection,
+      id: ResourceID | None = None,
+      limit: typing.Annotated[int, pydantic.Field(ge=1, le=100)] = 20,
+      cursor: ResourceID | None = None,
+      job_filters: JobFilters | None = None,
+    ) -> CallToolResult:
+      try:
+        payload = await read_system_resources(
+          collection, id_=id, cursor=cursor, limit=limit, job_filters=job_filters
+        )
+      except ValueError:
+        return _tool_result(
+          _error("invalid_arguments", "Invalid resource identity, cursor or filter"),
+          is_error=True,
+        )
+      return _tool_result(payload)
+
+    @server.tool(
+      name="lexical_index_status",
+      description=(
+        "Read the latest lexical maintenance and rebuild Jobs and any pending or running "
+        "Jobs of each kind. A next_after_block value signals more work after that batch. "
+        "The missing or stale projection flag includes Blocks whose Resolver may not "
+        "support indexing. Counts describe individual batches."
+      ),
+      annotations=_read_annotations(),
+    )
+    async def lexical_index_status() -> CallToolResult:
+      return _tool_result(await lexical_job_status())
+
+    @server.tool(
+      name="submit_lexical_maintenance",
+      description=(
+        "Submit one bounded lexical index Job. Maintain processes missing or stale "
+        "records; rebuild also refreshes existing records and can require external "
+        "content reads. Pass continue_from_job to resume a finished batch of the same "
+        "operation. Requires allow_lexical_maintenance on this Sink. Submission only "
+        "creates a Job; inspect it with system_resources."
+      ),
+      annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=False),
+    )
+    async def submit_lexical_maintenance(
+      operation: typing.Literal["maintain", "rebuild"],
+      continue_from_job: BigIntID | None = None,
+    ) -> CallToolResult:
+      if not self.config.allow_lexical_maintenance:
+        return _tool_result(
+          _error("forbidden", "Lexical maintenance is disabled"), is_error=True
+        )
+      job_type = LEXICAL_JOB_TYPES[operation]
+      options: dict = {}
+      if continue_from_job is not None:
+        previous = await JobManager.get(continue_from_job)
+        if (
+          previous is None
+          or previous.type != job_type
+          or previous.status != JobStatus.FINISHED
+        ):
+          return _tool_result(
+            _error("invalid_continuation", "Use a finished Job of the same operation"),
+            is_error=True,
+          )
+        cursor = previous.state.get("next_after_block")
+        cutoff = previous.state.get("rebuild_cutoff")
+        if type(cursor) is not int or (operation == "rebuild" and cutoff is None):
+          return _tool_result(
+            _error("invalid_continuation", "This Job has no resumable batch"), is_error=True
+          )
+        options = {"after_block": cursor, "rebuild_cutoff": cutoff}
+      try:
+        parameters = LexicalMaintenanceJobParameters.model_validate({"options": options})
+        job = await JobManager.create(job_type, parameters.model_dump(mode="json"))
+      except UnknownJobTypeError:
+        return _tool_result(
+          _error("unavailable", "The lexical Job type is not installed"), is_error=True
+        )
+      except pydantic.ValidationError:
+        return _tool_result(
+          _error("invalid_continuation", "The recorded continuation is invalid"),
+          is_error=True,
+        )
+      await JobManager.notify_worker()
+      return _tool_result({"job": job_view(job)})
 
   def _register_resources(self, server: MCPServer) -> None:
     @server.resource(

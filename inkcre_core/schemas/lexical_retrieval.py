@@ -125,6 +125,18 @@ class LexicalMaintenanceOptions(pydantic.BaseModel):
   max_records: int = pydantic.Field(default=100, ge=1)
   scan_page_size: int = pydantic.Field(default=100, ge=1)
   diagnostic_limit: int = pydantic.Field(default=20, ge=0)
+  after_block: int = pydantic.Field(default=0, ge=0, le=2147483647)
+  rebuild_cutoff: pydantic.AwareDatetime | None = None
+
+  @pydantic.model_serializer(mode="wrap")
+  def serialize_options(self, handler: pydantic.SerializerFunctionWrapHandler):
+    data = handler(self)
+    # First batches remain readable by workers with the original v1 options.
+    if self.after_block == 0:
+      data.pop("after_block", None)
+    if self.rebuild_cutoff is None:
+      data.pop("rebuild_cutoff", None)
+    return data
 
 
 class LexicalMaintenanceDiagnostic(pydantic.BaseModel):
@@ -142,6 +154,8 @@ class LexicalMaintenanceReport(pydantic.BaseModel):
   unavailable: int = 0
   failed: int = 0
   diagnostics: tuple[LexicalMaintenanceDiagnostic, ...] = ()
+  next_after_block: int | None = None
+  rebuild_cutoff: pydantic.AwareDatetime | None = None
 
 
 class LexicalMaintenanceJobParameters(pydantic.BaseModel):

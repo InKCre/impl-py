@@ -74,6 +74,13 @@ class SinkManager:
       return await repository.list()
 
   @classmethod
+  async def page(
+    cls, *, limit: int, cursor: int | None
+  ) -> tuple[typing.Sequence[SinkModel], int | None]:
+    async with sink_uow() as repository:
+      return await repository.page(limit, cursor)
+
+  @classmethod
   async def get(cls, sink_id: SinkID) -> SinkModel:
     async with sink_uow() as repository:
       sink = await repository.get(sink_id)

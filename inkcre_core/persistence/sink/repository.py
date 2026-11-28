@@ -1,5 +1,9 @@
 """Session-bound Sink catalog and instance records."""
 
+from __future__ import annotations
+
+import typing
+
 import sqlmodel
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +43,16 @@ class SinkRepository:
         sqlmodel.select(SinkModel).order_by(sqlmodel.col(SinkModel.id))
       )
     )
+
+  async def page(
+    self, limit: int, cursor: int | None
+  ) -> tuple[typing.Sequence[SinkModel], int | None]:
+    key = sqlmodel.col(SinkModel.id)
+    statement = sqlmodel.select(SinkModel).order_by(key).limit(limit + 1)
+    if cursor is not None:
+      statement = statement.where(key > cursor)
+    rows = list(await self._session.scalars(statement))
+    return rows[:limit], rows[limit - 1].id if len(rows) > limit else None
 
   async def get(self, sink_id: int, *, lock: bool = False) -> SinkModel | None:
     statement = sqlmodel.select(SinkModel).where(SinkModel.id == sink_id)

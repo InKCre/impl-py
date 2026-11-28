@@ -1,6 +1,9 @@
 """Session-bound access to canonical Extension rows and the enabled RPC."""
 
+from __future__ import annotations
+
 import uuid
+import typing
 
 import sqlalchemy
 import sqlmodel
@@ -18,6 +21,16 @@ class ExtensionRepository:
       sqlmodel.select(ExtensionModel).order_by(ExtensionModel.name)
     )
     return tuple(rows)
+
+  async def page(
+    self, limit: int, cursor: str | None
+  ) -> tuple[typing.Sequence[ExtensionModel], str | None]:
+    key = sqlmodel.col(ExtensionModel.name)
+    statement = sqlmodel.select(ExtensionModel).order_by(key).limit(limit + 1)
+    if cursor is not None:
+      statement = statement.where(key > cursor)
+    rows = list(await self._session.scalars(statement))
+    return rows[:limit], rows[limit - 1].name if len(rows) > limit else None
 
   async def get(self, name: str, *, lock: bool = False):
     statement = sqlmodel.select(ExtensionModel).where(ExtensionModel.name == name)
@@ -39,13 +52,19 @@ class ExtensionRepository:
   async def delete(self, row: ExtensionModel) -> None:
     await self._session.delete(row)
 
-  async def list_participations(self, peer_id: uuid.UUID):
-    rows = await self._session.scalars(
+  async def list_participations(
+    self, peer_id: uuid.UUID, names: tuple[str, ...] | None = None
+  ):
+    statement = (
       sqlmodel.select(ExtensionPeerParticipationModel)
       .where(ExtensionPeerParticipationModel.peer_id == peer_id)
       .order_by(ExtensionPeerParticipationModel.name)
     )
-    return tuple(rows)
+    if names is not None:
+      statement = statement.where(
+        sqlmodel.col(ExtensionPeerParticipationModel.name).in_(names)
+      )
+    return tuple(await self._session.scalars(statement))
 
   async def list_participations_for_extension(self, name: str):
     rows = await self._session.scalars(

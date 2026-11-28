@@ -173,3 +173,35 @@ def test_direct_and_cron_created_jobs_share_exact_handler_path(
     assert persisted is not None
     assert persisted.status == JobStatus.FINISHED
     assert persisted.state["indexed"] == 1
+
+
+def test_rebuild_resumes_past_unavailable_blocks_with_the_original_cutoff(async_runner):
+  _reset()
+  register_core_resolvers()
+  unavailable = seed_block(BlockForm(resolver="unknown.lexical.v1", content="opaque"))
+  existing = _text("included in the original rebuild")
+  first = async_runner.run(
+    LexicalRetrievalManager.rebuild(LexicalMaintenanceOptions(max_records=1))
+  )
+  assert first.unavailable == 1
+  assert first.next_after_block == unavailable.id
+  assert first.rebuild_cutoff is not None
+
+  _text("outside the original rebuild")
+  second = async_runner.run(
+    LexicalRetrievalManager.rebuild(
+      LexicalMaintenanceOptions(
+        max_records=1,
+        after_block=first.next_after_block,
+        rebuild_cutoff=first.rebuild_cutoff,
+      )
+    )
+  )
+  assert second.indexed == 1
+  assert second.next_after_block is None
+  assert second.rebuild_cutoff == first.rebuild_cutoff
+  matches = async_runner.run(
+    LexicalRetrievalManager.retrieve_local("original rebuild")
+  ).matches
+  assert [match.block.id for match in matches] == [existing]
+  assert not async_runner.run(LexicalRetrievalManager.retrieve_local("outside")).matches

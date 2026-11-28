@@ -24,7 +24,7 @@ instance 接收已经验证的完整 config。Delete 要求所有 Peer intent �
 
 ## MCP Protocol Projection
 
-恰好八个工具，无 `inkcre_` 前缀或旧名 alias：
+证据使用工具沿用既有命名，无 `inkcre_` 前缀或旧名 alias：
 
 - `meta_discover`
 - `query`
@@ -37,6 +37,15 @@ instance 接收已经验证的完整 config。Delete 要求所有 Peer intent �
 
 这是尚未合并接口的统一更名：`inkcre_recall` 由 `query` 取代、`inkcre_discover` 由 `meta_discover` 取代，其余工具去前缀。
 Sink type、endpoint 与 Resource URI 不变。Batch 按输入关联；自然 payload 表示成功，仅失败 atom 包含浅层 error。
+
+`system_resources` 通过 owning managers 分页读系统配置实例与运行事实。输出采用字段白名单，
+例如 Telegram Source 的 bot ID/cursor、Job 的生命周期、结果计数和结构化诊断；不转发原始配置、
+任意状态字典、provider 异常文本或敏感值。精确读取使用字符串 ID；Jobs 按 ID 降序，可按 Source、类型和状态过滤。
+`lexical_index_status` 读取缺失或过期投影的存在性和维护 Job 记录。
+
+`submit_lexical_maintenance` 需要 Sink 配置显式授权（`allow_lexical_maintenance`），只能提交现有的
+词法维护或重建 Job。返回已持久化的 Job；worker 执行并写入报告。续跑从同种已完成 Job 的报告取得下个
+Block ID，重建沿用原 cutoff。报告表示单批成果，遗漏或失败记录可在后续新的一轮维护中再尝试。
 
 ## Metadata Discovery
 

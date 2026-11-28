@@ -238,10 +238,11 @@ class JobManager:
     cursor: JobID | None = None,
     type_: JobTypeID | None = None,
     status: JobStatus | None = None,
+    source: int | None = None,
   ) -> tuple[list[JobModel], JobID | None]:
     async with job_uow() as uow:
       return await uow.jobs.list_jobs(
-        limit=limit, cursor=cursor, type_=type_, status=status
+        limit=limit, cursor=cursor, type_=type_, status=status, source=source
       )
 
   @classmethod
