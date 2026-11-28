@@ -52,12 +52,13 @@ Neon 分支仍由原必需检查创建或复用；它的成功状态继续代表
 The branch workflow owns only exact isolated branch creation/deletion. After the repository,
 portable-runtime, and branch checks pass for the exact PR SHA, preview delivery:
 
-1. installs the frozen `extension-preview` PDM group, builds all discovered first-party wheels,
-   and asks `inkcre-ext preview build` for one Python-only static Registry facade;
-2. builds images before receiving deployment secrets;
-3. reverifies the exact PR head and deploys the facade directly to the dedicated Pages project;
-4. verifies the exact database branch and TTL;
-5. removes inherited provider-created protocol roles only on first bootstrap;
+1. 在独立构建任务检出精确 PR head，使用冻结的 PDM 依赖构建 wheel、静态 Registry 和三张
+   amd64 镜像。构建任务只使用只读 GitHub 权限，上传保留一天的 workflow artifact；
+2. 交付任务独立检出受信 controller，按 artifact ID 下载同一次 workflow 的产物，校验 Registry
+   静态文件结构及三张镜像的目标 SHA label 和平台；
+3. 复核精确 PR head 和必需检查后，从受信目录将静态产物部署到专用 Pages 项目；
+4. 在 Heroku 交付前再次复核，确认目标数据库分支属于 `preview-base` 并设有 TTL；
+5. 用受信 SQL 读取数据库身份，首次引导时才清理继承的 provider protocol roles；
 6. runs the PR artifact's complete preview-profile initialization and readiness;
 7. derives an `inkcre_core` URL without logging it;
 8. configures `EXTENSION_REGISTRY_URL` to the deterministic sibling alias before releasing or scaling
@@ -65,9 +66,10 @@ portable-runtime, and branch checks pass for the exact PR SHA, preview delivery:
 9. forces both formations to `web=1:eco`, probes Core `/livez` plus `/readyz`, and
    verifies authenticated PostgREST read/write plus anonymous and wrong-secret denial.
 
-Required preview configuration is the exact non-secret project variable
-`CLOUDFLARE_EXTENSION_PREVIEW_PROJECT=inkcre-core-py-extension-registry-preview`, plus the
-preview-environment `CLOUDFLARE_ACCOUNT_ID` and minimally scoped `CLOUDFLARE_API_TOKEN` secrets.
+Required preview configuration is the exact non-secret repository variable
+`CLOUDFLARE_EXTENSION_PREVIEW_PROJECT=inkcre-core-py-extension-registry-preview`, plus
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`
+provided to impl-py as organization secrets.
 Fork pull requests never enter this environment. PR-close delivery replaces the exact Pages
 branch alias with a trusted no-cache tombstone before deleting the two deterministic Heroku apps;
 the independent Neon workflow remains the database-branch cleanup authority.
@@ -82,6 +84,10 @@ The owner URL never enters preview Heroku config. The Core app receives only the
 URL and the deterministic sibling Registry alias; the PostgREST app receives only the
 `authenticator` URL. The Pages deployment command is sufficient delivery evidence. Public edge
 reads and consumer acceptance are deliberately independent and do not block Core startup.
+
+GitHub runner 上候选数据库命令在锁定权限的镜像进程内运行，仅显式接收该 PR 的数据库 URL 和
+初始化所需角色密码，供应商 API 密钥留在受信步骤。交付脚本从同一分支连接坐标生成运行 URL。
+Preview 目前沿用既有 Neon 继承行为和 Preview 环境配置的运行角色密码，按分支轮换凭证需要独立迁移。
 
 Repository-qualified app and branch identities keep an impl-py PR and an impl-ts PR with
 the same number from addressing the same review resources.
@@ -230,9 +236,9 @@ and audience validation.
 
 ## Secret Boundary
 
-The GitHub `preview` environment owns its Heroku and Cloudflare authorization, LLM inputs, and
-the two database-role passwords. `JWT_SECRET` and `NEON_API_KEY` remain repository secrets,
-while `NEON_PROJECT_ID` and `CLOUDFLARE_EXTENSION_PREVIEW_PROJECT` remain repository variables.
+The GitHub `preview` environment owns its Heroku authorization, LLM inputs, and the two
+database-role passwords. `JWT_SECRET` and `NEON_API_KEY` are repository secrets.
+`NEON_PROJECT_ID` and `CLOUDFLARE_EXTENSION_PREVIEW_PROJECT` are repository variables.
 
 The GitHub `production` environment independently owns:
 

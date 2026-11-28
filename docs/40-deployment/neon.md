@@ -29,8 +29,8 @@ Trusted pull requests use one data-free branch named `preview/core-py/pr-<number
    sanitizer once to remove every allowlisted application row while preserving
    `alembic_version`
 2. create or reuse the deterministic branch with a seven-day TTL
-3. let the exact PR artifact own role normalization, migration, catalog reconciliation, and
-   readiness during trusted preview delivery
+3. 交付 controller 校验分支身份并处理首次引导所需的继承角色清理。精确 PR 镜像执行迁移、
+   catalog reconciliation 和 readiness
 4. delete the same deterministic branch when the PR closes
 
 The workflow pins Neon CLI 2.36.0. Connection URLs are consumed only through masked action

@@ -42,14 +42,15 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: bash scripts/automation/preview_workflow.sh application-required
 
-  deploy:
-    name: impl-py preview
+  build:
+    name: Build exact-head preview artifacts
     needs: scope
     if: needs.scope.outputs.required == 'true'
     runs-on: ubuntu-latest
-    environment: preview
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
     steps:
-      - name: Checkout trusted delivery implementation
+      - name: Checkout trusted build controller
         id: controller
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -64,7 +65,7 @@ jobs:
           head_sha: ${{ github.event.pull_request.head.sha }}
           pr_number: ${{ github.event.pull_request.number }}
 
-      - name: Checkout isolated pull request source
+      - name: Checkout exact pull request head
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -76,8 +77,6 @@ jobs:
         with:
           python-version-file: source/.python-version
           version: 2.28.0
-          cache: true
-          cache-dependency-path: source/pdm.lock
 
       - name: Install frozen Extension preview tooling
         working-directory: source
@@ -86,18 +85,74 @@ jobs:
 
       - name: Build exact-head Extension wheels and sibling Registry facade
         env:
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/preview-artifact
           PAGES_PROJECT: ${{ vars.CLOUDFLARE_EXTENSION_PREVIEW_PROJECT }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         working-directory: source
-        run: bash scripts/automation/preview_workflow.sh build-extensions
+        run: bash ../.delivery/scripts/automation/preview_workflow.sh build-extensions
 
       - name: Build peer transport images without deployment secrets
         env:
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/preview-artifact
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SOURCE_DIRECTORY: ${{ github.workspace }}/source
-        run: bash source/scripts/automation/preview_workflow.sh build-images
+        run: bash .delivery/scripts/automation/preview_workflow.sh build-images
 
-      - name: Reverify preview authority before delivery
+      - name: Transfer the exact-head Registry and peer images
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: preview-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/preview-artifact
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 1
+
+      - name: Report when candidate artifacts are unavailable
+        if: ${{ failure() && steps.controller.outcome == 'success' }}
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ARTIFACT_RESULT: ${{ steps.artifact.outcome }}
+        run: bash .delivery/scripts/automation/preview_workflow.sh summarize
+
+  deploy:
+    name: impl-py preview
+    needs: build
+    runs-on: ubuntu-latest
+    environment: preview
+    steps:
+      - name: Checkout only the trusted delivery implementation
+        id: controller
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .delivery
+          persist-credentials: false
+
+      - name: Require one exact artifact ID
+        env:
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
+        run: '[[ "$ARTIFACT_ID" =~ ^[0-9]+$ ]]'
+
+      - name: Download the build job's artifacts from this workflow run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/preview-artifact
+          merge-multiple: true
+
+      - name: Validate static Registry and load the exact-head images
+        id: artifact
+        env:
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/preview-artifact
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PAGES_PROJECT: ${{ vars.CLOUDFLARE_EXTENSION_PREVIEW_PROJECT }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          bash .delivery/scripts/automation/preview_workflow.sh validate-identity
+          bash .delivery/scripts/automation/preview_workflow.sh load-artifact
+
+      - name: Reverify preview authority before Pages delivery
         uses: ./.delivery/.github/actions/preview-verify
         with:
           github_token: ${{ github.token }}
@@ -112,9 +167,9 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           packageManager: npm
           wranglerVersion: 4.120.0
-          workingDirectory: .extension-preview-registry
+          workingDirectory: .delivery
           command: >-
-            pages deploy .
+            pages deploy ${{ runner.temp }}/preview-artifact/registry
             --project-name=${{ vars.CLOUDFLARE_EXTENSION_PREVIEW_PROJECT }}
             --branch=pr-${{ github.event.pull_request.number }}
             --commit-hash=${{ github.event.pull_request.head.sha }}
@@ -146,6 +201,7 @@ jobs:
         if: ${{ always() && steps.controller.outcome == 'success' }}
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ARTIFACT_RESULT: ${{ steps.artifact.outcome }}
           REGISTRY_RESULT: ${{ steps.registry.outcome }}
           REGISTRY_SNAPSHOT: ${{ steps.registry.outputs.deployment-url }}
           DELIVERY_RESULT: ${{ steps.delivery.outcome }}
