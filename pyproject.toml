@@ -104,7 +104,7 @@ test = "python -m pytest -q -m 'not acceptance'"
 "lint:migrations" = "ruff check --no-cache migrations/env.py migrations/metadata.py migrations/settings.py scripts/_tooling.py scripts/doctor.py scripts/check_lock.py scripts/check_migration_history.py scripts/database_manifest.py scripts/sanitize_preview_base.py tests/migrations"
 "test:migrations" = "python -m pytest -q tests/migrations"
 "check:migrations" = { composite = ["lint:migrations", "check:migration-history"] }
-"check:automation" = { shell = "bash -n scripts/automation/*.sh" }
+"check:automation" = { shell = 'for script in scripts/automation/*.sh; do bash -n "$script" || exit; done' }
 "check:migration-history" = "python scripts/check_migration_history.py {args}"
 "check:releases" = "python scripts/release.py check {args}"
 "build:extension-preview" = "python scripts/build_extension_preview.py {args}"
@@ -114,7 +114,8 @@ test = "python -m pytest -q -m 'not acceptance'"
 "lint:database-imports" = "ruff check --config ruff.database.toml ."
 "lint:database-ownership" = "python scripts/check_database_boundaries.py"
 "lint:database-boundaries" = { composite = ["lint:database-imports", "lint:database-ownership"] }
-"check" = { composite = ["check:foundation", "format:check", "lint", "lint:database-boundaries", "typecheck", "check:core-package", "test"] }
+"check:code" = { composite = ["check:foundation", "format:check", "lint", "lint:database-boundaries", "typecheck", "check:core-package"] }
+"check" = { composite = ["check:code", "test"] }
 "db:revision" = "alembic revision -m {args}"
 "db:generate" = "alembic revision --autogenerate -m {args}"
 "db:record" = "python scripts/check_migration_history.py --record-new"

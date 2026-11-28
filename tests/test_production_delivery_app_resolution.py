@@ -20,7 +20,9 @@ def _heroku_cli(directory: Path) -> Path:
     "app = args[args.index('--app') + 1]\n"
     "if app == os.environ.get('HEROKU_FAILED_APP'):\n"
     "  raise SystemExit(1)\n"
-    "print(json.dumps({'app': {'name': app, 'web_url': f'https://{app}.example/'}}))\n",
+    "name = app\n"
+    "if app == 'inkcre-core-production': name = os.environ.get('RETURNED_CORE_NAME', app)\n"
+    "print(json.dumps({'app': {'name': name, 'web_url': f'https://{app}.example/'}}))\n",
     encoding="utf-8",
   )
   executable.chmod(0o755)
@@ -31,6 +33,7 @@ def _run(
   directory: Path,
   *,
   failed_app: str | None = None,
+  returned_core_name: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
   bin_directory = directory / "bin"
   bin_directory.mkdir()
@@ -47,6 +50,8 @@ def _run(
     "HEROKU_CALLS": str(calls),
     "REQUIRE_EXISTING_APPS": "true",
   }
+  if returned_core_name is not None:
+    env["RETURNED_CORE_NAME"] = returned_core_name
   if failed_app is not None:
     env["HEROKU_FAILED_APP"] = failed_app
   return subprocess.run(  # noqa: S603 - execute the checked-in shell workflow with a local CLI stub.
@@ -87,41 +92,8 @@ def test_production_app_resolution_rejects_wrong_app_identity(
   tmp_path: Path,
   unexpected_name: str,
 ) -> None:
-  _heroku_cli = tmp_path / "bin"
-  _heroku_cli.mkdir()
-  executable = _heroku_cli / "heroku"
-  executable.write_text(
-    "#!/usr/bin/env python3\n"
-    "import json, os, sys\n"
-    "from pathlib import Path\n"
-    "with Path(os.environ['HEROKU_CALLS']).open('a') as calls:\n"
-    "  calls.write(' '.join(sys.argv[1:]) + '\\n')\n"
-    "app = sys.argv[sys.argv.index('--app') + 1]\n"
-    f"name = {unexpected_name!r}\n"
-    "print(json.dumps({'app': {'name': name if app == "
-    "'inkcre-core-production' else app}}))\n",
-    encoding="utf-8",
-  )
-  executable.chmod(0o755)
-  calls = tmp_path / "heroku-calls.txt"
-  output = tmp_path / "github-output.txt"
-  result = subprocess.run(  # noqa: S603 - execute the checked-in shell workflow with a local CLI stub.
-    ["bash", str(SCRIPT), "resolve-apps"],
-    check=False,
-    capture_output=True,
-    text=True,
-    env={
-      **os.environ,
-      "PATH": f"{_heroku_cli}:{os.environ['PATH']}",
-      "GITHUB_OUTPUT": str(output),
-      "HEROKU_API_KEY": "test-only",
-      "HEROKU_APP_NAME": "inkcre-core-production",
-      "POSTGREST_APP_NAME": "inkcre-postgrest-production",
-      "HEROKU_CALLS": str(calls),
-      "REQUIRE_EXISTING_APPS": "true",
-    },
-  )
+  result = _run(tmp_path, returned_core_name=unexpected_name)
 
   assert result.returncode != 0
   assert "unexpected app identity" in result.stderr
-  assert "apps:create" not in calls.read_text(encoding="utf-8")
+  assert "apps:create" not in (tmp_path / "heroku-calls.txt").read_text(encoding="utf-8")

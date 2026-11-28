@@ -27,7 +27,14 @@ if role == 'core':
     (root / 'core-pid').write_text(str(os.getpid()))
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            self.send_response(200 if (root / 'ready').exists() else 503)
+            if self.path != '/readyz':
+                self.send_error(404)
+                return
+            ready = (root / 'ready').exists()
+            if not ready:
+                with (root / 'not-ready-probes').open('a') as out:
+                    out.write('x')
+            self.send_response(200 if ready else 503)
             self.end_headers()
         def log_message(self, *args): pass
     HTTPServer(('127.0.0.1', int(port)), Handler).serve_forever()
@@ -93,7 +100,10 @@ raise SystemExit(supervise(base+['core',str(root),port],
     wait_for(lambda: len(self.tunnel_pids()) == 1)
 
   def test_waits_for_core_and_sigterm_stops_both(self):
-    time.sleep(0.15)
+    rejected = self.root / "not-ready-probes"
+    wait_for(
+      lambda: self.tunnel_pids() or (rejected.exists() and rejected.stat().st_size >= 2)
+    )
     self.assertEqual(self.tunnel_pids(), [])
     self.begin_tunnel()
     self.process.terminate()
@@ -138,6 +148,14 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(module.main(), 0)
     core, command, env, ready_url, health = run.call_args.args
     self.assertNotIn("fake-secret", " ".join(command))
+    self.assertIn("--control-plane.tunnel-id=test-tunnel", command)
+    self.assertIn("--control-plane.api-key=env:CONTROL_PLANE_API_KEY", command)
+    self.assertIn(
+      "--mcp.extra-headers=Authorization: env:INKCRE_MCP_AUTHORIZATION", command
+    )
+    self.assertIn(
+      "--mcp.discovery-extra-headers=Authorization: env:INKCRE_MCP_AUTHORIZATION", command
+    )
     self.assertIn("--mcp.server-url=http://127.0.0.1:9999/sinks/7/mcp", command)
     self.assertEqual(env["INKCRE_MCP_AUTHORIZATION"], "Bearer fake-secret-pat")
     self.assertEqual(env["CONTROL_PLANE_API_KEY"], "fake-secret-key")

@@ -1,7 +1,7 @@
 import json
 import sys
 
-from scripts.extension_distribution import main, read_project
+from scripts.extension_distribution import main
 
 
 def test_metadata_targets_only_the_exact_python_distribution(tmp_path, monkeypatch, capsys):
@@ -26,30 +26,6 @@ host-sdk-version = ">=0.3.0 <0.4.0"
     encoding="utf-8",
   )
 
-  prepare = read_project(project).prepare_document(
-    source_repository="https://github.com/InKCre/impl-py",
-    source_revision="a" * 40,
-    build_id="12345",
-  )
-
-  assert prepare == {
-    "nickname": "Example",
-    "version": "1.2.3",
-    "python": {
-      "project": "inkcre-example",
-      "host_sdk": "core-py",
-      "host_sdk_version": ">=0.3.0 <0.4.0",
-      "entry_point": {
-        "group": "inkcre.core.extensions",
-        "name": "example",
-        "object": "extensions.example:ExampleExtension",
-      },
-      "source_repository": "https://github.com/InKCre/impl-py",
-      "source_revision": "a" * 40,
-      "build_id": "12345",
-    },
-  }
-
   monkeypatch.setattr(
     sys,
     "argv",
@@ -73,5 +49,21 @@ host-sdk-version = ">=0.3.0 <0.4.0"
     "distribution": "python",
     "version": "1.2.3",
     "project": "inkcre-example",
-    "prepare": prepare,
+    "prepare": {
+      "nickname": "Example",
+      "version": "1.2.3",
+      "python": {
+        "project": "inkcre-example",
+        "host_sdk": "core-py",
+        "host_sdk_version": ">=0.3.0 <0.4.0",
+        "entry_point": {
+          "group": "inkcre.core.extensions",
+          "name": "example",
+          "object": "extensions.example:ExampleExtension",
+        },
+        "source_repository": "https://github.com/InKCre/impl-py",
+        "source_revision": "a" * 40,
+        "build_id": "12345",
+      },
+    },
   }

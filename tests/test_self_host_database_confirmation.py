@@ -23,7 +23,9 @@ def _run_validation(
     "POSTGREST_DATABASE_PASSWORD": "p" * 32,
     "GITHUB_OUTPUT": str(tmp_path / "output.txt"),
   }
-  if confirmation is not None:
+  if confirmation is None:
+    env.pop("DATABASE_MAINTENANCE_CONFIRMED", None)
+  else:
     env["DATABASE_MAINTENANCE_CONFIRMED"] = confirmation
   return subprocess.run(  # noqa: S603 - run the checked-in validator without provider access.
     ["bash", str(SCRIPT), "validate-heroku"],

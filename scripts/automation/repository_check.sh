@@ -9,20 +9,7 @@ case "${1:-}" in
     require_env INKCRE_TEST_POSTGRES_ADMIN_URL
     require_env CORE_DATABASE_PASSWORD
     require_env POSTGREST_DATABASE_PASSWORD
-    # This admitted suite needs migrated, disposable PostgreSQL, but no live AI or IMAP service.
-    pdm run python -m pytest -q -rs -m 'not acceptance' \
-      tests/agent/integration tests/ai/integration tests/deployment_config/integration \
-      tests/info_base/integration tests/lexical_retrieval/integration \
-      tests/organization/integration tests/peer/integration tests/semantic_retrieval/integration \
-      tests/observability/integration \
-      tests/job/integration \
-      tests/extensions/memos/integration tests/extensions/rss/integration/test_feed_collection.py \
-      tests/migrations \
-      tests/extensions/bilibili/test_lexical_integration.py \
-      tests/extensions/mail/test_newsletter_graph.py \
-      tests/semantic_retrieval/acceptance/test_vertical_quality.py \
-      scripts/tests/caldav/test_dav_graph.py scripts/tests/caldav/test_semantic_graph.py \
-      scripts/tests/twitter/integration
+    pdm run test -rs
     ;;
   release-intent)
     arguments=()

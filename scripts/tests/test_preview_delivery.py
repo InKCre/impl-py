@@ -24,18 +24,26 @@ def _run(script: str, command: str, environment: dict[str, str]):
 def test_failed_migration_keeps_observed_heads_and_reports_partial_delivery(tmp_path):
   binaries = tmp_path / "bin"
   binaries.mkdir()
-  observed = {
+  before = {
     "status": "error",
     "contract": {"revision": "candidate-contract"},
     "migration": {"current": ["removed-revision"], "expected": ["candidate-head"]},
     "database": {"status": "error"},
   }
+  after = {
+    **before,
+    "migration": {"current": ["partial-revision"], "expected": ["candidate-head"]},
+  }
+  (tmp_path / "before.json").write_text(json.dumps(before))
+  (tmp_path / "after.json").write_text(json.dumps(after))
   docker = binaries / "docker"
   docker.write_text(
     "#!/bin/sh\n"
+    'cd "$DELIVERY_FIXTURE" || exit 1\n'
     'case "$*" in\n'
-    f"  *' db ready '*) printf '%s\\n' '{json.dumps(observed)}' ;;\n"
-    "  *' db init '*) echo 'missing revision' >&2; exit 17 ;;\n"
+    "  *' db ready '*) if [ -f after-init ]; then cat after.json; exit 2; fi; "
+    "cat before.json; exit 1 ;;\n"
+    "  *' db init '*) touch after-init; echo 'missing revision' >&2; exit 17 ;;\n"
     "  *) echo 'unexpected provider operation' >&2; exit 88 ;;\n"
     "esac\n"
   )
@@ -51,6 +59,7 @@ def test_failed_migration_keeps_observed_heads_and_reports_partial_delivery(tmp_
     **os.environ,
     "PATH": f"{binaries}:{os.environ['PATH']}",
     "GITHUB_OUTPUT": str(output),
+    "DELIVERY_FIXTURE": str(tmp_path),
     "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
     "HEAD_SHA": "a" * 40,
     "PR_NUMBER": "123",
@@ -62,8 +71,8 @@ def test_failed_migration_keeps_observed_heads_and_reports_partial_delivery(tmp_
   failed = _run("preview_delivery.sh", "converge-database", environment)
   assert failed.returncode == 17
   values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-  assert json.loads(values["database_before"])["migration"] == observed["migration"]
-  assert json.loads(values["database_after"])["migration"] == observed["migration"]
+  assert json.loads(values["database_before"]) == {**before, "probe_exit": 1}
+  assert json.loads(values["database_after"]) == {**after, "probe_exit": 2}
   assert "runtime_database_url" not in values
 
   runtime_report = _run(
@@ -94,6 +103,7 @@ def test_failed_migration_keeps_observed_heads_and_reports_partial_delivery(tmp_
   summary = (tmp_path / "summary").read_text()
   assert "数据库初始化：`failure`" in summary
   assert "进程 release：`skipped`" in summary
+  assert "partial-revision" in summary
   assert "removed-revision" in summary
   assert '"version":7' in summary
   assert "https://snapshot.pages.dev" in summary

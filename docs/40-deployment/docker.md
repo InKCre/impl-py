@@ -94,13 +94,16 @@ secrets.
 ## CI Evidence
 
 The artifact job in `.github/workflows/ci.yml` builds the source image and PostgREST, then proves
-the full fresh-database chain: duplicate init, JSON readiness, negative drift cases, the
+the fresh-database chain through duplicate init, JSON readiness, the
 production PostgREST wrapper binding from `$PORT`, JWT read/write and denial behavior,
-duplicate deterministic reset, Alembic metadata, and web liveness/readiness. It uses no Neon
+reset of a database containing an extra Extension followed by a second reset against the same
+expected catalog and seed, Alembic metadata, and web liveness/readiness. It uses no Neon
 or Heroku state.
 
 PR CI initializes a separate neutral runtime database, exports password-free role SQL and a
-PostgreSQL 17 whole-database schema dump, and restores it as candidate validation. After strict
+PostgreSQL 17 whole-database schema dump, and restores them in an empty cluster. It checks
+the restored role definitions and Alembic head/schema before initialization provisions runtime
+credentials and builtins. After strict
 required checks admit that tree to protected `main`, `artifact-publish.yml` independently repeats
 that export in the release workflow,
 embeds its same-run schema, builds the canonical service image, and publishes the image commit tag

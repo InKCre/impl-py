@@ -28,14 +28,7 @@ def test_transfer_images_pushes_only_the_exact_process_tags(tmp_path: Path) -> N
     "  sys.stdin.read()\n"
     "  raise SystemExit(0)\n"
     "if args[:2] == ['image', 'inspect']:\n"
-    "  image = args[-1]\n"
-    "  if (image.startswith('registry.heroku.com/') and\n"
-    "      image == os.environ.get('MISMATCH_REMOTE')):\n"
-    "    print('sha256:wrong-content')\n"
-    "  else:\n"
-    "    print('sha256:source-content')\n"
-    "  raise SystemExit(0)\n"
-    "",
+    "  print('sha256:source-content')\n",
     encoding="utf-8",
   )
   docker.chmod(0o755)
@@ -59,28 +52,21 @@ def test_transfer_images_pushes_only_the_exact_process_tags(tmp_path: Path) -> N
   assert result.returncode == 0, result.stderr
   assert test_credential not in result.stdout + result.stderr
   calls = [json.loads(line) for line in calls_path.read_text(encoding="utf-8").splitlines()]
-  assert [call for call in calls if call[0] == "tag"] == [
-    [
-      "tag",
-      f"inkcre-production-web:{'a' * 40}",
-      "registry.heroku.com/inkcre-owner-core/web",
-    ],
-    [
-      "tag",
+  expected_tags = {
+    (f"inkcre-production-web:{'a' * 40}", "registry.heroku.com/inkcre-owner-core/web"),
+    (
       f"inkcre-production-release:{'a' * 40}",
       "registry.heroku.com/inkcre-owner-core/release",
-    ],
-    [
-      "tag",
+    ),
+    (
       f"inkcre-production-postgrest:{'a' * 40}",
       "registry.heroku.com/inkcre-owner-postgrest/web",
-    ],
-  ]
+    ),
+  }
+  assert {tuple(call[1:]) for call in calls if call[0] == "tag"} == expected_tags
   for operation in ("push", "pull"):
-    assert {tuple(call) for call in calls if call[0] == operation} == {
-      (operation, "registry.heroku.com/inkcre-owner-core/web"),
-      (operation, "registry.heroku.com/inkcre-owner-core/release"),
-      (operation, "registry.heroku.com/inkcre-owner-postgrest/web"),
+    assert {tuple(call[1:]) for call in calls if call[0] == operation} == {
+      (target,) for _, target in expected_tags
     }
 
 

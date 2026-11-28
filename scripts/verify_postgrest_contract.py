@@ -26,8 +26,8 @@ PROBE_PEER_ID = uuid.UUID("00000000-0000-4000-8000-000000000099")
 PROBE_EXTENSION_NAME = "inkcre/postgrest-contract-probe"
 
 
-def _token(secret: str, *, now: int | None = None) -> str:
-  issued_at = now if now is not None else int(time.time())
+def _token(secret: str) -> str:
+  issued_at = int(time.time())
   return jwt.encode(
     {
       "role": JWT_ROLE,

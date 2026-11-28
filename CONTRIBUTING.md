@@ -25,10 +25,9 @@ pdm run check
 `doctor` reports a mismatch when the local toolchain does not match that contract.
 
 Git hook 需要在每个本地 checkout 安装；提交前会执行与 CI 相同的格式和 lint 入口。
-移动仓库目录后，需要重建含旧绝对路径的虚拟环境入口并重新安装 hook；CI 的完整
-`check` 仍是交付检查依据。
+移动仓库目录后，需要重建含旧绝对路径的虚拟环境入口并重新安装 hook；CI 使用同一份检查配置。
 
-`check` is the same hermetic repository gate used by CI. It verifies the lock and
+`check` runs the local repository gate. CI runs its static and package checks before executing the same test collection with disposable PostgreSQL. It verifies the lock and
 requirements export, migration configuration and append-only baseline, Ruff formatting,
 repository lint, static types, and the repository test suite. Use narrower commands while iterating:
 
