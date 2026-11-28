@@ -346,50 +346,56 @@ class JobManager:
     task = asyncio.current_task()
     assert task is not None
     current_core().active_jobs[job_id] = _Execution(task)
-    with operation(
-      "job.execute",
-      attributes={"inkcre.job.id": job_id},
-      context=Context(),
-      links=submission_links(claimed.submission_traceparent, claimed.submission_tracestate),
-    ) as observation:
-      span = observation.span
-      emit_event("job.started", {"inkcre.job.id": job_id})
-      try:
-        async with asyncio.timeout(claimed.timeout_seconds):
-          await handler.handle(claimed, parameters)
-      except asyncio.CancelledError:
-        LOGGER.info("Job execution aborted", extra={"job_id": job_id})
-        observation.outcome = "cancelled"
-        span.set_attribute("inkcre.job.status", "aborted")
-        await cls._close(claimed, JobStatus.ABORTED)
-      except TimeoutError:
-        LOGGER.warning("Job execution timed out", extra={"job_id": job_id})
-        observation.outcome = "error"
-        span.set_attribute("inkcre.job.status", "timed_out")
-        await cls._close(claimed, JobStatus.TIMED_OUT)
-      except Exception as error:
-        LOGGER.exception("Job execution failed", extra={"job_id": job_id})
-        observation.outcome = "error"
-        span.set_attribute("error.type", type(error).__name__)
-        span.set_attribute("inkcre.job.status", "failed")
-        claimed.state = {**claimed.state, "error": str(error)}
-        await cls._close(claimed, JobStatus.FAILED)
-      else:
-        span.set_attribute("inkcre.job.status", "finished")
-        await cls._close(claimed, JobStatus.FINISHED)
-      finally:
-        current_core().active_jobs.pop(job_id, None)
+    try:
+      with operation(
+        "job.execute",
+        attributes={"inkcre.job.id": job_id},
+        context=Context(),
+        links=submission_links(
+          claimed.submission_traceparent, claimed.submission_tracestate
+        ),
+      ) as observation:
+        span = observation.span
+        emit_event("job.started", {"inkcre.job.id": job_id})
+        budget = asyncio.timeout(claimed.timeout_seconds)
+        try:
+          async with budget:
+            await handler.handle(claimed, parameters)
+        except asyncio.CancelledError:
+          LOGGER.info("Job execution aborted", extra={"job_id": job_id})
+          observation.outcome = "cancelled"
+          status = JobStatus.ABORTED
+        except Exception as error:
+          observation.outcome = "error"
+          if isinstance(error, TimeoutError) and budget.expired():
+            LOGGER.warning("Job execution timed out", extra={"job_id": job_id})
+            status = JobStatus.TIMED_OUT
+          else:
+            LOGGER.exception("Job execution failed", extra={"job_id": job_id})
+            span.set_attribute("error.type", type(error).__name__)
+            claimed.state = {**claimed.state, "error": str(error)}
+            status = JobStatus.FAILED
+        else:
+          status = JobStatus.FINISHED
+        span.set_attribute("inkcre.job.status", status.value)
+        await cls._close(claimed, status)
+    finally:
+      current_core().active_jobs.pop(job_id, None)
     return True
 
   @classmethod
   async def expire_overdue(cls) -> int:
-    """Use database time to close abandoned overdue running Jobs."""
+    """Close overdue running Jobs after an operator verifies their execution has stopped.
+
+    This maintenance operation is deployment-wide. A deadline alone cannot tell
+    an ordinary worker whether another Peer is still releasing its resources.
+    """
     async with job_uow() as uow:
       return await uow.jobs.expire_overdue()
 
   @classmethod
   async def check(cls) -> None:
-    """Schedule locally eligible pending Jobs and converge running timeouts."""
+    """Schedule locally eligible pending Jobs."""
     if not current_core().accepting_jobs:
       return
     async with job_uow() as uow:
@@ -406,7 +412,6 @@ class JobManager:
       task.add_done_callback(
         lambda finished, job_id=job.id: core.pending_jobs.pop(job_id, None)
       )
-    await cls.expire_overdue()
 
   @classmethod
   async def _run_traced(cls, job_id: JobID) -> bool:

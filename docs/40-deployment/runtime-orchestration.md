@@ -51,6 +51,8 @@ by normal lifespan shutdown. Failed restore does not publish a new Peer lease or
   before an atomic database claim. Only the winning Peer executes; each run conditionally closes once to a terminal status.
 - `abort_requested` is durable intent, not evidence of completion. A pending Job can close immediately; a running Job
   remains running until its execution task has exited and released its resources. Repeating abort preserves terminal state.
+- 普通轮询只发现待执行任务。执行器仅在本次执行预算实际到期时记录 `timed_out`，Handler 内部操作提前超时属于失败。
+  进程异常退出留下的 running 记录需要单独维护。只有确认相关执行已停止，才可调用部署级 `JobManager.expire_overdue()`。
 - source ordinary collect/backfill、lexical maintain/rebuild、semantic maintain/rebuild and media interpretation are exact Job
   types。Their domain Managers do not acquire Cron semantics merely because a Handler calls them。
 
