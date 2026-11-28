@@ -168,10 +168,7 @@ def test_external_failure_is_not_empty_or_a_database_fallback(async_runner):
   async_runner.run(scenario())
 
 
-def test_metadata_and_instance_lifetimes_do_not_need_otlp(async_runner, monkeypatch):
-  from inkcre_core.libs.obsrv import telemetry
-
-  monkeypatch.setattr(telemetry, "_current_runtime", lambda: None)
+def test_metadata_and_instance_lifetimes_do_not_need_otlp(async_runner):
 
   async def scenario():
     first = Core("postgresql+psycopg://test:test@127.0.0.1:1/test")
@@ -234,15 +231,10 @@ def test_route_refuses_stale_backend_and_hides_invalid_body(async_runner):
   async_runner.run(core.aclose())
 
 
-def test_failed_metadata_and_malformed_logging_keep_business_semantics(
-  async_runner, monkeypatch
-):
+def test_failed_metadata_and_malformed_logging_keep_business_semantics(async_runner):
   import logging
-  from inkcre_core.libs.obsrv import telemetry
   from inkcre_core.libs.obsrv.log_record import ENABLE_LOG_BACKEND
   from inkcre_core.libs.obsrv.runtime import ObservationLogHandler
-
-  monkeypatch.setattr(telemetry, "_current_runtime", lambda: None)
 
   async def scenario():
     core = Core("postgresql+psycopg://test:test@127.0.0.1:1/test")

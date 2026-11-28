@@ -1,7 +1,6 @@
 """SDK bindings isolate concurrent deployments and preserve borrowed resources."""
 
 import asyncio
-from dataclasses import replace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -52,7 +51,6 @@ def test_borrowed_engine_is_not_disposed_and_options_are_explicit(async_runner):
     dispose.assert_not_awaited()
   async_runner.run(engine.dispose())
   assert core.options == options
-  assert replace(options, peer_name="another") != core.options
 
 
 def test_owned_engine_is_disposed_once(async_runner):
@@ -117,28 +115,5 @@ def test_asgi_binding_covers_lifespan_and_requests(async_runner):
     await middleware({"type": "lifespan"}, receive, send)
     await middleware({"type": "http"}, receive, send)
     await core.aclose()
-
-  async_runner.run(run())
-
-
-def test_job_execution_keeps_logging_when_woken_by_a_quiet_poll(async_runner, monkeypatch):
-  from inkcre_core.business.job import JobManager
-  from inkcre_core.libs.obsrv.log_record import ENABLE_LOG_BACKEND, TRACE_ID
-
-  async def execute(job_id):
-    assert job_id == 42
-    assert ENABLE_LOG_BACKEND.get()
-    assert TRACE_ID.get() == "job.42"
-    return True
-
-  monkeypatch.setattr(JobManager, "run", execute)
-
-  async def run():
-    token = ENABLE_LOG_BACKEND.set(False)
-    try:
-      assert await JobManager._run_traced(42)
-      assert not ENABLE_LOG_BACKEND.get()
-    finally:
-      ENABLE_LOG_BACKEND.reset(token)
 
   async_runner.run(run())

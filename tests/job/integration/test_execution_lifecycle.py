@@ -10,6 +10,7 @@ import pytest
 import sqlalchemy as sa
 
 from inkcre_core import Core
+from inkcre_core.libs.obsrv.log_record import ENABLE_LOG_BACKEND, TRACE_ID
 from inkcre_core.business.cron import CronManager
 from inkcre_core.business.job import JobHandler, JobManager
 from inkcre_core.persistence.cron.repository import CronRepository
@@ -69,7 +70,7 @@ def test_abort_is_durable_but_running_work_closes_after_cleanup(
   job_type, execution_runtime
 ):
   async def scenario():
-    entered = asyncio.Event()
+    entered = asyncio.get_running_loop().create_future()
     cleaning = asyncio.Event()
     release = asyncio.Event()
 
@@ -86,7 +87,9 @@ def test_abort_is_durable_but_running_work_closes_after_cleanup(
 
       @classmethod
       async def handle(cls, job, parameters):
-        entered.set()
+        entered.set_result(
+          (asyncio.current_task(), ENABLE_LOG_BACKEND.get(), TRACE_ID.get())
+        )
         try:
           await asyncio.Event().wait()
         finally:
@@ -95,13 +98,18 @@ def test_abort_is_durable_but_running_work_closes_after_cleanup(
           job.state = {"resources_released": True}
 
     observer = Core(os.environ["INKCRE_TEST_DATABASE_URL"])
-    task = None
     try:
       job = await JobManager.create(job_type, {})
       assert job.id is not None
-      task = asyncio.create_task(JobManager.run(job.id))
+      quiet_poll = ENABLE_LOG_BACKEND.set(False)
+      try:
+        await JobManager.check()
+        assert not ENABLE_LOG_BACKEND.get()
+      finally:
+        ENABLE_LOG_BACKEND.reset(quiet_poll)
       async with asyncio.timeout(10):
-        await entered.wait()
+        executor, logging_enabled, trace_id = await entered
+        assert logging_enabled and trace_id == f"job.{job.id}"
         with observer.bind():
           requested = await JobManager.abort(job.id)
           assert requested is not None
@@ -113,9 +121,9 @@ def test_abort_is_durable_but_running_work_closes_after_cleanup(
           repeated = await JobManager.abort(job.id)
           assert repeated is not None and repeated.status == JobStatus.RUNNING
         await JobManager.check_abort_requests()
-        assert not task.done()
+        assert executor is not None and not executor.done()
         release.set()
-        assert await task
+        await executor
       with observer.bind():
         finished = await JobManager.get(job.id)
         assert finished is not None and finished.status == JobStatus.ABORTED
@@ -130,9 +138,6 @@ def test_abort_is_durable_but_running_work_closes_after_cleanup(
         assert stopped.started_at is None and stopped.closed_at is not None
     finally:
       release.set()
-      if task is not None and not task.done():
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
       await observer.aclose()
 
   execution_runtime.run(scenario())

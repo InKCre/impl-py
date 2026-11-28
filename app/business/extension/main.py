@@ -38,7 +38,6 @@ from inkcre_core.libs.obsrv.main import get_logger
 
 from .distribution import (
   AcquiredDistribution,
-  DistributionConsumer,
   DistributionModules,
   PipDistributionConsumer,
 )
@@ -57,7 +56,6 @@ from .release import (
   PythonReleaseDescriptor,
   RegistryReleaseClient,
   ReleaseState,
-  ReleaseResolver,
   require_python_association,
   validate_coordinate,
 )
@@ -183,16 +181,8 @@ class ExtensionHost:
     self,
     *,
     store: ExtensionStore | None = None,
-    release_client: ReleaseResolver | None = None,
-    distribution_consumer: DistributionConsumer | None = None,
-    registry_origin_resolver: typing.Callable[[], typing.Awaitable[str]] | None = None,
   ) -> None:
     self.store = store or ExtensionStateService()
-    self.release_client = release_client
-    self.distribution_consumer = distribution_consumer
-    self.registry_origin_resolver = (
-      registry_origin_resolver or resolve_extension_registry_origin
-    )
     self.running: dict[str, RunningExtension] = {}
     self.fastapi_app: fastapi.FastAPI | None = None
     self._loaded_versions: dict[str, str] = {}
@@ -325,7 +315,7 @@ class ExtensionHost:
     version: str,
     *,
     allow_yanked: bool,
-    release_client: ReleaseResolver,
+    release_client: RegistryReleaseClient,
   ):
     release = release_client.get(name, version)
     if release.state is ReleaseState.yanked and allow_yanked:
@@ -564,17 +554,13 @@ class ExtensionHost:
         name, {**current.config, **patch}, peer_id=peer_id
       )
 
-  async def _operation_consumers(
-    self,
-  ) -> tuple[ReleaseResolver, DistributionConsumer]:
-    if self.release_client is not None and self.distribution_consumer is not None:
-      return self.release_client, self.distribution_consumer
-    origin = await self.registry_origin_resolver()
-    release_client = self.release_client or RegistryReleaseClient(
-      origin, settings.extension_registry_timeout_seconds
+  @staticmethod
+  async def _operation_consumers() -> tuple[RegistryReleaseClient, PipDistributionConsumer]:
+    origin = await resolve_extension_registry_origin()
+    return (
+      RegistryReleaseClient(origin, settings.extension_registry_timeout_seconds),
+      PipDistributionConsumer(origin),
     )
-    consumer = self.distribution_consumer or PipDistributionConsumer(origin)
-    return release_client, consumer
 
   async def provision_enabled_distributions(self) -> None:
     """Apply missing exact enabled Python pins before this process starts serving."""
