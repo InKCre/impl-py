@@ -50,7 +50,6 @@ runs:
       shell: bash
       env:
         BRANCH_ID: ${{ steps.neon.outputs.branch_id }}
-        HEAD_SHA: ${{ inputs.head_sha }}
         MIGRATION_DATABASE_URL: ${{ steps.neon.outputs.migration_database_url }}
         NEON_API_KEY: ${{ inputs.neon_api_key }}
         NEON_PROJECT_ID: ${{ inputs.neon_project_id }}

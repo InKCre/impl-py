@@ -21,6 +21,170 @@ def _run(script: str, command: str, environment: dict[str, str]):
   )
 
 
+@pytest.mark.parametrize(
+  "defect, docker_expected",
+  [
+    (None, True),
+    ("worker", False),
+    ("configuration", False),
+    ("symlink", False),
+    ("missing-registry-index", False),
+    ("missing-images", False),
+    ("wrong-source", True),
+    ("wrong-platform", True),
+  ],
+)
+def test_only_static_registry_and_exact_head_images_can_be_delivered(
+  tmp_path, defect, docker_expected
+):
+  artifact = tmp_path / "artifact"
+  registry = artifact / "registry"
+  (registry / "v2").mkdir(parents=True)
+  for path in ("_headers", "_redirects", "v2/extensions.json"):
+    (registry / path).touch()
+  (artifact / "images.tar").touch()
+
+  match defect:
+    case "worker":
+      (registry / "_worker.js").mkdir()
+    case "configuration":
+      (registry / "wrangler.toml").touch()
+    case "symlink":
+      (registry / "v2/other.json").symlink_to(registry / "_headers")
+    case "missing-registry-index":
+      (registry / "v2/extensions.json").unlink()
+    case "missing-images":
+      (artifact / "images.tar").unlink()
+
+  head = "a" * 40
+  docker = tmp_path / "docker"
+  docker.write_text(
+    "#!/bin/sh\n"
+    'printf "%s\\n" "$*" >> "$DOCKER_CALLS"\n'
+    'if [ "$2" = inspect ]; then\n'
+    '  printf "%s %s\\n" "$IMAGE_PLATFORM" "$IMAGE_REVISION"\n'
+    "fi\n"
+  )
+  docker.chmod(0o700)
+  calls = tmp_path / "calls"
+  result = _run(
+    "preview_workflow.sh",
+    "load-artifact",
+    {
+      **os.environ,
+      "PATH": f"{tmp_path}:{os.environ['PATH']}",
+      "ARTIFACT_DIRECTORY": str(artifact),
+      "HEAD_SHA": head,
+      "DOCKER_CALLS": str(calls),
+      "IMAGE_PLATFORM": "linux/arm64" if defect == "wrong-platform" else "linux/amd64",
+      "IMAGE_REVISION": "b" * 40 if defect == "wrong-source" else head,
+    },
+  )
+
+  assert (result.returncode == 0) == (defect is None), result.stderr
+  assert calls.exists() == docker_expected
+  if defect is None:
+    commands = calls.read_text().splitlines()
+    assert commands[0] == f"image load --input {artifact / 'images.tar'}"
+    assert [command.split()[-1] for command in commands[1:]] == [
+      f"inkcre-preview-{process}:{head}" for process in ("web", "release", "postgrest")
+    ]
+
+
+@pytest.mark.parametrize(
+  "parent_id, allowed", [("br-preview-base", True), ("br-other", False)]
+)
+def test_database_resolution_requires_the_sanitized_parent(tmp_path, parent_id, allowed):
+  branches = [
+    {"name": "preview-base", "id": "br-preview-base"},
+    {
+      "name": "preview/core-py/pr-123",
+      "id": "br-preview-123",
+      "parent_id": parent_id,
+      "expires_at": "2030-01-02T00:00:00Z",
+    },
+  ]
+  npx = tmp_path / "npx"
+  npx.write_text(
+    "#!/bin/sh\n"
+    'case "$*" in\n'
+    f"  *' branches list '*) printf '%s\\n' '{json.dumps(branches)}' ;;\n"
+    "  *' connection-string br-preview-123 '*) echo 'resolved-preview-url' ;;\n"
+    "  *) exit 88 ;;\n"
+    "esac\n"
+  )
+  npx.chmod(0o700)
+  result = _run(
+    "preview_delivery.sh",
+    "resolve-neon",
+    {
+      **os.environ,
+      "PATH": f"{tmp_path}:{os.environ['PATH']}",
+      "GITHUB_OUTPUT": str(tmp_path / "outputs"),
+      "NEON_API_KEY": "fixture-only",
+      "NEON_PROJECT_ID": "fixture",
+      "PR_NUMBER": "123",
+    },
+  )
+  assert (result.returncode == 0) == allowed, result.stderr
+  assert (tmp_path / "outputs").exists() == allowed
+
+
+def test_database_init_uses_only_explicit_database_env_and_trusted_url_rebinding(tmp_path):
+  docker = tmp_path / "docker"
+  docker.write_text(
+    "#!/bin/sh\n"
+    'printf "%s\\n" "$*" >> "$DOCKER_CALLS"\n'
+    'case "$*" in\n'
+    "  *' db ready '*) printf '%s\\n' '{\"status\":\"ready\"}' ;;\n"
+    "  *' db init '*) echo 'fixture database initialized' ;;\n"
+    "  *) exit 88 ;;\n"
+    "esac\n"
+  )
+  docker.chmod(0o700)
+  calls = tmp_path / "calls"
+  output = tmp_path / "outputs"
+  head = "a" * 40
+  result = _run(
+    "preview_delivery.sh",
+    "converge-database",
+    {
+      **os.environ,
+      "PATH": f"{tmp_path}:{os.environ['PATH']}",
+      "DOCKER_CALLS": str(calls),
+      "GITHUB_OUTPUT": str(output),
+      "HEAD_SHA": head,
+      "CORE_DATABASE_PASSWORD": "some:password",
+      "POSTGREST_DATABASE_PASSWORD": "other@password",
+      "MIGRATION_DATABASE_URL": "postgresql://owner:fake@direct.example/db",
+      "SOURCE_DATABASE_URL": "postgresql://owner:fake@pool.example/db?sslmode=require",
+    },
+  )
+  assert result.returncode == 0, result.stderr
+  before, init, after = calls.read_text().splitlines()
+  prefix = (
+    "run --rm --user 10001:10001 --cap-drop ALL "
+    "--security-opt no-new-privileges --entrypoint python "
+  )
+  ready = (
+    f"{prefix}--env MIGRATION_DATABASE_URL inkcre-preview-web:{head} "
+    "scripts/container.py db ready --profile runtime --json"
+  )
+  assert before == after == ready
+  assert init == (
+    f"{prefix}--env CORE_DATABASE_PASSWORD --env MIGRATION_DATABASE_URL "
+    f"--env POSTGREST_DATABASE_PASSWORD inkcre-preview-web:{head} "
+    "scripts/container.py db init --profile runtime --environment preview"
+  )
+  values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+  assert values["runtime_database_url"] == (
+    "postgresql+psycopg://inkcre_core:some%3Apassword@pool.example/db?sslmode=require"
+  )
+  assert values["postgrest_database_url"] == (
+    "postgresql://authenticator:other%40password@pool.example/db?sslmode=require"
+  )
+
+
 def test_failed_migration_keeps_observed_heads_and_reports_partial_delivery(tmp_path):
   binaries = tmp_path / "bin"
   binaries.mkdir()

@@ -2,6 +2,31 @@
 
 source "$(dirname "$0")/_common.sh"
 
+run_candidate_python() {
+  local output="$1" status=0 logs token
+  shift
+  logs="$(mktemp)"
+  local command=(docker run --rm --user 10001:10001 --cap-drop ALL
+    --security-opt no-new-privileges --entrypoint python "$@")
+  if [ "$output" = "-" ]; then
+    "${command[@]}" > "$logs" 2>&1 || status=$?
+  else
+    "${command[@]}" > "$output" 2> "$logs" || status=$?
+  fi
+  if [ -s "$logs" ]; then
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+      token="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+      printf '::stop-commands::%s\n' "$token" >&2
+      cat "$logs" >&2
+      printf '\n::%s::\n' "$token" >&2
+    else
+      cat "$logs" >&2
+    fi
+  fi
+  rm -f "$logs"
+  return "$status"
+}
+
 wait_for_release() {
   local app_name="$1" version="$2" status
   for _ in $(seq 1 120); do
@@ -72,10 +97,17 @@ case "${1:-}" in
     for name in NEON_API_KEY NEON_PROJECT_ID PR_NUMBER; do require_env "$name"; done
     branches_json="$(npx --yes neonctl@2.36.0 branches list \
       --project-id "$NEON_PROJECT_ID" --output json --no-analytics --no-color)"
+    parent_id="$(jq -er '
+      [.[] | select(.name == "preview-base") | .id] |
+      if length == 1 then .[0] else error("expected one Neon preview-base") end
+    ' <<<"$branches_json")"
+    [[ "$parent_id" =~ ^br-[a-z0-9-]+$ ]]
     matches="$(jq -c --arg name "preview/core-py/pr-$PR_NUMBER" \
       '[.[] | select(.name == $name)]' <<<"$branches_json")"
     test "$(jq 'length' <<<"$matches")" = 1
     branch_id="$(jq -r '.[0].id' <<<"$matches")"
+    [[ "$branch_id" =~ ^br-[a-z0-9-]+$ ]]
+    test "$(jq -r '.[0].parent_id' <<<"$matches")" = "$parent_id"
     test -n "$(jq -r '.[0].expires_at // empty' <<<"$matches")"
     runtime_database_url="$(npx --yes neonctl@2.36.0 connection-string "$branch_id" \
       --project-id "$NEON_PROJECT_ID" --role-name neondb_owner --pooled --no-color)"
@@ -88,14 +120,22 @@ case "${1:-}" in
     emit_output migration_database_url "$migration_database_url"
     ;;
   normalize-roles)
-    for name in BRANCH_ID HEAD_SHA MIGRATION_DATABASE_URL NEON_API_KEY NEON_PROJECT_ID; do
+    for name in BRANCH_ID MIGRATION_DATABASE_URL NEON_API_KEY NEON_PROJECT_ID; do
       require_env "$name"
     done
-    environment="$(docker run --rm --env MIGRATION_DATABASE_URL --entrypoint python \
-      "inkcre-preview-web:$HEAD_SHA" scripts/database_environment.py)"
+    environment="$(PGCONNECT_TIMEOUT=15 psql --no-psqlrc --no-password --quiet \
+      --no-align --tuples-only --set ON_ERROR_STOP=1 --dbname="$MIGRATION_DATABASE_URL" <<'SQL'
+SELECT to_regclass('inkcre_internal.contract_state') IS NOT NULL AS has_contract \gset
+\if :has_contract
+SELECT environment FROM inkcre_internal.contract_state WHERE singleton;
+\else
+SELECT 'absent';
+\endif
+SQL
+)"
     if [ "$environment" = preview ]; then exit 0; fi
     if [ "$environment" != runtime ] && [ "$environment" != absent ]; then
-      echo "Refusing preview bootstrap from environment $environment" >&2
+      printf 'Refusing preview bootstrap from environment %q\n' "$environment" >&2
       exit 1
     fi
     roles_json="$(npx --yes neonctl@2.36.0 roles list --project-id "$NEON_PROJECT_ID" \
@@ -113,17 +153,19 @@ case "${1:-}" in
     readiness_file="$(mktemp)"
     trap 'rm -f "$readiness_file"' EXIT
     before_status=0
-    docker run --rm --env MIGRATION_DATABASE_URL "inkcre-preview-web:$HEAD_SHA" \
-      python scripts/container.py db ready --profile runtime --json > "$readiness_file" || before_status=$?
+    run_candidate_python "$readiness_file" --env MIGRATION_DATABASE_URL \
+      "inkcre-preview-web:$HEAD_SHA" scripts/container.py db ready \
+      --profile runtime --json || before_status=$?
     emit_output database_before "$(jq -c --argjson probe_exit "$before_status" \
       '{probe_exit:$probe_exit,status,contract,migration,database}' "$readiness_file")"
     initialization_status=0
-    docker run --rm --env CORE_DATABASE_PASSWORD --env MIGRATION_DATABASE_URL \
+    run_candidate_python - --env CORE_DATABASE_PASSWORD --env MIGRATION_DATABASE_URL \
       --env POSTGREST_DATABASE_PASSWORD "inkcre-preview-web:$HEAD_SHA" \
-      python scripts/container.py db init --profile runtime --environment preview || initialization_status=$?
+      scripts/container.py db init --profile runtime --environment preview || initialization_status=$?
     readiness_status=0
-    docker run --rm --env MIGRATION_DATABASE_URL "inkcre-preview-web:$HEAD_SHA" \
-      python scripts/container.py db ready --profile runtime --json > "$readiness_file" || readiness_status=$?
+    run_candidate_python "$readiness_file" --env MIGRATION_DATABASE_URL \
+      "inkcre-preview-web:$HEAD_SHA" scripts/container.py db ready \
+      --profile runtime --json || readiness_status=$?
     emit_output database_after "$(jq -c --argjson probe_exit "$readiness_status" \
       '{probe_exit:$probe_exit,status,contract,migration,database}' "$readiness_file")"
     if [ "$initialization_status" != 0 ]; then
@@ -131,15 +173,12 @@ case "${1:-}" in
       exit "$initialization_status"
     fi
     test "$readiness_status" = 0
-    runtime_database_url="$(docker run --rm --env SOURCE_DATABASE_URL \
-      --env TARGET_DATABASE_PASSWORD="$CORE_DATABASE_PASSWORD" \
-      --env TARGET_DATABASE_ROLE=inkcre_core --entrypoint python \
-      "inkcre-preview-web:$HEAD_SHA" scripts/rebind_database_url.py \
+    runtime_database_url="$(TARGET_DATABASE_PASSWORD="$CORE_DATABASE_PASSWORD" \
+      TARGET_DATABASE_ROLE=inkcre_core python3 "$(dirname "$0")/../rebind_database_url.py" \
       --scheme postgresql+psycopg)"
-    postgrest_database_url="$(docker run --rm --env SOURCE_DATABASE_URL \
-      --env TARGET_DATABASE_PASSWORD="$POSTGREST_DATABASE_PASSWORD" \
-      --env TARGET_DATABASE_ROLE=authenticator --entrypoint python \
-      "inkcre-preview-web:$HEAD_SHA" scripts/rebind_database_url.py --scheme postgresql)"
+    postgrest_database_url="$(TARGET_DATABASE_PASSWORD="$POSTGREST_DATABASE_PASSWORD" \
+      TARGET_DATABASE_ROLE=authenticator python3 "$(dirname "$0")/../rebind_database_url.py" \
+      --scheme postgresql)"
     mask_value "$runtime_database_url"
     mask_value "$postgrest_database_url"
     emit_output runtime_database_url "$runtime_database_url"
@@ -210,8 +249,8 @@ case "${1:-}" in
   advertise)
     for name in DATABASE_URL HEAD_SHA PR_NUMBER WEB_URL; do require_env "$name"; done
     peer_id="$(python3 -c "import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, 'inkcre-core-py-pr-$PR_NUMBER'))")"
-    docker run --rm --env DATABASE_URL "inkcre-preview-release:$HEAD_SHA" \
-      python scripts/configure_peer_runtime.py --peer-id "$peer_id" \
+    run_candidate_python - --env DATABASE_URL "inkcre-preview-release:$HEAD_SHA" \
+      scripts/configure_peer_runtime.py --peer-id "$peer_id" \
       --http-public-base-url "$WEB_URL"
     ;;
   probe)
@@ -224,7 +263,7 @@ case "${1:-}" in
     for _ in $(seq 1 60); do
       if curl --fail --silent "${WEB_URL}livez" >/dev/null &&
         curl --fail --silent "${WEB_URL}readyz" >/dev/null &&
-        docker run --rm --entrypoint python "inkcre-preview-web:$HEAD_SHA" \
+        run_candidate_python - "inkcre-preview-web:$HEAD_SHA" \
           scripts/verify_postgrest_contract.py --base-url "$POSTGREST_URL" \
           --jwt-secret "$jwt_secret" --wrong-jwt-secret "wrong-$jwt_secret"; then
         append_summary <<EOF

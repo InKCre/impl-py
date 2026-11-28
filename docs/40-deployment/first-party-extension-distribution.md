@@ -65,8 +65,8 @@ never runs from the Release PR。
 The trusted pull-request preview controller reuses that same discovered producer set. Its dedicated
 PDM `extension-preview` tooling group builds and verifies all discovered wheels, then the released
 `inkcre-extension-toolkit` projects one explicit Python inventory into a static sibling Registry.
-The exact-head workflow run deploys that tree directly to the dedicated Cloudflare Pages project;
-required checks neither upload nor hand off wheels or deployable Registry output. The facade exposes
+同一次 exact-head workflow 将静态 Registry 交给独立的交付任务，由受信 controller 部署至专用
+Cloudflare Pages 项目。The facade exposes
 only exact Release reads, PEP 503 Simple HTML, wheels, and PEP 658 metadata. It adds no Registry
 runtime, mutable lifecycle, token, or Core-hosted static route.
 
