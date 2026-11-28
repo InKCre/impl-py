@@ -1,2 +1,0 @@
-{"BlockIO":"6.13MB / 8.19kB","CPUPerc":"0.24%","Container":"inkcre-o11y-tempo-g1-b0a97f7c-tempo-1","ID":"b200b42280e8","MemPerc":"1.13%","MemUsage":"40.66MiB / 3.5GiB","Name":"inkcre-o11y-tempo-g1-b0a97f7c-tempo-1","NetIO":"4.14kB / 9.55kB","PIDs":"8"}
-{"BlockIO":"272MB / 1MB","CPUPerc":"0.04%","Container":"inkcre-o11y-tempo-g1-b0a97f7c-collector-1","ID":"8edc681c5c01","MemPerc":"5.04%","MemUsage":"25.82MiB / 512MiB","Name":"inkcre-o11y-tempo-g1-b0a97f7c-collector-1","NetIO":"6.8kB / 3.01kB","PIDs":"8"}

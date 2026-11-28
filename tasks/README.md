@@ -11,17 +11,7 @@ Human-facing control surface sufficient to recover:
 - the current front or next step at useful resolution
 - one Human attention item, only when one exists
 
-Use the installed v14 corpus when guidance is needed:
-
-```bash
-svc lookup --path index.md
-svc lookup --path task-packet/index.md
-svc task init <task-id>
-svc task grow <task-id>
-```
-
-`svc task init` creates only `packet.md`. `svc task grow` is read-only and
-reports shape; it does not decide topology or edit files.
+Use the installed `svc-task-packet` Skill for packet shape and lifecycle guidance. Start with a small `packet.md` in this directory.
 
 Use this directory for:
 
